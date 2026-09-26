@@ -63,17 +63,17 @@ export default function NotificationBell({ onOpenItem }: {
 
   return (
     <div ref={box} style={{ position: "relative" }}>
-      <button onClick={toggle} style={bellBtn} title="الإشعارات" aria-label="الإشعارات">
-        <Icon name="bell" size={17} />
-        {total > 0 && <span style={dot}>{total > 9 ? "9+" : total}</span>}
+      <button onClick={toggle} className="ag-icon-btn" title="الإشعارات" aria-label="الإشعارات">
+        <Icon name="bell" size={19} />
+        {total > 0 && <span className="ag-badge">{total > 9 ? "9+" : total}</span>}
       </button>
 
       {open && (
-        <div style={panel}>
-          <div style={panelHead}>
+        <div className="ag-bell-panel">
+          <div className="ag-bell-head">
             الإشعارات
             {total > 0 && (
-              <span style={{ fontWeight: 400, fontSize: 12, opacity: 0.85 }}>
+              <span>
                 {data?.messages ? `${data.messages} رسالة` : ""}
                 {data?.messages && data?.cards ? " · " : ""}
                 {data?.cards ? `${data.cards} إعلان` : ""}
@@ -82,16 +82,19 @@ export default function NotificationBell({ onOpenItem }: {
           </div>
 
           {!data?.items.length ? (
-            <div style={{ padding: 22, color: "var(--muted)", fontSize: 14, textAlign: "center" }}>
+            <div style={{ padding: "30px 16px", color: "var(--muted)", fontSize: 14, textAlign: "center" }}>
+              <Icon name="bell" size={28} style={{ display: "block", margin: "0 auto 8px", opacity: 0.5 }} />
               لا جديد.
             </div>
           ) : (
-            <div style={{ maxHeight: 340, overflowY: "auto" }}>
+            <div style={{ maxHeight: "min(420px, 60vh)", overflowY: "auto" }}>
               {data.items.map((it) => (
-                <div key={`${it.kind}-${it.id}`} style={row}
+                <div key={`${it.kind}-${it.id}`} className="ag-bell-row"
                   onClick={() => { setOpen(false); onOpenItem?.(it); }}>
-                  <span style={{ ...pill, background: it.kind === "message" ? "#0f766e" : "#b45309" }}>
-                    <Icon name={it.kind === "message" ? "chat" : "bell"} size={12} />
+                  <span className="ag-bell-ic" style={it.kind === "message"
+                    ? { background: "rgba(47,226,123,.12)", color: "#2fe27b" }
+                    : { background: "rgba(255,194,61,.12)", color: "#ffc23d" }}>
+                    <Icon name={it.kind === "message" ? "chat" : "bell"} size={16} />
                   </span>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 700, fontSize: 13.5 }}>{it.title}</div>
@@ -99,7 +102,7 @@ export default function NotificationBell({ onOpenItem }: {
                                   overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {it.who ? `${it.who} · ` : ""}{it.body}
                     </div>
-                    <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>{it.at}</div>
+                    <div style={{ fontSize: 11, color: "var(--faint)", marginTop: 2 }}>{it.at}</div>
                   </div>
                 </div>
               ))}
@@ -110,31 +113,3 @@ export default function NotificationBell({ onOpenItem }: {
     </div>
   );
 }
-
-const bellBtn: React.CSSProperties = {
-  position: "relative", background: "rgba(255,255,255,.14)", border: 0, color: "#fff",
-  width: 34, height: 34, borderRadius: 8, cursor: "pointer",
-  display: "flex", alignItems: "center", justifyContent: "center",
-};
-const dot: React.CSSProperties = {
-  position: "absolute", top: -5, insetInlineEnd: -5, background: "var(--danger)",
-  color: "#fff", fontSize: 10, fontWeight: 700, borderRadius: 9, padding: "1px 5px",
-  lineHeight: 1.5, minWidth: 16,
-};
-const panel: React.CSSProperties = {
-  position: "absolute", top: 42, insetInlineEnd: 0, width: 320, background: "#fff",
-  color: "var(--text)", borderRadius: 10, overflow: "hidden", zIndex: 900,
-  boxShadow: "0 14px 44px rgba(0,0,0,.28)",
-};
-const panelHead: React.CSSProperties = {
-  background: "var(--primary)", color: "#fff", padding: "10px 14px", fontWeight: 700,
-  fontSize: 14, display: "flex", justifyContent: "space-between", alignItems: "center",
-};
-const row: React.CSSProperties = {
-  display: "flex", gap: 10, alignItems: "flex-start", padding: "11px 14px",
-  borderBottom: "1px solid var(--border)", cursor: "pointer",
-};
-const pill: React.CSSProperties = {
-  width: 22, height: 22, borderRadius: "50%", color: "#fff", flexShrink: 0,
-  display: "flex", alignItems: "center", justifyContent: "center", marginTop: 2,
-};

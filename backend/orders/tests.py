@@ -526,6 +526,22 @@ class DealerNeverSeesStuckTest(APITestCase):
         self.client.force_authenticate(self.dealer)
         self.assertEqual(self.client.get("/api/store/summary/").json()["pending"], 1)
 
+    def test_the_status_chips_count_it_as_pending(self):
+        """عدّادات الشرائح في لوحة الوكيل تجمع العالق مع الانتظار — ولا مفتاح «stuck»."""
+        self.client.force_authenticate(self.dealer)
+        counts = self.client.get("/api/store/orders/", {"status": "success"}).json()["counts"]
+        self.assertEqual(counts, {"all": 1, "pending": 1})
+
+    def test_search_and_dates_narrow_the_list(self):
+        Order.objects.filter(pk=self.order.pk).update(player_id="5121234567")
+        self.client.force_authenticate(self.dealer)
+        get = lambda **p: self.client.get("/api/store/orders/", p).json()["count"]
+        self.assertEqual(get(q="51212"), 1)
+        self.assertEqual(get(q="PUBG"), 1)
+        self.assertEqual(get(q="لا-يوجد"), 0)
+        self.assertEqual(get(date_from="2999-01-01"), 0)
+        self.assertEqual(get(date_to="2999-01-01"), 1)
+
     def test_the_store_owner_still_sees_stuck(self):
         """هو من يعالجها، فلا تُخفى عنه."""
         self.client.force_authenticate(self.admin)

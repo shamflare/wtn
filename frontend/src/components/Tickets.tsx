@@ -93,7 +93,7 @@ function Thread({ id, onClose }: { id: number; onClose: () => void }) {
           <span>{data?.subject || "..."}</span>
           <button onClick={onClose} style={xBtn}>✕</button>
         </div>
-        <div style={{ padding: 16, maxHeight: 380, overflowY: "auto", background: "#f7f9fa" }}>
+        <div style={{ padding: 16, maxHeight: 380, overflowY: "auto", background: "var(--tk-thread, #f7f9fa)" }}>
           {data?.messages?.map((m: Msg) => (
             <div key={m.id} style={{ display: "flex", justifyContent: m.is_me ? "flex-start" : "flex-end", marginBottom: 8 }}>
               <div style={{ ...bubble, ...(m.is_me ? mine : theirs) }}>
@@ -286,14 +286,14 @@ const delBtn: React.CSSProperties = {
   opacity: 0.55, padding: "2px 4px", lineHeight: 1,
 };
 const pickerBtn: React.CSSProperties = {
-  width: "100%", height: 38, background: "#fff", border: "1px solid var(--border)",
+  width: "100%", height: 38, background: "var(--surface)", border: "1px solid var(--border)",
   borderRadius: 6, padding: "0 10px", cursor: "pointer", textAlign: "start",
   display: "flex", alignItems: "center", justifyContent: "space-between",
   color: "var(--text)", fontSize: 14, fontFamily: "inherit",
 };
 const pickerPanel: React.CSSProperties = {
   position: "absolute", top: 42, insetInlineStart: 0, insetInlineEnd: 0, zIndex: 1100,
-  background: "#fff", border: "1px solid var(--border)", borderRadius: 8, padding: 8,
+  background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8, padding: 8,
   boxShadow: "0 12px 34px rgba(0,0,0,.22)",
 };
 const pickerRow: React.CSSProperties = {
@@ -302,7 +302,7 @@ const pickerRow: React.CSSProperties = {
 const pickerActive: React.CSSProperties = { background: "#e7f6ec" };
 
 const ticketCard: React.CSSProperties = {
-  display: "flex", alignItems: "center", gap: 12, background: "#fff",
+  display: "flex", alignItems: "center", gap: 12, background: "var(--surface)",
   border: "1px solid var(--border)", borderRadius: 10, padding: "12px 16px", cursor: "pointer",
 };
 const badge: React.CSSProperties = {
@@ -313,15 +313,15 @@ const overlay: React.CSSProperties = {
   position: "fixed", inset: 0, background: "rgba(0,0,0,.5)",
   display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000,
 };
-const modal: React.CSSProperties = { background: "#fff", borderRadius: 10, overflow: "hidden", boxShadow: "0 16px 50px rgba(0,0,0,.35)" };
+const modal: React.CSSProperties = { background: "var(--surface)", borderRadius: 10, overflow: "hidden", boxShadow: "0 16px 50px rgba(0,0,0,.35)" };
 const header: React.CSSProperties = {
   background: "var(--primary)", color: "#fff", padding: "14px 18px", fontWeight: 700,
   fontSize: 16, display: "flex", justifyContent: "space-between", alignItems: "center",
 };
 const xBtn: React.CSSProperties = { background: "transparent", border: 0, color: "#fff", fontSize: 18, cursor: "pointer" };
 const bubble: React.CSSProperties = { maxWidth: "75%", borderRadius: 10, padding: "8px 12px", fontSize: 14 };
-const mine: React.CSSProperties = { background: "#e7f6ec", border: "1px solid #b6e0c4" };
-const theirs: React.CSSProperties = { background: "#fff", border: "1px solid var(--border)" };
+const mine: React.CSSProperties = { background: "var(--tk-mine, #e7f6ec)", border: "1px solid var(--tk-mine-bd, #b6e0c4)" };
+const theirs: React.CSSProperties = { background: "var(--surface)", border: "1px solid var(--border)" };
 const lbl: React.CSSProperties = { display: "block", fontSize: 13, color: "var(--muted)", margin: "12px 2px 5px" };
 const errBox: React.CSSProperties = {
   background: "#fdecea", border: "1px solid #f5c6c2", color: "var(--danger)",

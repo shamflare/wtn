@@ -20,9 +20,9 @@ interface Deposit {
 }
 
 const STATUS_TONE: Record<string, { bg: string; fg: string }> = {
-  pending: { bg: "#FAEF77", fg: "#6b5500" },
-  approved: { bg: "#D8F781", fg: "#2c5200" },
-  rejected: { bg: "#F5BEAC", fg: "#7a2410" },
+  pending: { bg: "rgba(255,176,32,.14)", fg: "#ffb020" },
+  approved: { bg: "rgba(47,226,123,.14)", fg: "#2fe27b" },
+  rejected: { bg: "rgba(255,93,108,.14)", fg: "#ff5d6c" },
 };
 
 /* ═════════ القسم: شبكة الطرق · نموذج الطريقة · سجلّ الطلبات ═════════ */
@@ -43,7 +43,13 @@ export default function TopUp({ onDone }: { onDone: () => void }) {
     loadDeposits();
   }, []);
 
-  if (loading) return <div style={{ padding: 20 }}>جارٍ التحميل...</div>;
+  if (loading) {
+    return (
+      <div className="ag-methods">
+        {[0, 1, 2, 3].map((i) => <div key={i} className="ag-skel" style={{ height: 170, borderRadius: 22 }} />)}
+      </div>
+    );
+  }
 
   if (open) {
     return (
@@ -55,74 +61,71 @@ export default function TopUp({ onDone }: { onDone: () => void }) {
 
   return (
     <div>
-      <div style={{ fontWeight: 800, margin: "0 2px 14px", display: "flex", alignItems: "center", gap: 8 }}>
-        <Icon name="card" size={18} />اختر طريقة الدفع
-      </div>
-
       {methods.length === 0 ? (
-        <div style={empty}>
+        <div className="ag-empty ag-card">
           لم يفعّل صاحب المتجر أي طريقة دفع بعد — تواصل معه لشحن رصيدك.
         </div>
       ) : (
-        <div style={cardsGrid}>
+        <div className="ag-methods">
           {methods.map((m) => (
-            <button key={m.id} onClick={() => setOpen(m)} style={{
-              ...methodCard,
-              background: m.logo_url
-                ? `#0d1117 center/cover no-repeat url(${m.logo_url})`
-                : `linear-gradient(135deg, ${m.color || "#2f6f8f"}, #101418)`,
-            }}>
-              <span style={cardLabel}>
-                {m.name}
-                {m.subtitle && <span style={cardSub}>{m.subtitle}</span>}
+            <button key={m.id} className="ag-method" onClick={() => setOpen(m)}>
+              <span className="ag-method-logo" style={m.logo_url
+                ? { backgroundImage: `url(${m.logo_url})`, backgroundColor: "#0d1117" }
+                : { background: `linear-gradient(145deg, ${m.color || "#2f6f8f"}, #101418)` }}>
+                {!m.logo_url && m.name.trim().charAt(0)}
               </span>
+              <b>{m.name}</b>
+              {m.subtitle && <small>{m.subtitle}</small>}
+              <span className="ag-buy-pill">تقديم دفعة</span>
             </button>
           ))}
         </div>
       )}
 
-      {/* سجلّ طلباتي */}
-      <div style={{ fontWeight: 800, margin: "26px 2px 12px", display: "flex", alignItems: "center", gap: 8 }}>
-        <Icon name="chart" size={18} />طلبات إضافة الرصيد
+      {/* سجلّ دفعاتي */}
+      <div className="ag-h2">
+        <Icon name="receipt" size={18} style={{ color: "var(--primary)" }} />دفعاتي
+        {deposits.length > 0 && <span className="more">{deposits.length}</span>}
       </div>
-      <div style={{ overflowX: "auto" }}>
-        <table style={table}>
-          <thead>
-            <tr>
-              <th style={th}>#</th>
-              <th style={th}>الطريقة</th>
-              <th style={th}>المبلغ المُرسل</th>
-              <th style={th}>المُضاف للمحفظة</th>
-              <th style={th}>الحالة</th>
-              <th style={{ ...th, textAlign: "right", paddingInlineStart: 12 }}>ملاحظة الإدارة</th>
-              <th style={th}>التاريخ</th>
-            </tr>
-          </thead>
-          <tbody>
-            {deposits.length === 0 ? (
-              <tr><td colSpan={7} style={{ padding: 24, textAlign: "center", color: "var(--muted)" }}>
-                لا توجد طلبات بعد
-              </td></tr>
-            ) : deposits.map((d) => {
-              const tone = STATUS_TONE[d.status];
-              return (
-                <tr key={d.id} style={{ background: tone?.bg }}>
-                  <td style={{ ...td, color: "var(--muted)" }}>{d.id}</td>
-                  <td style={{ ...td, fontWeight: 600 }}>{d.method_name || "—"}</td>
-                  <td style={td}>{money(d.amount)} {symbolOf(d.currency)}</td>
-                  <td style={{ ...td, fontWeight: 800 }}>{money(d.credit_amount)}</td>
-                  <td style={{ ...td, fontWeight: 800, color: tone?.fg }}>{d.status_label}</td>
-                  <td style={{ ...td, textAlign: "right", paddingInlineStart: 12, fontSize: 12.5 }}>{d.admin_note || "—"}</td>
-                  <td style={{ ...td, fontSize: 12, color: "var(--muted)" }}>{d.created_at}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-      <p style={{ color: "var(--muted)", fontSize: 13, marginTop: 14 }}>
+      {deposits.length === 0 ? (
+        <div className="ag-empty">لا توجد دفعات بعد</div>
+      ) : (
+        <div className="ag-list">
+          {deposits.map((d) => <DepositRow key={d.id} d={d} />)}
+        </div>
+      )}
+      <p style={{ color: "var(--muted)", fontSize: 12.5, marginTop: 14, lineHeight: 1.9 }}>
         لا يُضاف الرصيد إلى محفظتك إلا بعد موافقة صاحب المتجر على طلبك.
       </p>
+    </div>
+  );
+}
+
+/** دفعةٌ واحدة: سطرٌ مختصر، يُفتح على تفاصيلها */
+function DepositRow({ d }: { d: Deposit }) {
+  const [open, setOpen] = useState(false);
+  const tone = STATUS_TONE[d.status] || { bg: "rgba(138,148,167,.14)", fg: "#8a94a7" };
+  return (
+    <div className={`ag-acc${open ? " open" : ""}`}>
+      <button className="ag-acc-head" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
+        <b>
+          {d.method_name || "—"}
+          <span style={{ display: "block", fontSize: 12, color: "var(--muted)", fontWeight: 600 }}>
+            <span dir="ltr">{money(d.amount)} {symbolOf(d.currency)}</span> · {d.created_at}
+          </span>
+        </b>
+        <span className="ag-pillst" style={{ background: tone.bg, color: tone.fg }}>{d.status_label}</span>
+        <Icon name="chevronDown" size={18} style={{ transition: "transform .2s", transform: open ? "rotate(180deg)" : "none", color: "var(--muted)" }} />
+      </button>
+      {open && (
+        <div className="ag-acc-body">
+          <div className="ag-kv"><span>رقم الطلب</span><b dir="ltr">#{d.id}</b></div>
+          <div className="ag-kv"><span>المبلغ المُرسل</span><b dir="ltr">{money(d.amount)} {symbolOf(d.currency)}</b></div>
+          <div className="ag-kv"><span>المُضاف للمحفظة</span><b style={{ color: "var(--primary)" }}>{money(d.credit_amount)}</b></div>
+          <div className="ag-kv"><span>التاريخ</span><b dir="ltr">{d.created_at}</b></div>
+          {d.admin_note && <div className="ag-note"><b>ملاحظة الإدارة:</b> {d.admin_note}</div>}
+        </div>
+      )}
     </div>
   );
 }
@@ -163,8 +166,8 @@ function MethodForm({
 
   return (
     <div style={{ maxWidth: 720, margin: "0 auto" }}>
-      <button onClick={onBack} style={backBtn}>
-        <Icon name="x" size={13} style={{ marginInlineEnd: 5 }} />رجوع إلى طرق الدفع
+      <button onClick={onBack} className="ag-back">
+        <Icon name="arrowBack" size={15} />رجوع إلى طرق الدفع
       </button>
 
       <div style={panel}>
@@ -260,34 +263,15 @@ function MethodForm({
 }
 
 /* ═════════ الأنماط ═════════ */
-const cardsGrid: React.CSSProperties = {
-  display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))", gap: 16,
-};
-const methodCard: React.CSSProperties = {
-  position: "relative", height: 140, borderRadius: 12, border: "1px solid rgba(0,0,0,.12)",
-  cursor: "pointer", padding: 0, overflow: "hidden", display: "flex",
-  alignItems: "flex-end", justifyContent: "center",
-  boxShadow: "0 3px 10px rgba(0,0,0,.16)",
-};
-const cardLabel: React.CSSProperties = {
-  width: "100%", padding: "10px 12px", color: "#fff", fontSize: 15, fontWeight: 800,
-  textShadow: "0 1px 4px rgba(0,0,0,.9)", background: "linear-gradient(transparent, rgba(0,0,0,.75))",
-  display: "flex", flexDirection: "column", gap: 2,
-};
-const cardSub: React.CSSProperties = { fontSize: 11, fontWeight: 500, opacity: 0.9 };
-const empty: React.CSSProperties = {
-  background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8,
-  padding: 24, textAlign: "center", color: "var(--muted)",
-};
 const panel: React.CSSProperties = {
-  background: "#0d1117", color: "#e7eef0", borderRadius: 14, padding: "22px 20px",
-  border: "1px solid #1d2730", boxShadow: "0 6px 24px rgba(0,0,0,.25)",
+  background: "var(--surface)", color: "var(--text)", borderRadius: 22, padding: "22px 18px",
+  border: "1px solid var(--border)", boxShadow: "var(--shadow-soft)",
 };
 const instructions: React.CSSProperties = {
   fontSize: 13.5, lineHeight: 2, color: "#c4d2d6", marginBottom: 16, whiteSpace: "pre-wrap",
 };
 const accountBox: React.CSSProperties = {
-  width: "100%", background: "#000", color: "#e7eef0", border: "1px solid #202b33",
+  width: "100%", background: "var(--bg)", color: "var(--text)", border: "1px dashed var(--border-strong)",
   borderRadius: 10, padding: "14px 16px", fontSize: 14, textAlign: "center",
   cursor: "pointer", marginBottom: 14, position: "relative", whiteSpace: "pre-wrap",
 };
@@ -300,10 +284,7 @@ const warnBox: React.CSSProperties = {
   padding: "9px 12px", fontSize: 12.5, marginBottom: 14, lineHeight: 1.7,
 };
 const fieldLabel: React.CSSProperties = { fontSize: 13, color: "#a9b9be", marginBottom: 6, fontWeight: 600 };
-const darkInp: React.CSSProperties = {
-  width: "100%", height: 48, background: "#1a222a", border: "1px solid #263039",
-  borderRadius: 12, color: "#e7eef0", padding: "0 16px", fontSize: 14,
-};
+const darkInp: React.CSSProperties = { width: "100%" };
 const inpSymbol: React.CSSProperties = {
   position: "absolute", insetInlineEnd: 16, top: "50%", transform: "translateY(-50%)",
   color: "#8fa0a5", fontSize: 15, pointerEvents: "none",
@@ -313,23 +294,7 @@ const resultBox: React.CSSProperties = {
   padding: "12px 16px", marginBottom: 16,
 };
 const submitBtn: React.CSSProperties = {
-  width: "100%", height: 50, borderRadius: 25, border: 0, cursor: "pointer",
-  background: "#5ce68a", color: "#08301a", fontSize: 16, fontWeight: 800,
-};
-const backBtn: React.CSSProperties = {
-  background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8,
-  padding: "7px 14px", fontSize: 13, cursor: "pointer", marginBottom: 14,
-  display: "inline-flex", alignItems: "center", color: "var(--text)",
-};
-const table: React.CSSProperties = {
-  width: "100%", borderCollapse: "collapse", background: "var(--surface)", fontSize: 13.5,
-};
-const th: React.CSSProperties = {
-  background: "var(--th-bg)", color: "var(--th-ink)", padding: "11px 10px",
-  textAlign: "center", fontWeight: 800, fontSize: 12.5, whiteSpace: "nowrap",
-  border: "1px solid var(--border)", borderTop: 0,
-};
-const td: React.CSSProperties = {
-  padding: 10, textAlign: "center", whiteSpace: "nowrap", verticalAlign: "middle",
-  border: "1px solid var(--border)",
+  width: "100%", height: 52, borderRadius: 999, border: 0, cursor: "pointer",
+  background: "var(--primary)", color: "var(--on-primary)", fontSize: 16, fontWeight: 800,
+  boxShadow: "0 10px 26px rgba(47,226,123,.25)",
 };

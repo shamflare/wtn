@@ -2,7 +2,7 @@
 from decimal import Decimal, InvalidOperation
 
 from django.db import transaction
-from django.db.models import Count, Sum
+from django.db.models import Count, Q, Sum
 from rest_framework import status as http
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -14,7 +14,7 @@ from catalog.models import Product
 from providers.models import Provider
 from . import services
 from .models import Order
-from .serializers import OrderSerializer, StoreOrderSerializer
+from .serializers import DEALER_STATUS, OrderSerializer, StoreOrderSerializer
 
 
 def _filtered_orders(request):
@@ -240,18 +240,38 @@ def store_orders_view(request):
     qs = Order.objects.filter(
         tenant=request.user.tenant, dealer=request.user
     ).select_related("game", "product", "provider").order_by("-created_at")
-    status_filter = request.query_params.get("status")
+    p = request.query_params
+    if p.get("date_from"):
+        qs = qs.filter(created_at__date__gte=p["date_from"])
+    if p.get("date_to"):
+        qs = qs.filter(created_at__date__lte=p["date_to"])
+    search = p.get("q", "").strip()
+    if search:
+        # الوكيل يبحث بما يعرفه عن طلبه: الفيش أو معرّف اللاعب أو هاتف زبونه أو الباقة
+        qs = qs.filter(
+            Q(receipt_no__icontains=search) | Q(player_id__icontains=search)
+            | Q(customer_phone__icontains=search) | Q(product__name__icontains=search)
+            | Q(game__name__icontains=search)
+        )
+    # عدّادات شرائح الحالة — قبل فلتر الحالة، وبنفس تجميع الوكيل (العالق انتظار)
+    counts = {"all": 0}
+    for row in qs.order_by().values("status").annotate(n=Count("id")):
+        key = DEALER_STATUS.get(row["status"], row["status"])
+        counts[key] = counts.get(key, 0) + row["n"]
+        counts["all"] += row["n"]
+    status_filter = p.get("status")
     if status_filter and status_filter != "all":
         # الوكيل يرى العالق انتظاراً (انظر DEALER_STATUS)، فليجده مع الانتظار —
         # وإلّا اختفى طلبه من الفلترين معاً فظنّه ضائعاً.
         wanted = ([Order.Status.PENDING, Order.Status.STUCK]
                   if status_filter == Order.Status.PENDING else [status_filter])
         qs = qs.filter(status__in=wanted)
-    search = request.query_params.get("q", "").strip()
-    if search:
-        qs = qs.filter(receipt_no__icontains=search)
     return Response({
         "count": qs.count(),
+        "counts": counts,
+        # إجمالي ما دفعه الوكيل في النتيجة المعروضة (بلا الملغاة — مالها عاد إليه)
+        "total_paid": str(currency.to_display(request.user, qs.exclude(
+            status=Order.Status.CANCELLED).aggregate(s=Sum("buyer_price"))["s"] or 0)),
         "results": [_store_order_row(o, request.user) for o in qs[:200]],
         "currency": currency.display_currency(request.user),
     })
@@ -357,6 +377,12 @@ def store_summary_view(request):
         "pending": mine.filter(
             status__in=[Order.Status.PENDING, Order.Status.STUCK]
         ).count(),
+        # هويّة المتجر لرأس لوحة الوكيل — تعمل على الباب العام أيضاً لا على عنوان المتجر وحده
+        "store": {
+            "name": user.tenant.name if user.tenant else "",
+            "short_name": (user.tenant.short_name or user.tenant.name) if user.tenant else "",
+            "logo_url": user.tenant.logo_url if user.tenant else "",
+        },
     })
 
 

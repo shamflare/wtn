@@ -44,6 +44,22 @@ const P: Record<string, string> = {
   eye: "M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z",
   // شجرة الوكلاء — أصل تتفرّع منه عقدتان
   tree: "M12 3v5M12 8H6v4M12 8h6v4M4 12h4v4H4zM10 12h4v4h-4zM16 12h4v4h-4z",
+  // ——— لوحة الوكيل ———
+  grid: "M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z",
+  receipt: "M5 3h14v18l-3-2-2 2-2-2-2 2-2-2-3 2zM9 8h6M9 12h6M9 16h3",
+  copy: "M9 9h11v11H9zM5 15H4V4h11v1",
+  chevronDown: "M6 9l6 6 6-6",
+  arrowBack: "M5 12h14M13 6l6 6-6 6",
+  clock: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2",
+  phone: "M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z",
+  hash: "M4 9h16M4 15h16M10 3L8 21M16 3l-2 18",
+  plusCircle: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 8v8M8 12h8",
+  download: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3",
+  bolt: "M13 2L3 14h9l-1 8 10-12h-9z",
+  lock: "M5 11h14v10H5zM8 11V7a4 4 0 0 1 8 0v4",
+  tag: "M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L2 12V2h10l8.6 8.6a2 2 0 0 1 0 2.8zM7 7h.01",
+  arrowDown: "M12 5v14M5 12l7 7 7-7",
+  arrowUp: "M12 19V5M5 12l7-7 7 7",
 };
 
 interface Props { name: keyof typeof P | string; size?: number; color?: string; style?: CSSProperties; }

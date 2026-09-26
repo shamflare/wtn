@@ -26,7 +26,7 @@
 
 ## نسخة عميل جديدة (دومينه وخادمه)
 
-كل عميل نسخةٌ مستقلّة — الخطّة كاملة في `d:hlacard\plan2.md`. على خادمٍ جديد يشير إليه الدومين:
+كل عميل نسخةٌ مستقلّة — الخطّة كاملة في `plan2.md` (في مجلّد ahlacard على جهاز المالك). على خادمٍ جديد يشير إليه الدومين:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/shamflare/wtn/main/deploy/new-server.sh | bash -s -- ahlacard.com

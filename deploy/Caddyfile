@@ -6,7 +6,9 @@
 	email alayatl.tr@gmail.com
 }
 
-wtn4.com, www.wtn4.com, api.wtn4.com {
+# العناوين من `SITE_ADDRESSES` في deploy/.env — فالملفّ نفسه يخدم كل نسخةٍ بدومينها
+# (ahlacard.com لعميل، wtn4.com لنا). وغيابُه يُبقي wtn4.com كما كان.
+{$SITE_ADDRESSES:wtn4.com, www.wtn4.com, api.wtn4.com} {
 	encode zstd gzip
 
 	# الردود على `/client/api/` تخصّ عملاء خارجيين لا متصفّحات، ولا تُخزَّن

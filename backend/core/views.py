@@ -13,7 +13,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from . import currency, services
 from .text import clean_login_id
 from .models import (
-    LOGIN_ATTEMPTS_BEFORE_LOCK, Invoice, User, Wallet, WalletTransaction,
+    LOGIN_ATTEMPTS_BEFORE_LOCK, Invoice, Tenant, User, Wallet, WalletTransaction,
 )
 from .serializers import (
     LoginSerializer, SiteSettingsSerializer, SmsSettingsSerializer, UserSerializer,
@@ -108,6 +108,11 @@ def storefront_view(request):
     بلا توكن، يقرؤها كل من كتب العنوان.
     """
     store = getattr(request, "store", None)
+    if store is None:
+        # نسخة عميل (متجرٌ واحد على دومينه): الباب العام **هو** بابُ متجره، فتلبس
+        # صفحةُ الدخول اسمَه وشعاره. للعرض وحده — لا يمسّ من يُقبل دخوله.
+        only = list(Tenant.objects.all()[:2])
+        store = only[0] if len(only) == 1 else None
     if store is None:
         return Response({"store": None})
     return Response({

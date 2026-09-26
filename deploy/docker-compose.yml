@@ -70,6 +70,8 @@ services:
     # و`:-` تجعل غيابَه فراغاً لا خطأ.
     environment:
       CF_API_TOKEN: ${CF_API_TOKEN:-}
+      # عناوين هذه النسخة — كل عميلٍ بدومينه (انظر Caddyfile)
+      SITE_ADDRESSES: ${SITE_ADDRESSES:-wtn4.com, www.wtn4.com, api.wtn4.com}
     depends_on: [web]
     networks: [wtn]
 

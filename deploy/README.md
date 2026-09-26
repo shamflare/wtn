@@ -24,7 +24,21 @@
 
 ---
 
-## أوّل مرّة
+## نسخة عميل جديدة (دومينه وخادمه)
+
+كل عميل نسخةٌ مستقلّة — الخطّة كاملة في `d:hlacard\plan2.md`. على خادمٍ جديد يشير إليه الدومين:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/shamflare/wtn/main/deploy/new-server.sh | bash -s -- ahlacard.com
+docker compose -f /opt/wtn/deploy/docker-compose.yml exec web   python manage.py provision_instance --store "اسم المتجر" --admin-login 5551234567
+```
+
+الأوّل يولّد الأسرار ويضبط المهامّ ويشغّل الموقع (`SEED_DEMO=0`: بلا حسابات تجريبية)،
+والثاني يصنع الحسابات بكلمات سرٍّ عشوائية تُطبع مرّةً واحدة.
+
+---
+
+## أوّل مرّة (wtn4.com)
 
 ```bash
 git clone https://github.com/Lebid15/wtn /opt/wtn

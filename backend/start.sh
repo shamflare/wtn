@@ -12,9 +12,16 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
 django.setup()
 from catalog.models import Product
 
-subprocess.run(["python", "manage.py", "seed_demo"], check=False)
+# نسخة عميل (SEED_DEMO=0): لا حسابات تجريبية بكلمات سرٍّ معروفة ولا كتالوج وهميّ.
+# حساباتها يصنعها `provision_instance` مرّةً بكلمات سرٍّ عشوائية.
+demo = os.environ.get("SEED_DEMO", "1") != "0"
 
-if not Product.objects.exists():
+if demo:
+    subprocess.run(["python", "manage.py", "seed_demo"], check=False)
+else:
+    print("SEED_DEMO=0 — نسخة عميل: البذور التجريبية متروكة")
+
+if demo and not Product.objects.exists():
     for cmd in ["seed_catalog", "seed_providers",
                 "seed_pools", "seed_payments", "seed_platform"]:
         print(f"seeding: {cmd}")
@@ -24,7 +31,8 @@ else:
 
 # المكتبة العالمية + عرض التنفيذ التلقائي idempotent — تُشغَّل دائماً
 subprocess.run(["python", "manage.py", "seed_library"], check=False)
-subprocess.run(["python", "manage.py", "seed_auto"], check=False)
+if demo:
+    subprocess.run(["python", "manage.py", "seed_auto"], check=False)
 # طرق الدفع وسعر الصرف العام — متسامحة، تُنشئ الناقص وتترك تعديلات المالك
 subprocess.run(["python", "manage.py", "seed_payment_methods"], check=False)
 # seed_routing_test لا يُشغَّل في النشر: كان يزرع «بنك فارغ (للاختبار)» ومتجر

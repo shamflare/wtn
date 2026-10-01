@@ -24,7 +24,8 @@ DEFAULT_BASE = "https://api.ap4stor.com"
 
 # مفاتيح `ProductLink.extra` الخاصّة بنا — لا تُرسل إلى المزوّد.
 # `price` يكتبه تعلّم حماية الخسارة، و`kupur` خاصّ بـ ZNET.
-_RESERVED_EXTRA = {"price", "kupur", "name", "note"}
+# مفاتيحنا الداخلية على الربط — لا تُرسَل للمزوّد معاملاتٍ (auto وtype وسمان عندنا)
+_RESERVED_EXTRA = {"price", "kupur", "name", "note", "auto", "type"}
 
 # ZDK: accept = نُفّذ · reject = رُفض · wait = قيد المعالجة
 _STATUS_MAP = {
@@ -94,6 +95,13 @@ class ZdkAdapter(BaseAdapter):
         package_id, extra = self.link_for(order, provider)
         if not package_id:
             return ExecutionResult(status="failed", note="لا رقم ربط لهذه الباقة لدى ZDK")
+        their = str((extra or {}).get("type") or "").lower()
+        is_amount = getattr(order.product, "is_amount", False)
+        if their and (their == "amount") != is_amount:
+            return ExecutionResult(status="failed", note=(
+                "الربط خاطئ: باقةٌ بالكمية مربوطةٌ بباقةٍ ثابتة لدى ZDK — صحّحه من «ربط الباقات»"
+                if is_amount else
+                "الربط خاطئ: باقةٌ ثابتة مربوطةٌ بمنتجٍ بالكمية لدى ZDK — صحّحه من «ربط الباقات»"))
 
         order_uuid = self._order_uuid(order)
         # الكمية للباقة «بالكمية» (منتج amount لدى ZDK)، و1 للباقة الثابتة

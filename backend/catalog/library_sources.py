@@ -414,7 +414,8 @@ def autolink(tenant, games=None) -> dict:
                     ProductLink.objects.create(
                         tenant=tenant, product=product, provider=prov,
                         package_id=lp.source_ref, package_name=lp.source_name[:200],
-                        extra={"auto": True, **({"price": str(price)} if price is not None else {})},
+                        extra={"auto": True, "type": lp.sale_type,
+                               **({"price": str(price)} if price is not None else {})},
                     )
                     linked += 1
                     used.add(prov.name)

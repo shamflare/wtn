@@ -13,7 +13,19 @@ type ProviderPackage = {
   kupur: string;
   price: string;
   available_count?: number;
+  /** «amount» = منتجٌ بالكمية لدى المزوّد (سعرٌ للوحدة) — لا يُربط إلا بباقةٍ بالكمية */
+  type?: string;
 };
+
+/** نوع باقة المزوّد يطابق نوع باقتنا؟ (المزوّد بلا نوعٍ معلَن لا يُحكم عليه) */
+function typeMismatch(product: Product, pkg: ProviderPackage): string {
+  if (!pkg.type) return "";
+  const theirs = pkg.type.toLowerCase() === "amount";
+  const ours = product.sale_type === "amount";
+  if (ours && !theirs) return "باقتك بالكمية — اربطها بمنتجٍ «بالكمية» لدى المزوّد لا بباقةٍ ثابتة (وإلا طُلبت منه الكمية نسخاً من الباقة).";
+  if (!ours && theirs) return "هذا منتجٌ بالكمية لدى المزوّد — وباقتك ثابتة. اربطها بباقةٍ ثابتة، أو أنشئ باقة كمية في المكتبة.";
+  return "";
+}
 
 /** ربط محفوظ: (منتج × مزوّد) → رقم الربط. */
 type Link = {
@@ -119,6 +131,8 @@ export default function PackageLinks() {
       extra: {
         ...(pkg.kupur ? { kupur: pkg.kupur } : {}),
         ...(pkg.price ? { price: pkg.price } : {}),
+        // النوع لدى المزوّد — يحرسه الخادم عند الحفظ وعند كل إرسال
+        ...(pkg.type ? { type: pkg.type } : {}),
       },
     });
     setLinks((m) => new Map(m).set(key(product.id, provider.id), r.data));
@@ -377,13 +391,23 @@ function PackagePicker({
           <div style={ddMsg}>لا نتائج مطابقة</div>
         ) : (
           shown.map((pkg, i) => (
-            <button key={`${pkg.id}-${i}`} type="button" style={ddRow} onClick={() => onPick(pkg)}>
+            <button key={`${pkg.id}-${i}`} type="button"
+              style={{ ...ddRow, ...(typeMismatch(product, pkg) ? { opacity: 0.45 } : {}) }}
+              title={typeMismatch(product, pkg) || undefined}
+              onClick={() => {
+                const why = typeMismatch(product, pkg);
+                if (why) { alert(why); return; }
+                onPick(pkg);
+              }}>
               <code style={{ direction: "ltr", fontWeight: 700, color: "var(--primary)" }}>
                 {pkg.id}{pkg.kupur ? `/${pkg.kupur}` : ""}
               </code>
               <span style={{ flex: 1, textAlign: "right" }}>
                 {pkg.name}
                 {pkg.game && <span style={{ color: "var(--muted)", fontSize: 11 }}> · {pkg.game}</span>}
+                {pkg.type?.toLowerCase() === "amount" && (
+                  <span style={{ color: "#7c3aed", fontSize: 11, fontWeight: 700 }}> ⚖ بالكمية</span>
+                )}
               </span>
               {pkg.price && <span style={{ color: "var(--ok)", fontSize: 12 }}>{pkg.price}</span>}
               {pkg.available_count !== undefined && (

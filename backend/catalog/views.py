@@ -738,6 +738,15 @@ def product_links_view(request):
     extra = request.data.get("extra") or {}
     if not isinstance(extra, dict):
         extra = {}
+    # نوع باقة المزوّد (من كتالوجه) يجب أن يطابق نوع باقتنا: باقةٌ بالكمية مربوطةٌ
+    # بباقةٍ ثابتة تطلب من المزوّد «50,000 نسخة» منها، والعكس يشحن نسخةً بسعر كمية.
+    their = str(extra.get("type") or "").lower()
+    if their and (their == "amount") != product.is_amount:
+        return Response({"detail": (
+            "باقتك بالكمية — اربطها بمنتجٍ «بالكمية» لدى المزوّد لا بباقةٍ ثابتة"
+            if product.is_amount else
+            "هذا منتجٌ بالكمية لدى المزوّد وباقتك ثابتة — اختر باقةً ثابتة"
+        )}, status=400)
     # السعر يصل من كتالوج المزوّد بعملته — يُحوَّل هنا فلا يدخل القاعدة
     # رقمٌ بعملة غير عملة الدفتر.
     if extra.get("price") not in (None, ""):

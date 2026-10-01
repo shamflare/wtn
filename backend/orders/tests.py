@@ -726,3 +726,53 @@ class AmountSaleTest(APITestCase):
         self.client.post("/api/catalog/product-links/", {"product": self.p.id, "provider": prov.id,
                          "package_id": "229", "extra": {"price": "0.05"}}, format="json")
         self.assertEqual(ProductLink.objects.get().extra["price"], "1.25")
+
+
+class AmountLinkTypeGuardTest(AmountSaleTest):
+    """باقةٌ بالكمية لا تُربط بباقةٍ ثابتة لدى المزوّد — لا عند الحفظ ولا عند الإرسال."""
+
+    def _barakat(self, **extra):
+        from catalog.models import ProductLink
+        prov = Provider.objects.create(tenant=self.t, name="بركات", type=Provider.Type.CARD_STORE,
+                                       currency="TRY", loss_guard=False,
+                                       config={"code": "zdk", "api_token": "x"})
+        if extra:
+            ProductLink.objects.create(tenant=self.t, product=self.p, provider=prov,
+                                       package_id="2075", extra=extra)
+        return prov
+
+    def test_saving_a_mismatched_link_is_refused(self):
+        prov = self._barakat()
+        admin = User.objects.create(login_id="g-a", name="م", tenant=self.t, role=User.Role.TENANT_ADMIN)
+        self.client.force_authenticate(admin)
+        r = self.client.post("/api/catalog/product-links/", {"product": self.p.id, "provider": prov.id,
+                             "package_id": "2075", "extra": {"type": "package"}}, format="json")
+        self.assertEqual(r.status_code, 400)
+        ok = self.client.post("/api/catalog/product-links/", {"product": self.p.id, "provider": prov.id,
+                              "package_id": "229", "extra": {"type": "amount"}}, format="json")
+        self.assertEqual(ok.status_code, 201)
+
+    def test_a_mismatched_link_never_reaches_zdk(self):
+        from unittest.mock import patch
+        from .services import dispatch_order
+        prov = self._barakat(type="package")
+        self.p.provider = prov
+        self.p.save()
+        with patch("providers.adapters.zdk.requests.get") as get:
+            o = dispatch_order(create_order(self.d, self.p, quantity=15000))
+        get.assert_not_called()
+        self.assertIn("الربط خاطئ", o.api_response)
+
+    def test_internal_markers_are_not_sent_as_params(self):
+        from unittest.mock import MagicMock, patch
+        from .services import dispatch_order
+        prov = self._barakat(type="amount", auto=True, price="1.00")
+        self.p.provider = prov
+        self.p.save()
+        resp = MagicMock()
+        resp.json.return_value = {"status": "OK", "data": {"status": "wait", "order_id": "1"}}
+        with patch("providers.adapters.zdk.requests.get", return_value=resp) as get:
+            dispatch_order(create_order(self.d, self.p, quantity=15000))
+        params = get.call_args.kwargs["params"]
+        self.assertNotIn("auto", params)
+        self.assertNotIn("type", params)

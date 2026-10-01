@@ -668,3 +668,34 @@ class ImageUploadTest(APITestCase):
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.json()["name"], "PUBG Mobile")
         self.assertEqual(r.json()["image_url"], url)
+
+
+
+class LibraryImageFollowsTest(APITestCase):
+    """صورة المكتبة تصل إلى المتاجر التي استوردت قبل إضافتها — إلا من خصّص صورته."""
+
+    def setUp(self):
+        from .models import Game, LibraryGame
+        self.owner = User.objects.create(login_id="lif-owner", name="مالك", role=User.Role.PLATFORM_OWNER)
+        self.lib = LibraryGame.objects.create(name="PUBG")
+        t1 = Tenant.objects.create(subdomain="lif1", name="أ")
+        t2 = Tenant.objects.create(subdomain="lif2", name="ب")
+        self.plain = Game.objects.create(tenant=t1, name="PUBG", master_library_uuid=self.lib.uuid)
+        self.custom = Game.objects.create(tenant=t2, name="PUBG", master_library_uuid=self.lib.uuid,
+                                          image_url="/mine.png")
+        self.client.force_authenticate(self.owner)
+
+    def test_new_library_image_reaches_untouched_copies_only(self):
+        r = self.client.patch(f"/api/platform/library/games/{self.lib.id}/",
+                              {"image_url": "/api/catalog/img/abc/"}, format="json")
+        self.assertEqual(r.status_code, 200)
+        self.plain.refresh_from_db(); self.custom.refresh_from_db()
+        self.assertEqual(self.plain.image_url, "/api/catalog/img/abc/")
+        self.assertEqual(self.custom.image_url, "/mine.png")
+
+    def test_a_second_change_follows_too(self):
+        url = f"/api/platform/library/games/{self.lib.id}/"
+        self.client.patch(url, {"image_url": "/api/catalog/img/one/"}, format="json")
+        self.client.patch(url, {"image_url": "/api/catalog/img/two/"}, format="json")
+        self.plain.refresh_from_db()
+        self.assertEqual(self.plain.image_url, "/api/catalog/img/two/")

@@ -35,6 +35,23 @@ class LibraryGameViewSet(viewsets.ModelViewSet):
     def get_serializer_class(self):
         return LibraryGameDetailSerializer if self.action == "retrieve" else LibraryGameSerializer
 
+    def perform_update(self, serializer):
+        """
+        الصورة تتبع المكتبة ما لم يخصّصها صاحب المتجر.
+
+        الاستيراد ينسخ اللعبة مرّةً، فصورةٌ أُضيفت للمكتبة بعده لم تكن تصل أبداً.
+        نسخةٌ صورتها فارغة أو ما زالت صورة المكتبة القديمة لم يمسّها صاحبها —
+        فتأخذ الجديدة. ومن وضع صورته بيده تبقى له.
+        """
+        from django.db.models import Q
+        from catalog.models import Game
+
+        old = serializer.instance.image_url
+        lib = serializer.save()
+        if lib.image_url != old:
+            unchanged = Q(image_url="") | (Q(image_url=old) if old else Q(pk__in=[]))
+            Game.objects.filter(master_library_uuid=lib.uuid).filter(unchanged).update(image_url=lib.image_url)
+
 
 class LibraryProductViewSet(viewsets.ModelViewSet):
     """CRUD باقات المكتبة العالمية — لمالك المنصّة فقط."""

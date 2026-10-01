@@ -443,7 +443,9 @@ def _library_game_for(game):
 
     lib = matches[0]
     game.master_library_uuid = lib.uuid
-    game.save(update_fields=["master_library_uuid"])
+    if not game.image_url and lib.image_url:
+        game.image_url = lib.image_url
+    game.save(update_fields=["master_library_uuid", "image_url"])
     _adopt_kupur_from_library(game, lib)
     return lib
 

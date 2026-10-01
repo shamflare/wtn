@@ -13,6 +13,20 @@ def _uuid_hex() -> str:
     return uuid.uuid4().hex
 
 
+class ActiveManager(models.Manager):
+    """
+    المدير الافتراضي: يُخفي المؤرشف من كل استعلام (القوائم، المتجر، الأسعار…).
+
+    لعبةٌ لها طلباتٌ سابقة لا تُحذف — الطلب يشير إليها (PROTECT) وعليها تقوم
+    أسماؤه في السجلّ والتقارير. فتُؤرشف: تختفي من كل مكان، والطلبات القديمة
+    تبلغها عبر العلاقة نفسها (`order.game`) لأن Django يستعمل لها المدير الأساسي
+    لا هذا. وما احتاج المؤرشف صراحةً فله `all_objects`.
+    """
+
+    def get_queryset(self):
+        return super().get_queryset().filter(is_archived=False)
+
+
 class Game(models.Model):
     """لعبة (Oyun) — تحتها منتجات/بينات."""
 
@@ -35,7 +49,11 @@ class Game(models.Model):
     master_library_uuid = models.CharField(
         max_length=64, blank=True, default="", db_index=True
     )
+    is_archived = models.BooleanField(default=False, db_index=True)  # «حُذفت» ولها طلبات سابقة
     created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = ActiveManager()
+    all_objects = models.Manager()
 
     class Meta:
         db_table = "games"
@@ -144,6 +162,11 @@ class Product(models.Model):
     description = models.CharField(max_length=255, blank=True, default="")
     sort_order = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    is_archived = models.BooleanField(default=False, db_index=True)
+
+    objects = ActiveManager()
+    all_objects = models.Manager()
 
     class Meta:
         db_table = "products"

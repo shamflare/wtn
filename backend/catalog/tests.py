@@ -699,3 +699,52 @@ class LibraryImageFollowsTest(APITestCase):
         self.client.patch(url, {"image_url": "/api/catalog/img/two/"}, format="json")
         self.plain.refresh_from_db()
         self.assertEqual(self.plain.image_url, "/api/catalog/img/two/")
+
+
+
+class GameDeleteTest(APITestCase):
+    """«حذف» اللعبة: نهائيٌّ بلا طلبات، وأرشفةٌ تحفظ سجلّ الطلبات إن وُجدت."""
+
+    def setUp(self):
+        from core.models import Wallet
+        from .models import Game, Product
+        self.tenant = Tenant.objects.create(subdomain="gd", name="متجر", base_currency="USD")
+        self.admin = User.objects.create(login_id="gd-admin", name="مدير", tenant=self.tenant,
+                                         role=User.Role.TENANT_ADMIN, is_staff=True)
+        self.dealer = User.objects.create(login_id="gd-d", name="وكيل", tenant=self.tenant,
+                                          role=User.Role.BAYI, dealer_no=1)
+        Wallet.objects.create(tenant=self.tenant, user=self.dealer, balance=Decimal("100"))
+        self.game = Game.objects.create(tenant=self.tenant, name="PUBG", master_library_uuid="lib-1")
+        self.product = Product.objects.create(tenant=self.tenant, game=self.game, name="60 UC",
+                                              cost_price=Decimal("6"), recommended_price=Decimal("10"))
+
+    def test_no_orders_deletes_for_good(self):
+        from .models import Game, Product
+        self.client.force_authenticate(self.admin)
+        r = self.client.delete(f"/api/catalog/games/{self.game.id}/")
+        self.assertEqual(r.json(), {"deleted": True, "archived": False})
+        self.assertFalse(Game.all_objects.filter(pk=self.game.id).exists())
+        self.assertFalse(Product.all_objects.filter(pk=self.product.id).exists())
+
+    def test_with_orders_it_vanishes_but_history_stays(self):
+        from orders.services import create_order
+        from .models import Game
+        order = create_order(self.dealer, self.product)
+        self.client.force_authenticate(self.admin)
+        r = self.client.delete(f"/api/catalog/games/{self.game.id}/")
+        self.assertEqual(r.json()["archived"], True)
+        # يختفي من قائمة صاحب المتجر ومن متجر الوكيل
+        self.assertNotIn("PUBG", self.client.get("/api/catalog/games/").content.decode())
+        self.client.force_authenticate(self.dealer)
+        self.assertEqual(self.client.get("/api/store/catalog/").json()["games"], [])
+        # والطلب القديم يُقرأ باسمه
+        row = self.client.get("/api/store/orders/").json()["results"][0]
+        self.assertEqual(row["id"], order.id)
+        self.assertEqual(row["game_name"], "PUBG")
+        self.assertEqual(row["product_name"], "60 UC")
+        # ويُستورد من المكتبة من جديد (لا يعدّه «مستورداً»)
+        self.assertFalse(Game.objects.filter(master_library_uuid="lib-1").exists())
+
+    def test_an_agent_cannot_delete(self):
+        self.client.force_authenticate(self.dealer)
+        self.assertEqual(self.client.delete(f"/api/catalog/games/{self.game.id}/").status_code, 403)

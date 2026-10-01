@@ -30,6 +30,28 @@ class GameViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(tenant=self.request.user.tenant)
 
+    def destroy(self, request, *args, **kwargs):
+        """
+        حذف اللعبة مع باقاتها — لصاحب المتجر وحده.
+
+        بلا طلبات ⇐ تُحذف نهائياً. ولها طلبات ⇐ تُؤرشف هي وباقاتها: تختفي من
+        كل مكان، ويبقى سجلّ الطلبات سليماً بأسمائه.
+        """
+        from orders.models import Order
+
+        if not _require_tenant_admin(request):
+            return Response({"detail": "الحذف لصاحب المتجر فقط"}, status=403)
+        game = self.get_object()
+        if Order.objects.filter(game=game).exists():
+            with transaction.atomic():
+                Product.objects.filter(game=game).update(is_archived=True, status=Product.Status.PASSIVE)
+                game.is_archived = True
+                game.status = Game.Status.PASSIVE
+                game.save(update_fields=["is_archived", "status"])
+            return Response({"deleted": True, "archived": True})
+        game.delete()
+        return Response({"deleted": True, "archived": False})
+
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
@@ -373,6 +395,21 @@ class ProductViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(tenant=self.request.user.tenant)
+
+    def destroy(self, request, *args, **kwargs):
+        """حذف باقة — ولها طلبات سابقة ⇐ تُؤرشف (كاللعبة)."""
+        from orders.models import Order
+
+        if not _require_tenant_admin(request):
+            return Response({"detail": "الحذف لصاحب المتجر فقط"}, status=403)
+        product = self.get_object()
+        if Order.objects.filter(product=product).exists():
+            product.is_archived = True
+            product.status = Product.Status.PASSIVE
+            product.save(update_fields=["is_archived", "status"])
+            return Response({"deleted": True, "archived": True})
+        product.delete()
+        return Response({"deleted": True, "archived": False})
 
 
 def _require_tenant_admin(request):

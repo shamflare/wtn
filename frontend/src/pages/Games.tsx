@@ -6,7 +6,22 @@ import Icon from "../components/Icon";
 export default function Games() {
   const [games, setGames] = useState<Game[]>([]);
   const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState<number | null>(null);
   const nav = useNavigate();
+
+  /** حذف اللعبة مع باقاتها. لها طلبات سابقة ⇐ يؤرشفها الخادم فيبقى سجلّها سليماً. */
+  async function remove(g: Game) {
+    if (!confirm(`حذف "${g.name}" مع كل باقاتها؟\nستختفي من متجرك ومن لوحات وكلائك.`)) return;
+    setBusyId(g.id);
+    try {
+      await api.delete(`/catalog/games/${g.id}/`);
+      setGames((list) => list.filter((x) => x.id !== g.id));
+    } catch (e: any) {
+      alert(e?.response?.data?.detail || "تعذّر الحذف");
+    } finally {
+      setBusyId(null);
+    }
+  }
 
   useEffect(() => {
     api.get("/catalog/games/").then((r) => setGames(r.data)).finally(() => setLoading(false));
@@ -41,17 +56,21 @@ export default function Games() {
             >
               {g.name}
             </div>
+            {/* تاريخ الإنشاء — مخفيٌّ عن العرض (لا يهمّ صاحب المتجر)، ويُعاد بإرجاع هذا السطر:
             <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
               تاريخ الإنشاء: {g.created_at}
-            </div>
-            <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
+            </div> */}
+            <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
               {g.product_count} منتج
             </div>
             <button
-              className={g.status === "active" ? "btn r" : "btn g"}
+              className="btn r"
               style={{ marginTop: 10, width: "100%", height: 30 }}
+              disabled={busyId === g.id}
+              onClick={() => remove(g)}
             >
-              {g.status === "active" ? "تعطيل" : "تفعيل"}
+              <Icon name="trash" size={14} style={{ marginInlineEnd: 5 }} />
+              {busyId === g.id ? "جارٍ الحذف..." : "حذف"}
             </button>
           </div>
         ))}

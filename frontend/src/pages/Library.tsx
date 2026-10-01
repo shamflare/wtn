@@ -2,7 +2,10 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import Icon from "../components/Icon";
 
-interface LibPkg { name: string; suggested_cost: string; suggested_price: string; kupur: string }
+interface LibPkg {
+  name: string; suggested_cost: string; suggested_price: string; kupur: string;
+  sale_type?: string; qty_unit?: number;
+}
 interface LibGame {
   id: number; name: string; image_url: string; description: string;
   require_player_id: boolean; product_count: number; products: LibPkg[]; is_imported: boolean;
@@ -121,8 +124,14 @@ export default function Library() {
                             title="رقم الربط">{p.kupur}</code>
                         )}
                         {p.name}
+                        {p.sale_type === "amount" && <span style={{ color: "#7c3aed", fontWeight: 700 }}> ⚖ بالكمية</span>}
                       </span>
-                      <b style={{ color: "var(--primary-dark)" }}>{money(p.suggested_price)}</b>
+                      <b style={{ color: "var(--primary-dark)" }}>
+                        {money(p.suggested_price)}
+                        {p.sale_type === "amount" && (
+                          <span style={{ fontWeight: 400, fontSize: 11, color: "var(--muted)" }}> / {Number(p.qty_unit).toLocaleString("en-US")}</span>
+                        )}
+                      </b>
                     </div>
                   ))}
                 </div>

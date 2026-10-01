@@ -27,6 +27,9 @@ class Order(models.Model):
     product = models.ForeignKey(Product, on_delete=models.PROTECT, related_name="orders")
 
     player_id = models.CharField(max_length=60, blank=True, default="")     # Oyuncu ID
+    # الكمية: 1 للباقة الثابتة، وما كتبه الوكيل للباقة «بالكمية». أسعار الطلب كلّها
+    # محسوبةٌ بها سلفاً (product.factor) — فما يُخزَّن هنا للعرض وللمزوّد.
+    quantity = models.PositiveBigIntegerField(default=1)
     customer_phone = models.CharField(max_length=20, blank=True, default="")  # Müşteri Tel
 
     # أرقام **صاحب المتجر**: ما دفعه للمزوّد، وما قبضه فعلاً، وربحه هو.

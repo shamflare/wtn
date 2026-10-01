@@ -338,7 +338,14 @@ export default function Orders() {
                       {o.receipt_no}
                     </td>
                     <td>{o.dealer_name}</td>
-                    <td className="cell-start" style={{ fontWeight: 600 }}>{o.product_name}</td>
+                    <td className="cell-start" style={{ fontWeight: 600 }}>
+                      {o.product_name}
+                      {(o as any).quantity > 1 && (
+                        <span style={{ color: "#7c3aed", fontWeight: 800, marginInlineStart: 4 }} dir="ltr">
+                          × {Number((o as any).quantity).toLocaleString("en-US")}
+                        </span>
+                      )}
+                    </td>
                     <td className="num" style={{ lineHeight: 1.35 }}>
                       {o.customer_phone || "—"}<br />
                       <span style={{ color: "var(--faint)" }}>{o.player_id || "—"}</span>

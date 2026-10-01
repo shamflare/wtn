@@ -47,6 +47,8 @@ class BaseAdapter:
     """واجهة المحوّل: كل مزوّد ينفّذ place_order ويُعيد ExecutionResult."""
 
     code = "base"
+    # يرسل الكمية للمزوّد (باقات «بالكمية»)؟ من لا يدعمها لا تُرسَل إليه أصلاً
+    supports_quantity = False
 
     def place_order(self, order, config: dict, provider=None, depth: int = 0) -> ExecutionResult:  # pragma: no cover
         raise NotImplementedError

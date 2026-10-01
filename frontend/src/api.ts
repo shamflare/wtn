@@ -91,6 +91,11 @@ export interface Product {
   description: string;
   sort_order: number;
   created_at: string;
+  /** «amount» = بالكمية: الأسعار لكل qty_unit وحدة، والكمية بين qty_min وqty_max */
+  sale_type?: "package" | "amount";
+  qty_min?: number;
+  qty_max?: number;
+  qty_unit?: number;
 }
 export interface GameDetail extends Game {
   products: Product[];

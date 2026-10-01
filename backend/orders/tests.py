@@ -618,3 +618,111 @@ class ProcessingLooksPendingTest(APITestCase):
         self.assertEqual(body["results"][0]["status_label"], "قيد الانتظار")
         self.assertEqual(body["counts"], {"all": 1, "pending": 1})
         self.assertEqual(self.client.get("/api/store/summary/").json()["pending"], 1)
+
+
+class AmountSaleTest(APITestCase):
+    """
+    الباقة «بالكمية»: أسعارها لكل qty_unit وحدة، وكل مبلغٍ في الطلب مضروبٌ في
+    الكمية ÷ qty_unit — الخصم، والتكلفة، وما يقبضه المتجر، وحماية الخسارة،
+    والكمية تصل المزوّد كما كتبها الوكيل. ومن لا يدعم الكمية لا تُرسَل إليه.
+    """
+
+    def setUp(self):
+        from unittest.mock import patch  # noqa: F401
+        self.t = Tenant.objects.create(subdomain="am", name="متجر", base_currency="USD",
+                                       exchange_rates={"TRY": "40"})
+        g = Game.objects.create(tenant=self.t, name="4FUN CHAT")
+        # 2.00$ لكل 1000 وحدة، وتكلفتها 1.50$
+        self.p = Product.objects.create(
+            tenant=self.t, game=g, name="4FUN CHAT", cost_price=Decimal("1.50"),
+            recommended_price=Decimal("2.00"), sale_type="amount",
+            qty_min=15000, qty_max=15000000, qty_unit=1000)
+        self.d = User.objects.create(login_id="am-d", name="وكيل", tenant=self.t,
+                                     role=User.Role.BAYI, dealer_no=1)
+        self.w = Wallet.objects.create(tenant=self.t, user=self.d, balance=Decimal("100"))
+
+    def test_prices_scale_with_quantity(self):
+        o = create_order(self.d, self.p, quantity="15,000")
+        self.assertEqual(o.quantity, 15000)
+        self.assertEqual(o.buyer_price, Decimal("30.00"))   # 2.00 × 15
+        self.assertEqual(o.cost_price, Decimal("22.50"))    # 1.50 × 15
+        self.assertEqual(o.profit, Decimal("7.50"))
+        self.assertEqual(o.dealer_sell_price, Decimal("30.00"))
+        self.w.refresh_from_db()
+        self.assertEqual(self.w.balance, Decimal("70.00"))
+
+    def test_quantity_outside_the_range_is_refused_before_any_debit(self):
+        from .services import OrderError
+        for bad in (14999, 15000001, "", "abc"):
+            with self.assertRaises(OrderError):
+                create_order(self.d, self.p, quantity=bad)
+        self.w.refresh_from_db()
+        self.assertEqual(self.w.balance, Decimal("100"))
+
+    def test_a_fixed_package_ignores_quantity(self):
+        fixed = Product.objects.create(tenant=self.t, game=self.p.game, name="60 UC",
+                                       cost_price=Decimal("1"), recommended_price=Decimal("2"))
+        o = create_order(self.d, fixed, quantity=500)
+        self.assertEqual((o.quantity, o.buyer_price), (1, Decimal("2.00")))
+
+    def test_zdk_receives_the_real_quantity(self):
+        from unittest.mock import MagicMock, patch
+        from catalog.models import ProductLink
+        from .services import dispatch_order
+        prov = Provider.objects.create(tenant=self.t, name="بركات", type=Provider.Type.CARD_STORE,
+                                       currency="TRY", loss_guard=False,
+                                       config={"code": "zdk", "api_token": "x"})
+        ProductLink.objects.create(tenant=self.t, product=self.p, provider=prov, package_id="229")
+        self.p.provider = prov
+        self.p.save()
+        o = create_order(self.d, self.p, quantity=20000)
+        resp = MagicMock()
+        resp.json.return_value = {"status": "OK", "data": {"status": "wait", "order_id": "1"}}
+        with patch("providers.adapters.zdk.requests.get", return_value=resp) as get:
+            dispatch_order(o)
+        self.assertEqual(get.call_args.kwargs["params"]["qty"], "20000")
+
+    def test_a_provider_without_quantity_support_is_skipped(self):
+        from .services import dispatch_order
+        znet = Provider.objects.create(tenant=self.t, name="علايا", type=Provider.Type.SAME_SYSTEM,
+                                       currency="TRY", config={"code": "znet"})
+        self.p.provider = znet
+        self.p.save()
+        o = dispatch_order(create_order(self.d, self.p, quantity=15000))
+        self.assertEqual(o.status, Order.Status.STUCK)
+        self.assertIn("لا يدعم البيع بالكمية", o.api_response)
+
+    def test_loss_guard_compares_block_price_times_quantity(self):
+        from catalog.models import ProductLink
+        from .services import dispatch_order
+        prov = Provider.objects.create(tenant=self.t, name="بركات", type=Provider.Type.CARD_STORE,
+                                       currency="TRY", config={"code": "zdk", "api_token": "x"})
+        # المزوّد: 2.50$ لكل 1000 — والطلب يُباع بـ2.00$ لكل 1000 ⇒ خاسر
+        ProductLink.objects.create(tenant=self.t, product=self.p, provider=prov, package_id="229",
+                                   extra={"price": "2.50"})
+        self.p.provider = prov
+        self.p.save()
+        o = dispatch_order(create_order(self.d, self.p, quantity=15000))
+        self.assertEqual(o.status, Order.Status.STUCK)
+        self.assertIn("37.50 > سعر البيع 30.00", o.api_response)
+
+    def test_agent_store_buys_with_quantity(self):
+        self.client.force_authenticate(self.d)
+        game = self.client.get("/api/store/catalog/").json()["games"][0]
+        prod = game["products"][0]
+        self.assertEqual((prod["sale_type"], prod["qty_min"], prod["qty_unit"]), ("amount", 15000, 1000))
+        r = self.client.post("/api/store/buy/", {"product": self.p.id, "quantity": 50000}, format="json")
+        self.assertEqual(r.status_code, 201, r.content)
+        self.assertEqual(Order.objects.get().quantity, 50000)
+        self.assertEqual(Order.objects.get().buyer_price, Decimal("100.00"))
+
+    def test_manual_link_price_from_catalog_is_scaled_to_the_block(self):
+        """كتالوج المزوّد يسعّر الوحدة (0.05 ل.ت) ⇒ لكل 1000 = 50 ل.ت = 1.25$."""
+        from catalog.models import ProductLink
+        prov = Provider.objects.create(tenant=self.t, name="بركات", type=Provider.Type.CARD_STORE,
+                                       currency="TRY", config={"code": "zdk", "api_token": "x"})
+        admin = User.objects.create(login_id="am-a", name="م", tenant=self.t, role=User.Role.TENANT_ADMIN)
+        self.client.force_authenticate(admin)
+        self.client.post("/api/catalog/product-links/", {"product": self.p.id, "provider": prov.id,
+                         "package_id": "229", "extra": {"price": "0.05"}}, format="json")
+        self.assertEqual(ProductLink.objects.get().extra["price"], "1.25")

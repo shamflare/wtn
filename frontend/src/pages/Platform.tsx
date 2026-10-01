@@ -25,6 +25,7 @@ interface LibGame {
 interface LibProduct {
   id: number; game: number; name: string; suggested_cost: string;
   suggested_price: string; kupur: string;
+  sale_type?: string; qty_min?: number; qty_max?: number; qty_unit?: number;
 }
 
 /** أربع حالات لا حالتان: «فعّال/غير فعّال» كان يخفي مهلة السماح. */
@@ -413,7 +414,14 @@ function ManagePackages({ game, onClose }: { game: LibGame; onClose: () => void 
                 <tr><td colSpan={5} style={{ padding: 16, textAlign: "center", color: "#94a3b8" }}>لا باقات — أضف أدناه.</td></tr>
               ) : rows.map((p) => (
                 <tr key={p.id} style={{ borderTop: "1px solid #eef1f2", background: editId === p.id ? "#fef9c3" : undefined }}>
-                  <td style={{ padding: "8px", fontWeight: 700 }}>{p.name}</td>
+                  <td style={{ padding: "8px", fontWeight: 700 }}>
+                    {p.name}
+                    {p.sale_type === "amount" && (
+                      <div style={{ fontSize: 11, color: "#7c3aed", fontWeight: 700 }}>
+                        ⚖ بالكمية {Number(p.qty_min).toLocaleString("en-US")}–{Number(p.qty_max).toLocaleString("en-US")} · السعران لكل {Number(p.qty_unit).toLocaleString("en-US")}
+                      </div>
+                    )}
+                  </td>
                   <td style={{ padding: "8px", textAlign: "center" }}>{p.suggested_cost}</td>
                   <td style={{ padding: "8px", textAlign: "center" }}>{p.suggested_price}</td>
                   <td style={{ padding: "8px", textAlign: "center" }}>{p.kupur || "—"}</td>

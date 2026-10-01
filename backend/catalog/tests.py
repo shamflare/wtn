@@ -912,21 +912,34 @@ class LibrarySourceTest(APITestCase):
         with self._feed(feed):
             cat = self.client.get(f"/api/platform/library/sources/{sid}/catalog/").json()
         keys = sorted(g["key"] for g in cat["groups"])
-        self.assertEqual(keys, ["4FUN CHAT", "GALA STAR", "PUBG Mobile", "Yalla Ludo"])
+        self.assertEqual(keys, ["4FUN CHAT", "GALA STAR", "PUBG Mobile", "Yalla Ludo", "Youtube"])
         fun = next(g for g in cat["groups"] if g["key"] == "4FUN CHAT")
-        self.assertEqual(sorted(p["ref"] for p in fun["packages"]), ["2075", "2076"])   # بلا منتج الكمية
-        self.assertEqual([a["key"] for a in cat["amount_only"]], ["Youtube"])
+        # الباقتان الثابتتان من قسم ZNET + منتج الكمية من القسم الأصلي — لعبةٌ واحدة
+        self.assertEqual(sorted(p["ref"] for p in fun["packages"]), ["2075", "2076", "229"])
+        amount = next(p for p in fun["packages"] if p["ref"] == "229")
+        self.assertEqual((amount["sale_type"], amount["qty_min"], amount["qty_max"]), ("amount", 15000, 15000000))
+        self.assertEqual(cat["amount_only"], [])
 
-    def test_sync_switches_off_a_game_that_became_amount_only(self):
+    def test_amount_product_is_imported_priced_per_block(self):
+        """سعر الوحدة 0.003 ل.ت (41.5 ل.ت/$) ⇐ لكل 100,000 = 7.23$ — رقمٌ تحمله الحقول."""
         from .models import LibraryProduct
         sid = self._source()
-        with self._feed():
+        feed = [{"id": "229", "name": "4FUN CHAT", "game": "4FUN CHAT", "price": "0.003", "type": "amount",
+                 "qty": {"min": "15000", "max": "15000000"}, "params": ["USER ID"]}]
+        with self._feed(feed):
             self.client.post(f"/api/platform/library/sources/{sid}/import/",
-                             {"picks": [{"key": "Yalla Ludo"}]}, format="json")
-        feed = [dict(self.FEED[2], type="amount")]
+                             {"picks": [{"key": "4FUN CHAT"}]}, format="json")
+        lp = LibraryProduct.objects.get(source_ref="229")
+        self.assertTrue(lp.is_active)
+        self.assertEqual((lp.sale_type, lp.qty_min, lp.qty_max, lp.qty_unit), ("amount", 15000, 15000000, 100000))
+        self.assertEqual(str(lp.source_cost), "300.0000")      # 0.003 × 100,000
+        self.assertEqual(str(lp.suggested_cost), "7.23")       # ÷ 41.5
+        # مزامنةٌ بسعرٍ أعلى تُبقي الحجم (100,000) وتحدّث السعر
+        feed[0]["price"] = "0.006"
         with self._feed(feed):
             self.client.post(f"/api/platform/library/sources/{sid}/import/", {"sync": True}, format="json")
-        self.assertFalse(LibraryProduct.objects.get(source_ref="201").is_active)
+        lp.refresh_from_db()
+        self.assertEqual((lp.qty_unit, str(lp.suggested_cost)), (100000, "14.46"))
 
 
     def test_long_decimals_do_not_look_changed_on_every_sync(self):

@@ -135,6 +135,10 @@ class Product(models.Model):
         MANUAL = "manual", "يدوي"
         AUTO = "auto", "تلقائي"
 
+    class SaleType(models.TextChoices):
+        PACKAGE = "package", "باقة ثابتة"
+        AMOUNT = "amount", "بالكمية"
+
     tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="products")
     game = models.ForeignKey(Game, on_delete=models.CASCADE, related_name="products")
     name = models.CharField(max_length=120)
@@ -163,6 +167,16 @@ class Product(models.Model):
     sort_order = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    # ── البيع بالكمية ──
+    # الباقة الثابتة كميتها 1. والباقة «بالكمية» يكتب الوكيل كميتها بين الحدّين،
+    # وأسعارها كلّها (التكلفة · الموصى · مجموعات الأسعار · سعر المزوّد على الربط)
+    # **لكل `qty_unit` وحدة**: سعر الوحدة الواحدة كسورٌ دقيقة (0.003) لا تحملها
+    # خانتا الأسعار العشريتان. فقيمة الطلب = السعر × الكمية ÷ qty_unit.
+    sale_type = models.CharField(max_length=8, choices=SaleType.choices, default=SaleType.PACKAGE)
+    qty_min = models.PositiveBigIntegerField(default=1)
+    qty_max = models.PositiveBigIntegerField(default=1)
+    qty_unit = models.PositiveBigIntegerField(default=1)
+
     is_archived = models.BooleanField(default=False, db_index=True)
 
     objects = ActiveManager()
@@ -179,6 +193,24 @@ class Product(models.Model):
     def profit(self) -> Decimal:
         """الربح المرجعي = السعر الموصى − التكلفة."""
         return self.recommended_price - self.cost_price
+
+    @property
+    def is_amount(self) -> bool:
+        return self.sale_type == self.SaleType.AMOUNT
+
+    def factor(self, quantity) -> Decimal:
+        """مضاعف الأسعار لطلبٍ بهذه الكمية: 1 للباقة الثابتة، والكمية ÷ qty_unit للكمية."""
+        if not self.is_amount:
+            return Decimal("1")
+        return Decimal(int(quantity)) / Decimal(self.qty_unit or 1)
+
+    def block_price(self, raw):
+        """سعرٌ للوحدة الواحدة من كتالوج مزوّد ⇐ سعرٌ لكل qty_unit (ما تحمله الحقول)."""
+        try:
+            value = Decimal(str(raw).replace(",", "."))
+        except Exception:
+            return None
+        return value * Decimal(self.qty_unit or 1) if self.is_amount else value
 
 
 class AgentMargin(models.Model):
@@ -316,6 +348,12 @@ class LibraryProduct(models.Model):
     source_ref = models.CharField(max_length=120, blank=True, default="", db_index=True)
     source_name = models.CharField(max_length=200, blank=True, default="")
     source_cost = models.DecimalField(max_digits=14, decimal_places=4, null=True, blank=True)
+    # البيع بالكمية — كما في Product: الأسعار لكل qty_unit وحدة
+    sale_type = models.CharField(max_length=8, choices=Product.SaleType.choices,
+                                 default=Product.SaleType.PACKAGE)
+    qty_min = models.PositiveBigIntegerField(default=1)
+    qty_max = models.PositiveBigIntegerField(default=1)
+    qty_unit = models.PositiveBigIntegerField(default=1)
 
     class Meta:
         db_table = "library_products"

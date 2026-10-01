@@ -255,7 +255,8 @@ def refresh_costs_view(request):
             if not found:
                 skipped.append({"name": link.product.name, "note": why})
                 continue
-            cost = currency.from_provider(tenant, str(found.get("price") or "").strip(), provider)
+            raw = link.product.block_price(str(found.get("price") or "").strip() or "0")
+            cost = currency.from_provider(tenant, raw, provider)
             if cost is None or cost <= 0:
                 skipped.append({"name": link.product.name, "note": "المزوّد لا يعطي سعراً لها"})
                 continue
@@ -446,6 +447,7 @@ def library_browse_view(request):
             "products": [{
                 "name": p.name, "suggested_cost": str(p.suggested_cost),
                 "suggested_price": str(p.suggested_price), "kupur": p.kupur,
+                "sale_type": p.sale_type, "qty_unit": p.qty_unit,
             } for p in active_products],
             "is_imported": g.uuid in imported,
             # مزوّدو هذا المتجر الذين تُربط بهم الباقات تلقائياً عند الاستيراد
@@ -585,6 +587,8 @@ def game_library_packages_view(request, game_id):
             "name": p.name,
             "suggested_cost": str(p.suggested_cost),
             "suggested_price": str(p.suggested_price),
+            "sale_type": p.sale_type, "qty_min": p.qty_min, "qty_max": p.qty_max,
+            "qty_unit": p.qty_unit,
             "is_parcali": p.is_parcali,
             "execution_type": p.execution_type,
             "description": p.description,
@@ -640,7 +644,8 @@ def library_import_view(request, library_game_id):
                 cost_price=p.suggested_cost, recommended_price=p.suggested_price,
                 kupur=p.kupur, is_parcali=p.is_parcali,
                 execution_type=p.execution_type, description=p.description,
-                sort_order=i,
+                sort_order=i, sale_type=p.sale_type, qty_min=p.qty_min,
+                qty_max=p.qty_max, qty_unit=p.qty_unit,
             )
 
     # (4) باقات مصدرٍ يملكه المتجر مزوّداً تُربط به الآن — لا يربطها صاحبها بيده
@@ -734,7 +739,8 @@ def product_links_view(request):
     # السعر يصل من كتالوج المزوّد بعملته — يُحوَّل هنا فلا يدخل القاعدة
     # رقمٌ بعملة غير عملة الدفتر.
     if extra.get("price") not in (None, ""):
-        converted = currency.from_provider(tenant, extra["price"], provider)
+        # باقةٌ بالكمية: كتالوج المزوّد يسعّر الوحدة، ونحن لكل qty_unit
+        converted = currency.from_provider(tenant, product.block_price(extra["price"]), provider)
         extra = {**extra, "price": str(converted)} if converted is not None else (
             {k: v for k, v in extra.items() if k != "price"}
         )
@@ -767,7 +773,7 @@ def refresh_link_prices_view(request):
     from providers.adapters.registry import adapter_for
 
     tenant = request.user.tenant
-    links = list(ProductLink.objects.filter(tenant=tenant).select_related("provider"))
+    links = list(ProductLink.objects.filter(tenant=tenant).select_related("provider", "product"))
     if not links:
         return Response({"detail": "لا توجد باقات مربوطة"}, status=400)
 
@@ -801,8 +807,9 @@ def refresh_link_prices_view(request):
             extra = dict(link.extra or {})
             # سعر المزوّد بعملته — يُحوَّل إلى عملة الدفتر قبل الحفظ، وإلا
             # قارنته حماية الخسارة بسعر بيعٍ بعملة أخرى فرأت كل طلب خاسراً.
-            converted = currency.from_provider(tenant, str(found.get("price") or "").strip(), provider)
-            price = str(converted) if converted is not None else ""
+            raw = link.product.block_price(str(found.get("price") or "").strip() or "0")
+            converted = currency.from_provider(tenant, raw, provider) if raw else None
+            price = str(converted) if converted is not None and converted > 0 else ""
             name = str(found.get("name") or "")[:200]
             if not price or (extra.get("price") == price and link.package_name == name):
                 continue

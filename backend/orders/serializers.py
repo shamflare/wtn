@@ -30,7 +30,7 @@ class OrderSerializer(serializers.ModelSerializer):
         model = Order
         fields = [
             "id", "receipt_no", "dealer", "dealer_name", "game_name",
-            "product", "product_name", "player_id", "customer_phone",
+            "product", "product_name", "quantity", "player_id", "customer_phone",
             "cost_price", "sell_price", "profit", "status", "status_label",
             "provider", "provider_name", "pin_result", "api_response",
             "provider_ref", "provider_note", "last_sync_at",
@@ -64,7 +64,7 @@ class StoreOrderSerializer(serializers.ModelSerializer):
     class Meta:
         model = Order
         fields = [
-            "id", "receipt_no", "game_name", "product", "product_name",
+            "id", "receipt_no", "game_name", "product", "product_name", "quantity",
             "player_id", "customer_phone",
             "paid_price", "dealer_sell_price", "dealer_profit",
             "status", "status_label", "pin_result", "provider_note",

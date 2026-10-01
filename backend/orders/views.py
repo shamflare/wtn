@@ -84,6 +84,7 @@ def orders_view(request):
                 player_id=request.data.get("player_id", ""),
                 customer_phone=request.data.get("customer_phone", ""),
                 dealer_sell_price=request.data.get("dealer_sell_price"),
+                quantity=request.data.get("quantity"),
             )
         except services.OrderError as e:
             return Response({"detail": str(e)}, status=http.HTTP_400_BAD_REQUEST)
@@ -171,6 +172,9 @@ def store_catalog_view(request):
                 # السعر الذي يقترحه صاحب المتجر للبيع لزبون الوكيل
                 "recommended_price": str(currency.to_display(user, p.recommended_price)),
                 "require_player_id": g.require_player_id,
+                # «بالكمية»: السعران أعلاه لكل qty_unit وحدة، والوكيل يكتب كميته بين الحدّين
+                "sale_type": p.sale_type, "qty_min": p.qty_min, "qty_max": p.qty_max,
+                "qty_unit": p.qty_unit,
             })
         if products:
             result.append({
@@ -219,6 +223,7 @@ def store_buy_view(request):
             customer_phone=request.data.get("customer_phone", ""),
             # يتركه الوكيل فارغاً ⇒ سعر التوصية؛ ويكتبه إن باع بسعر آخر.
             dealer_sell_price=retail,
+            quantity=request.data.get("quantity"),
         )
     except services.OrderError as e:
         return Response({"detail": str(e)}, status=http.HTTP_400_BAD_REQUEST)
@@ -666,6 +671,8 @@ def store_packages_view(request):
                 "buy_price": str(currency.to_display(user, services.resolve_sell_price(user, p))),
                 "recommended_price": str(currency.to_display(user, p.recommended_price)),
                 "require_player_id": g.require_player_id,
+                "sale_type": p.sale_type, "qty_min": p.qty_min, "qty_max": p.qty_max,
+                "qty_unit": p.qty_unit,
             })
     return Response({
         "count": len(rows), "results": rows,

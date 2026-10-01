@@ -85,10 +85,35 @@ def resolve_dealer_sell_price(product: Product, raw=None) -> Decimal:
     return value.quantize(Decimal("0.01"))
 
 
+CENT = Decimal("0.01")
+
+
+def clean_quantity(product: Product, quantity) -> int:
+    """
+    كمية الطلب: 1 للباقة الثابتة دائماً، وللباقة «بالكمية» عددٌ صحيح بين حدّيها.
+    الحدّان من المزوّد نفسه — كميةٌ خارجهما يرفضها هو بعد أن نكون خصمنا المحفظة.
+    """
+    if not product.is_amount:
+        return 1
+    try:
+        q = int(str(quantity).replace(",", "").strip())
+    except (TypeError, ValueError):
+        raise OrderError(f"اكتب الكمية — من {product.qty_min:,} إلى {product.qty_max:,}")
+    if q < product.qty_min or q > product.qty_max:
+        raise OrderError(f"الكمية بين {product.qty_min:,} و{product.qty_max:,}")
+    return q
+
+
 @transaction.atomic
 def create_order(dealer: User, product: Product, *, player_id="", customer_phone="",
-                 dealer_sell_price=None, client_uuid=None) -> Order:
-    """ينشئ طلباً: يحسب السعر، يخصم من محفظة الوكيل، ويسجّل الطلب (قيد الانتظار)."""
+                 dealer_sell_price=None, client_uuid=None, quantity=None) -> Order:
+    """
+    ينشئ طلباً: يحسب السعر، يخصم من محفظة الوكيل، ويسجّل الطلب (قيد الانتظار).
+
+    الباقة «بالكمية»: أسعارها لكل qty_unit وحدة، فكلّ مبلغٍ في الطلب (ما يدفعه المشتري
+    وما يقبضه المتجر والتكلفة وساقا الوكيل الكبير) مضروبٌ في factor = الكمية ÷ qty_unit.
+    و`dealer_sell_price` إن كتبه الوكيل فهو **إجمالي** ما باع به لزبونه.
+    """
     if product.tenant_id != dealer.tenant_id:
         raise OrderError("المنتج والوكيل من مستأجرين مختلفين")
     # بوّابة الاشتراك هنا وحدها: كل شراء يمرّ من `create_order` — متجرُ الوكيل
@@ -102,11 +127,16 @@ def create_order(dealer: User, product: Product, *, player_id="", customer_phone
     if product.status != Product.Status.ACTIVE:
         raise OrderError("المنتج غير متاح للبيع")
 
+    qty = clean_quantity(product, quantity)
+    k = product.factor(qty)
     agent = big_agent_of(dealer)
-    buyer_price = resolve_sell_price(dealer, product)          # ما يدفعه المشتري
-    store_price = resolve_store_price(agent or dealer, product)  # ما يقبضه المتجر
-    cost = product.cost_price
-    retail = resolve_dealer_sell_price(product, dealer_sell_price)
+    buyer_price = (resolve_sell_price(dealer, product) * k).quantize(CENT)          # ما يدفعه المشتري
+    store_price = (resolve_store_price(agent or dealer, product) * k).quantize(CENT)  # ما يقبضه المتجر
+    cost = (product.cost_price * k).quantize(CENT)
+    retail = (resolve_dealer_sell_price(product) * k).quantize(CENT) if dealer_sell_price in (None, "") \
+        else resolve_dealer_sell_price(product, dealer_sell_price)
+    if product.is_amount and buyer_price <= 0:
+        raise OrderError("الكمية صغيرة جداً — قيمتها أقل من سنت")
 
     wallet = getattr(dealer, "wallet", None)
     if wallet is None:
@@ -116,7 +146,7 @@ def create_order(dealer: User, product: Product, *, player_id="", customer_phone
     try:
         txn = wallet_services.apply_transaction(
             wallet.id, -buyer_price, WalletTransaction.Type.ORDER_DEBIT,
-            created_by=dealer, note=f"طلب {product.name}",
+            created_by=dealer, note=f"طلب {product.name}" + (f" × {qty:,}" if product.is_amount else ""),
         )
     except wallet_services.WalletError as e:
         raise OrderError(str(e))
@@ -142,7 +172,7 @@ def create_order(dealer: User, product: Product, *, player_id="", customer_phone
     order = Order.objects.create(
         tenant_id=dealer.tenant_id,
         receipt_no=_gen_receipt_no(),
-        dealer=dealer, game=product.game, product=product,
+        dealer=dealer, game=product.game, product=product, quantity=qty,
         player_id=player_id, customer_phone=customer_phone,
         cost_price=cost, sell_price=store_price, profit=store_price - cost,
         agent=agent, buyer_price=buyer_price,
@@ -279,7 +309,10 @@ def _apply_real_cost(order: Order, result, provider) -> list:
         return []
     order.cost_price = cost
     order.profit = order.sell_price - cost
-    _learn_link_price(order.product_id, getattr(provider, "id", None), cost)
+    # المرجع على الربط سعرٌ لكل qty_unit (كأسعار الباقة) — لا إجمالي هذه الكمية
+    k = order.product.factor(order.quantity)
+    _learn_link_price(order.product_id, getattr(provider, "id", None),
+                      (cost / k).quantize(CENT) if k else cost)
     return ["cost_price", "profit"]
 
 
@@ -318,6 +351,10 @@ def _send_to(order: Order, provider, trail: list, depth: int = 0, force: bool = 
     if adapter is None:
         trail.append(f"{provider.name}: منفّذ يدوي — تُخُطّي")
         return False
+    if order.product.is_amount and not getattr(adapter, "supports_quantity", False):
+        # إرسالها إليه باقةً واحدة يشحن اللاعب غير ما دفع ثمنه
+        trail.append(f"{provider.name}: لا يدعم البيع بالكمية — تُخُطّي")
+        return False
 
     # حماية الخسارة (Zarar Ayarı): سعر الباقة المحفوظ وقت الربط مأخوذ من
     # كتالوج المزوّد. إن تجاوز سعر بيعنا، فالطلب خاسر قبل أن يُرسَل —
@@ -332,6 +369,8 @@ def _send_to(order: Order, provider, trail: list, depth: int = 0, force: bool = 
             known = None
         if known is None:
             known = _link_price(order.product_id, provider.id)
+            if known is not None:   # المرجع لكل qty_unit ⇐ تكلفة هذه الكمية
+                known = (known * order.product.factor(order.quantity)).quantize(CENT)
         if known is None:
             # لا سعر مرجعي بعد (ربط يدوي مثلاً) — نمرّر ونتعلّم التكلفة من
             # ردّ المزوّد، فتحمي الطلبَ التالي.

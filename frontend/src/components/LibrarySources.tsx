@@ -18,6 +18,7 @@ interface Source {
 interface Pkg {
   ref: string; name: string; price: string; usd: string | null; old_usd: string | null;
   available: boolean; state: "new" | "changed" | "same";
+  sale_type?: "package" | "amount"; qty_min?: number; qty_max?: number; qty_unit?: number;
 }
 interface Group {
   key: string; state: "new" | "existing"; library_id: number | null; library_name: string;
@@ -463,7 +464,13 @@ function CatalogBrowser({ source, onBack, onImported }: { source: Source; onBack
                               {g.packages.map((p) => (
                                 <tr key={p.ref} style={{ borderTop: "1px solid #1e293b", opacity: p.available ? 1 : .55 }}>
                                   <td style={{ ...td, padding: 6 }}><code style={{ direction: "ltr" }}>{p.ref}</code></td>
-                                  <td style={{ ...td, padding: 6, textAlign: "right" }}>{p.name}{!p.available && " (غير متوفّرة)"}</td>
+                                  <td style={{ ...td, padding: 6, textAlign: "right" }}>{p.name}{!p.available && " (غير متوفّرة)"}
+                                    {p.sale_type === "amount" && (
+                                      <div style={{ fontSize: 11, color: "#c4b5fd" }}>
+                                        ⚖ بالكمية {Number(p.qty_min).toLocaleString("en-US")}–{Number(p.qty_max).toLocaleString("en-US")} · السعر لكل {Number(p.qty_unit).toLocaleString("en-US")}
+                                      </div>
+                                    )}
+                                  </td>
                                   <td style={{ ...td, padding: 6, direction: "ltr" }}>{p.price}</td>
                                   <td style={{ ...td, padding: 6, direction: "ltr" }}>
                                     {p.usd ?? "—"}

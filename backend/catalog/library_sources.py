@@ -75,11 +75,6 @@ def sane_price(v) -> Decimal | None:
     return d.quantize(Decimal("0.0001"), ROUND_HALF_UP)
 
 
-def sellable(p: dict) -> bool:
-    """متاحةٌ عند المزوّد وبسعرٍ حقيقي."""
-    return p.get("available", True) is not False and sane_price(p.get("price")) is not None
-
-
 def to_usd(source, cost) -> Decimal | None:
     """سعر المصدر بعملته ⇐ دولار المكتبة."""
     cost = sane_price(cost)
@@ -121,8 +116,7 @@ def _excluded(p: dict) -> bool:
 # بركات يعرض اللعبة الواحدة في قسمين: «4FUN CHAT» فيه منتجٌ «بالكمية» (سعرٌ
 # للوحدة، ويختار المشتري كميته)، و«4FUN CHAT-ZNET» فيه **الباقات** الثابتة
 # (صُنعت لمن يطلب منه ببرمجية ZNET). فالقسمان لعبةٌ واحدة: يُدمجان تحت الاسم
-# بلا اللاحقة، وتُؤخذ الباقات — والمنتج «بالكمية» يُترك متى وُجدت باقات، إذ
-# سعره للوحدة ونظامنا يبيع باقاتٍ بكميةٍ ثابتة.
+# بلا اللاحقة، ويُستورد الاثنان — الباقات ثابتةً، والمنتج «بالكمية» كمّاً.
 _ZNET_SUFFIX = re.compile(r"[\s_\-]*(znet|zent)\s*$", re.I)
 PACKAGE_TYPES = {"package", "specificpackage", ""}
 
@@ -135,11 +129,55 @@ def _is_package(p: dict) -> bool:
     return str(p.get("type") or "").lower() in PACKAGE_TYPES
 
 
+def _qty_unit(source, unit_price) -> int:
+    """
+    حجم «الكتلة» التي تُسعَّر بها باقةٌ بالكمية: أصغر قوّةٍ لعشرة يبلغ عندها سعر
+    الكتلة دولاراً فأكثر. فـ0.003 ليرة للعملة (49.3 ل.ت/$) تُسعَّر لكل 100,000 = 6.09$ —
+    رقمٌ تحمله خانتا الأسعار العشريتان بلا خسارة دقّة تُذكر.
+    """
+    if unit_price is None or unit_price <= 0:
+        return 1
+    rate = source.usd_rate if source.currency.upper() != "USD" else Decimal("1")
+    usd = unit_price / (rate if rate and rate > 0 else Decimal("1"))
+    unit = 1
+    while usd * unit < 1 and unit < 10 ** 9:
+        unit *= 10
+    return unit
+
+
+def _offer(source, p: dict, unit: int | None = None) -> dict:
+    """
+    باقة المزوّد بلغة المكتبة — ثابتةً أو «بالكمية».
+
+    الكمية: السعر الخام للوحدة ⇐ سعرٌ لكل `qty_unit` (يُمرَّر الحجم القائم للباقة
+    المستوردة سابقاً: تغييره يُفسد أسعار المتاجر التي استوردتها بالحجم القديم).
+    """
+    amount = not _is_package(p)
+    raw_unit = _dec(p.get("price"))
+    if amount:
+        unit = unit or _qty_unit(source, raw_unit)
+        raw = sane_price(raw_unit * unit) if raw_unit is not None and raw_unit > 0 else None
+        q = p.get("qty") or {}
+        try:
+            qmin = max(1, int(str(q.get("min") or 1)))
+            qmax = max(qmin, int(str(q.get("max") or qmin)))
+        except ValueError:
+            qmin = qmax = 1
+    else:
+        unit, raw, qmin, qmax = 1, sane_price(raw_unit), 1, 1
+    return {
+        "ref": str(p.get("id") or ""), "name": p.get("name") or "", "raw": raw,
+        "ok": p.get("available", True) is not False and raw is not None,
+        "sale_type": "amount" if amount else "package",
+        "qty_min": qmin, "qty_max": qmax, "qty_unit": unit, "params": p.get("params") or [],
+    }
+
+
 def _grouped(packages: list):
     """
     ⇐ (groups, amount_only)
-    groups: {اسم اللعبة: [باقات]} — باقاتٌ ثابتة فقط، بعد دمج «-ZNET».
-    amount_only: {اسم اللعبة: {count, min, max}} — ألعابٌ لا باقات لها بعد.
+    groups: {اسم اللعبة: [باقات]} — الثابتة و«بالكمية» معاً، بعد دمج «-ZNET».
+    amount_only: فارغٌ دائماً الآن (بقي في الشكل لواجهةٍ قديمة).
     """
     # الاسم المعروض: القسم الأصلي (بلا لاحقة) إن وُجد، وإلا اسم قسم ZNET منزوعَ اللاحقة.
     # وهو مفتاح اللعبة في المكتبة (source_key) — فيبقى ثابتاً لما استُورد سابقاً.
@@ -152,19 +190,9 @@ def _grouped(packages: list):
         elif k not in names:
             names[k] = " ".join(_ZNET_SUFFIX.sub("", cat).split()) or cat
     pkgs: dict[str, list] = {}
-    amounts: dict[str, list] = {}
     for p in packages:
-        key = names[_norm_key(p.get("game") or "بلا قسم")]
-        (pkgs if _is_package(p) else amounts).setdefault(key, []).append(p)
-    amount_only = {}
-    for key, rows in amounts.items():
-        if key in pkgs:
-            continue
-        q = [r.get("qty") or {} for r in rows]
-        amount_only[key] = {"count": len(rows),
-                            "min": min((str(x.get("min") or "") for x in q), default=""),
-                            "max": max((str(x.get("max") or "") for x in q), default="")}
-    return pkgs, amount_only
+        pkgs.setdefault(names[_norm_key(p.get("game") or "بلا قسم")], []).append(p)
+    return pkgs, {}
 
 
 def fetch_catalog(source) -> dict:
@@ -190,10 +218,10 @@ def fetch_catalog(source) -> dict:
         pkgs, counts = [], {"new": 0, "changed": 0, "same": 0}
         for p in rows:
             ref = str(p.get("id") or "")
-            usd = to_usd(source, p.get("price"))
             lp = known.get(ref)
-            ok = sellable(p)
-            price = sane_price(p.get("price"))
+            o = _offer(source, p, lp.qty_unit if lp and lp.sale_type == "amount" else None)
+            ok, price = o["ok"], o["raw"]
+            usd = to_usd(source, price)
             if lp is None:
                 state = "new"
             elif lp.is_active != ok:
@@ -210,6 +238,8 @@ def fetch_catalog(source) -> dict:
                 "old_usd": str(lp.suggested_cost) if lp else None,
                 "available": ok, "params": p.get("params") or [],
                 "state": state,
+                "sale_type": o["sale_type"], "qty_min": o["qty_min"], "qty_max": o["qty_max"],
+                "qty_unit": o["qty_unit"],
             })
         live = {pk["ref"] for pk in pkgs}
         removed = [
@@ -258,7 +288,7 @@ def apply_import(source, picks: list, margin=None, update_prices: bool = True) -
             key = str(pick.get("key") or "")
             rows = groups.get(key)
             if rows is None:
-                # لا باقات ثابتة لها (بالكمية فقط، أو أُزيلت): الموجود منها في المكتبة يُطفأ
+                # أزالها المزوّد كلّها: الموجود منها في المكتبة يُطفأ
                 lib = LibraryGame.objects.filter(source=source, source_key=key).first()
                 if lib is not None:
                     summary["packages_disabled"] += lib.products.filter(is_active=True).update(is_active=False)
@@ -287,10 +317,12 @@ def apply_import(source, picks: list, margin=None, update_prices: bool = True) -
                 if not ref:
                     continue
                 live.add(ref)
-                ok = sellable(p)
-                raw = sane_price(p.get("price"))
-                usd = to_usd(source, raw)
                 lp = known.get(ref)
+                # الحجم القائم يبقى: باقةٌ استُوردت بالكمية لكل 100,000 تبقى كذلك
+                o = _offer(source, p, lp.qty_unit if lp and lp.sale_type == "amount" else None)
+                ok, raw = o["ok"], o["raw"]
+                usd = to_usd(source, raw)
+                qty = {k: o[k] for k in ("sale_type", "qty_min", "qty_max", "qty_unit")}
                 if lp is None:
                     # غير المتاحة تُحفظ مطفأة — تتفعّل وحدها في مزامنةٍ تجدها متاحة
                     LibraryProduct.objects.create(
@@ -298,13 +330,15 @@ def apply_import(source, picks: list, margin=None, update_prices: bool = True) -
                         source_ref=ref, source_name=(p.get("name") or "")[:200], source_cost=raw,
                         suggested_cost=usd or Decimal("0"),
                         suggested_price=with_margin(usd, margin) if usd is not None else Decimal("0"),
-                        sort_order=len(known) + j, is_active=ok,
+                        sort_order=len(known) + j, is_active=ok, **qty,
                     )
                     summary["packages_added"] += 1
                     if not ok:
                         summary["packages_unavailable"] = summary.get("packages_unavailable", 0) + 1
                     continue
-                fields = []
+                fields = [k for k, v in qty.items() if getattr(lp, k) != v]
+                for k in fields:
+                    setattr(lp, k, qty[k])
                 if lp.is_active != ok:
                     lp.is_active = ok
                     fields.append("is_active")

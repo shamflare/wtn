@@ -85,6 +85,8 @@ def _resolve_dealer(config: dict, buyer_tenant_id=None):
 
 
 class InternalTenantAdapter(BaseAdapter):
+    supports_quantity = True   # تعبر الكمية إلى باقة المورّد إن كانت «بالكمية» هي أيضاً
+
 
     code = "tenant"
 
@@ -144,8 +146,11 @@ class InternalTenantAdapter(BaseAdapter):
         sp = _supplier_product(order, dealer, provider)
         if sp is None:
             return None
-        # ما ندفعه نحن = سعر شرائنا كوكيل هناك (سعر مجموعتنا لدى المورّد)
-        return _to_our_base(order.tenant, dealer.tenant, services.resolve_sell_price(dealer, sp))
+        if order.product.is_amount != sp.is_amount:
+            return None
+        # ما ندفعه نحن = سعر شرائنا كوكيل هناك (سعر مجموعتنا لدى المورّد) × كمية الطلب
+        price = services.resolve_sell_price(dealer, sp) * sp.factor(order.quantity)
+        return _to_our_base(order.tenant, dealer.tenant, price)
 
     def fetch_status(self, order, config: dict, provider=None) -> ExecutionResult:
         """
@@ -205,11 +210,18 @@ class InternalTenantAdapter(BaseAdapter):
                 note="رقم الربط يجب أن يكون رقم منتجٍ قائمٍ لدى المتجر المورّد",
             )
 
+        if order.product.is_amount != sp.is_amount:
+            return ExecutionResult(
+                status="failed",
+                note="باقةٌ بالكمية لا تُربط إلا بباقةٍ بالكمية لدى المورّد (والعكس)",
+            )
+
         # أنشئ الطلب لدى المورّد (يخصم محفظتنا هناك بسعرنا لديه)
         try:
             sup_order = services.create_order(
                 dealer, sp,
                 player_id=order.player_id, customer_phone=order.customer_phone,
+                quantity=order.quantity,
             )
         except services.OrderError as e:
             return ExecutionResult(status="failed", note=f"رفض المورّد: {e}")

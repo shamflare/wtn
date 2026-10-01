@@ -26,6 +26,26 @@ import "./store.css";
 interface SProduct {
   id: number; name: string; price: string;
   recommended_price: string; require_player_id: boolean;
+  /** «amount» = بالكمية: price وrecommended_price لكل qty_unit وحدة */
+  sale_type?: "package" | "amount"; qty_min?: number; qty_max?: number; qty_unit?: number;
+}
+
+const isAmount = (p: SProduct) => p.sale_type === "amount";
+const fmtQty = (n?: number) => Number(n || 0).toLocaleString("en-US");
+/** قيمة كميةٍ من باقةٍ بالكمية: السعر لكل كتلة × الكمية ÷ حجم الكتلة */
+const amountOf = (price: string, qty: number, unit?: number) =>
+  Math.round(Number(price || 0) * qty / (unit || 1) * 100) / 100;
+
+/** كمياتٌ سريعة مرتّبة بين الحدّين: الحدّ الأدنى ثم أرقامٌ مستديرة */
+function quickQtys(min = 1, max = 1): number[] {
+  const out = new Set<number>([min]);
+  for (const base of [1, 2, 5]) {
+    for (let p = 1; p <= 1e9; p *= 10) {
+      const v = base * p;
+      if (v > min && v <= max) out.add(v);
+    }
+  }
+  return [...out].sort((a, b) => a - b).slice(0, 6);
 }
 interface SGame {
   id: number; name: string; image_url: string; require_player_id: boolean; products: SProduct[];
@@ -493,13 +513,18 @@ function SellTab({ gameId, onGame, onBought, onFinish }: {
           <div key={p.id} className="ag-pcard" onClick={() => setBuy(p)}>
             <div className="ag-pcard-img">
               <GameThumb name={active.name} img={active.image_url} className="ag-pcard-pic" />
+              {isAmount(p) && <span className="ag-pcard-qty">⚖ بالكمية</span>}
             </div>
             <div className="ag-pcard-body">
               <div className="ag-pcard-row">
                 <b className="ag-pcard-name">{p.name}</b>
                 <span className="ag-pcard-price" dir="ltr"><small>{cur}</small>{money(p.price)}</span>
               </div>
-              {Number(p.recommended_price) > 0 && (
+              {isAmount(p) ? (
+                <div className="ag-pcard-rec">
+                  لكل {fmtQty(p.qty_unit)} · من {fmtQty(p.qty_min)} إلى {fmtQty(p.qty_max)}
+                </div>
+              ) : Number(p.recommended_price) > 0 && (
                 <div className="ag-pcard-rec">المقترح {money(p.recommended_price)} {cur}</div>
               )}
               <button className="ag-pcard-buy" onClick={(e) => { e.stopPropagation(); setBuy(p); }}>
@@ -528,7 +553,17 @@ function BuyModal({ product, game, onClose, onBought, onFinish }: {
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const requirePlayer = game.require_player_id;
-  const profit = profitOf(sellPrice.trim() || product.recommended_price, product.price);
+
+  // بالكمية: الكمية تحدّد ما يُخصم والسعر المقترح؛ والثابتة كميتها 1
+  const amount = isAmount(product);
+  const [qtyText, setQtyText] = useState(amount ? String(product.qty_min || "") : "1");
+  const qty = Number(qtyText.replace(/[^\d]/g, "")) || 0;
+  const qtyErr = !amount ? "" : !qty ? "اكتب الكمية"
+    : qty < (product.qty_min || 1) ? `أقل كمية ${fmtQty(product.qty_min)}`
+    : qty > (product.qty_max || qty) ? `أكبر كمية ${fmtQty(product.qty_max)}` : "";
+  const pay = amount ? amountOf(product.price, qty, product.qty_unit) : Number(product.price);
+  const suggested = amount ? amountOf(product.recommended_price, qty, product.qty_unit) : Number(product.recommended_price);
+  const profit = profitOf(sellPrice.trim() || suggested, pay);
 
   /**
    * تأكيد الشراء ⇒ الانتقال **فوراً** إلى «طلباتي».
@@ -537,12 +572,14 @@ function BuyModal({ product, game, onClose, onBought, onFinish }: {
    */
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (qtyErr) { setErr(qtyErr); return; }
     setBusy(true); setErr("");
     try {
       await api.post("/store/buy/", {
         product: product.id, player_id: playerId, customer_phone: phone,
         // فارغ ⇒ يعتمد الخادم سعر التوصية
         dealer_sell_price: sellPrice.trim(),
+        ...(amount ? { quantity: qty } : {}),
       });
       onBought();
       onClose();
@@ -564,9 +601,27 @@ function BuyModal({ product, game, onClose, onBought, onFinish }: {
           </div>
           <div className="ag-row-end">
             <b style={{ color: "var(--primary)" }}>{money(product.price)} <small style={{ color: "var(--gold)", fontSize: 12 }}>{cur}</small></b>
-            <span>سعر الشراء</span>
+            <span>{amount ? `لكل ${fmtQty(product.qty_unit)}` : "سعر الشراء"}</span>
           </div>
         </div>
+        {amount && (
+          <>
+            <label className="ag-label">
+              الكمية * <span style={{ fontWeight: 400 }}>— من {fmtQty(product.qty_min)} إلى {fmtQty(product.qty_max)}</span>
+            </label>
+            <input value={qtyText} inputMode="numeric" dir="ltr" required autoFocus
+              onChange={(e) => setQtyText(e.target.value.replace(/[^\d]/g, ""))}
+              style={{ textAlign: "center", fontWeight: 800, fontSize: 20, letterSpacing: 1,
+                       borderColor: qtyErr && qtyText ? "var(--danger)" : undefined }} />
+            <div className="ag-qty-chips">
+              {quickQtys(product.qty_min, product.qty_max).map((v) => (
+                <button type="button" key={v} className={`ag-chip${qty === v ? " on" : ""}`}
+                  onClick={() => setQtyText(String(v))}>{fmtQty(v)}</button>
+              ))}
+            </div>
+            {qtyErr && qtyText && <div style={{ color: "var(--danger)", fontSize: 12.5, marginTop: 4 }}>{qtyErr}</div>}
+          </>
+        )}
         {game.dealer_note && (
           <div className="ag-note" style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
             <Icon name="warning" size={16} style={{ flexShrink: 0, marginTop: 3 }} />
@@ -577,7 +632,7 @@ function BuyModal({ product, game, onClose, onBought, onFinish }: {
         {requirePlayer && (
           <>
             <label className="ag-label">معرّف اللاعب (ID) *</label>
-            <input value={playerId} onChange={(e) => setPlayerId(e.target.value)} required autoFocus
+            <input value={playerId} onChange={(e) => setPlayerId(e.target.value)} required autoFocus={!amount}
               inputMode="text" dir="ltr" style={{ textAlign: "center", fontWeight: 700, letterSpacing: 1 }}
               placeholder="مثال: 5121234567" />
           </>
@@ -588,10 +643,11 @@ function BuyModal({ product, game, onClose, onBought, onFinish }: {
         <label className="ag-label">سعر بيعك للزبون (اختياري)</label>
         <input type="number" step="0.01" min="0" inputMode="decimal" value={sellPrice}
           onChange={(e) => setSellPrice(e.target.value)} style={{ textAlign: "center" }}
-          placeholder={`فارغ = السعر المقترح ${money(product.recommended_price)}`} />
+          placeholder={`فارغ = السعر المقترح ${money(suggested)}`} />
 
         <div className="ag-card ag-pad" style={{ marginTop: 14, background: "var(--surface-2)", boxShadow: "none" }}>
-          <div className="ag-kv"><span>يُخصم من رصيدك</span><b>{money(product.price)} {cur}</b></div>
+          {amount && <div className="ag-kv"><span>الكمية</span><b dir="ltr">{fmtQty(qty)}</b></div>}
+          <div className="ag-kv"><span>يُخصم من رصيدك</span><b>{money(pay)} {cur}</b></div>
           <div className="ag-kv">
             <span>ربحك من العملية</span>
             <b style={{ color: profit < 0 ? "var(--danger)" : "var(--primary)" }}>{money(profit)} {cur}</b>
@@ -599,7 +655,7 @@ function BuyModal({ product, game, onClose, onBought, onFinish }: {
         </div>
 
         {err && <div className="ag-msg err">{err}</div>}
-        <button className="btn g ag-cta" disabled={busy}>
+        <button className="btn g ag-cta" disabled={busy || !!qtyErr}>
           {busy ? "جارٍ التنفيذ..." : <><Icon name="check" size={18} />تأكيد الشراء</>}
         </button>
       </form>
@@ -656,11 +712,15 @@ function PackagesTab() {
                 </button>
                 <div className="ag-row-main">
                   <b>{r.name}</b>
-                  <span>{r.require_player_id ? "يطلب معرّف اللاعب" : "كود / شحن مباشر"}</span>
+                  <span>
+                    {r.sale_type === "amount"
+                      ? `⚖ بالكمية: ${fmtQty(r.qty_min)}–${fmtQty(r.qty_max)} (qty)`
+                      : r.require_player_id ? "يطلب معرّف اللاعب" : "كود / شحن مباشر"}
+                  </span>
                 </div>
                 <div className="ag-row-end">
                   <b style={{ color: "var(--primary)" }}>{money(r.buy_price)} {symbolOf(cur)}</b>
-                  <span>مقترح {money(r.recommended_price)}</span>
+                  <span>{r.sale_type === "amount" ? `لكل ${fmtQty(r.qty_unit)}` : `مقترح ${money(r.recommended_price)}`}</span>
                 </div>
               </div>
             ))}
@@ -716,7 +776,7 @@ function OrdersTab() {
   function exportCsv() {
     if (!rows?.length) return;
     downloadCsv("طلباتي", ["رقم الفيش", "اللعبة", "الباقة", "معرّف اللاعب", "هاتف الزبون", "الشراء", "البيع", "الربح", "الحالة", "الكود", "التاريخ"],
-      rows.map((o) => [o.receipt_no, o.game_name, o.product_name, o.player_id, o.customer_phone,
+      rows.map((o) => [o.receipt_no, o.game_name, o.quantity > 1 ? `${o.product_name} × ${o.quantity}` : o.product_name, o.player_id, o.customer_phone,
         o.paid_price, o.dealer_sell_price, o.dealer_profit, o.status_label, o.pin_result, o.created_at]));
   }
 
@@ -774,7 +834,7 @@ function OrdersTab() {
                 <div className="ag-order-top">
                   <GameThumb name={o.game_name} img={imgOf.get(o.game_name)} />
                   <div className="ag-order-title">
-                    <b>{o.product_name}</b>
+                    <b>{o.product_name}{o.quantity > 1 && <span className="ag-qty-x"> × {fmtQty(o.quantity)}</span>}</b>
                     <span>{o.game_name}</span>
                   </div>
                   <div className="ag-order-amt">
@@ -842,7 +902,10 @@ function OrderBody({ order: o, img }: { order: any; img?: string }) {
     <>
       <div className="ag-row" style={{ background: "var(--surface-2)", ["--st" as any]: st }}>
         <GameThumb name={o.game_name} img={img} />
-        <div className="ag-row-main"><b>{o.product_name}</b><span>{o.game_name}</span></div>
+        <div className="ag-row-main">
+          <b>{o.product_name}{o.quantity > 1 && <span className="ag-qty-x"> × {fmtQty(o.quantity)}</span>}</b>
+          <span>{o.game_name}</span>
+        </div>
         <span className="ag-status">{o.status_label}</span>
       </div>
 

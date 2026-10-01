@@ -396,3 +396,34 @@ class StoreApiTokenPageTest(APITestCase):
 
     def test_anonymous_is_refused(self):
         self.assertIn(self.client.get("/api/store/api-token/").status_code, (401, 403))
+
+
+class ClientApiAmountTest(APITestCase):
+    """الواجهة الخارجية بلغة ZDK: الباقة بالكمية تُعرض amount بسعر الوحدة، وتُطلب بـqty."""
+
+    setUp_base = ClientApiTest.setUp
+    get = ClientApiTest.get
+    order_url = ClientApiTest.order_url
+
+    def setUp(self):
+        self.setUp_base()
+        # 2.00$ لكل 1000 ⇒ سعر الوحدة 0.002$
+        self.amount = Product.objects.create(
+            tenant=self.tenant, game=self.game, name="Coins", cost_price=Decimal("1"),
+            recommended_price=Decimal("2.00"), sale_type="amount",
+            qty_min=1000, qty_max=100000, qty_unit=1000)
+
+    def test_listing_and_order_with_quantity(self):
+        rows = self.get("/client/api/products").json()["data"]
+        row = next(r for r in rows if r["id"] == self.amount.id)
+        self.assertEqual((row["product_type"], row["price"]), ("amount", "0.002"))
+        self.assertEqual(row["qty_values"], {"min": 1000, "max": 100000})
+        body = self.get(self.order_url(self.amount.id), qty="5000",
+                        order_uuid="7d1a0e0b-6b67-4b0b-9a0e-1f6b1a2c3d4e", playerId="5").json()
+        self.assertEqual(body["data"]["quantity"], 5000)
+        self.assertEqual(body["data"]["price"], "10.00")
+
+    def test_qty_still_refused_on_a_fixed_package(self):
+        body = self.get(self.order_url(), qty="3",
+                        order_uuid="8d1a0e0b-6b67-4b0b-9a0e-1f6b1a2c3d4e", playerId="5").json()
+        self.assertEqual(body.get("status"), "error")

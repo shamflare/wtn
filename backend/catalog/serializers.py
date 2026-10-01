@@ -36,10 +36,20 @@ class ProductSerializer(serializers.ModelSerializer):
             "kupur", "status", "status_label", "is_parcali", "execution_type",
             "provider", "provider_alt1", "provider_alt2", "provider_package_id",
             "description", "sort_order", "created_at",
+            "sale_type", "qty_min", "qty_max", "qty_unit",
         ]
         read_only_fields = ["tenant"]
 
     def validate(self, attrs):
+        # حدود الكمية: تُفحص في الإضافة والتعديل معاً
+        get = lambda k, d: attrs.get(k, getattr(self.instance, k, d) if self.instance else d)
+        if get("sale_type", "package") == Product.SaleType.AMOUNT:
+            lo, hi, unit = get("qty_min", 1), get("qty_max", 1), get("qty_unit", 1)
+            if not unit or unit < 1:
+                raise serializers.ValidationError({"qty_unit": "حجم الكتلة يجب أن يكون 1 فأكثر"})
+            if lo < 1 or hi < lo:
+                raise serializers.ValidationError({"qty_min": "أقل كمية يجب أن تكون 1 فأكثر ولا تتجاوز أكبر كمية"})
+
         # التحقّق عند الإضافة فقط — التعديل لا يمسّ رقم الربط أصلاً (انظر update)
         if self.instance is not None:
             return attrs
@@ -76,6 +86,10 @@ class ProductSerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         validated_data.pop("kupur", None)  # ثابت — مصدره المكتبة العالمية
+        # النوع وحجم الكتلة ثابتان أيضاً: أسعار المزوّدين على الربط محفوظةٌ لكل كتلة،
+        # فتغييرهما يجعلها كاذبةً بصمت. الحدّان وحدهما قابلان للتعديل.
+        validated_data.pop("sale_type", None)
+        validated_data.pop("qty_unit", None)
         return super().update(instance, validated_data)
 
 
@@ -109,6 +123,7 @@ class LibraryProductSerializer(serializers.ModelSerializer):
             "id", "uuid", "game", "name", "suggested_cost", "suggested_price",
             "kupur", "is_parcali", "execution_type", "description", "sort_order", "is_active",
             "source_ref", "source_name", "source_cost",
+            "sale_type", "qty_min", "qty_max", "qty_unit",
         ]
         read_only_fields = ["uuid", "source_ref", "source_name", "source_cost"]
 

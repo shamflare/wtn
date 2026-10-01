@@ -136,6 +136,11 @@ def suggest(tenant, provider) -> dict:
     game_cache: dict[str, list] = {}
     for p in rest:
         gname = p.game.name
+        if p.is_amount:
+            # «بالكمية» لا يُطابَق بالرقم في الاسم — رقمها حدودٌ لا باقة
+            unmatched.append({"product": p.id, "product_name": p.name, "game_name": gname,
+                              "why": "باقةٌ بالكمية — تُربط بيدك من الجدول"})
+            continue
         if gname not in game_cache:
             scored = sorted(((game_score(gname, g), g) for g in by_game), reverse=True)
             game_cache[gname] = [(s, g) for s, g in scored if s >= 0.5][:3]

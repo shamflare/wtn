@@ -69,6 +69,7 @@ class ZdkAdapter(BaseAdapter):
     """
 
     code = "zdk"
+    supports_quantity = True   # newOrder/{id}/params?qty=…
 
     def _base(self, config: dict) -> str:
         return ((config.get("base_url") or "").strip() or DEFAULT_BASE).rstrip("/")
@@ -95,7 +96,9 @@ class ZdkAdapter(BaseAdapter):
             return ExecutionResult(status="failed", note="لا رقم ربط لهذه الباقة لدى ZDK")
 
         order_uuid = self._order_uuid(order)
-        params = {"qty": "1", "order_uuid": order_uuid}
+        # الكمية للباقة «بالكمية» (منتج amount لدى ZDK)، و1 للباقة الثابتة
+        qty = order.quantity if getattr(order.product, "is_amount", False) else 1
+        params = {"qty": str(qty), "order_uuid": order_uuid}
         if order.player_id:
             params["playerId"] = order.player_id
         # معاملات إضافية يطلبها المنتج (حقل `params` في كتالوج ZDK) — يضبطها

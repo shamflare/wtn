@@ -9,6 +9,7 @@ type LibPkg = {
   name: string;
   suggested_cost: string;
   suggested_price: string;
+  sale_type?: string; qty_min?: number; qty_max?: number; qty_unit?: number;
 };
 
 export default function GameDetail() {
@@ -92,15 +93,24 @@ export default function GameDetail() {
       : { ...newP, kupur });
   }
 
+  // الرقم المختار من المكتبة «بالكمية»؟ فالأسعار في النموذج لكل كتلة
+  const pickedLib = libPkgs.find((p) => p.kupur === newP.kupur);
+  const amountUnit = pickedLib?.sale_type === "amount" ? pickedLib.qty_unit : 0;
+
   async function addProduct(e: React.FormEvent) {
     e.preventDefault();
     if (!newP.name) return;
     setAddErr("");
+    // نوع الباقة وحدودها من المكتبة: «بالكمية» تبقى بالكمية بحجم كتلتها نفسه
+    const lib = libPkgs.find((p) => p.kupur === newP.kupur);
     try {
       await api.post("/catalog/products/", {
         game: game!.id, name: newP.name,
         cost_price: newP.cost_price || "0", recommended_price: newP.recommended_price || "0",
         kupur: newP.kupur,
+        ...(lib?.sale_type === "amount" ? {
+          sale_type: "amount", qty_min: lib.qty_min, qty_max: lib.qty_max, qty_unit: lib.qty_unit,
+        } : {}),
       });
       setNewP({ name: "", cost_price: "", recommended_price: "", kupur: "" });
       load();
@@ -195,7 +205,9 @@ export default function GameDetail() {
                       {libPkgs.length === 0 ? "— لا أرقام متاحة —" : "— اختر من المكتبة —"}
                     </option>
                     {libPkgs.map((p) => (
-                      <option key={p.kupur} value={p.kupur}>{p.kupur} — {p.name}</option>
+                      <option key={p.kupur} value={p.kupur}>
+                        {p.kupur} — {p.name}{p.sale_type === "amount" ? ` (بالكمية · لكل ${fmtQty(p.qty_unit)})` : ""}
+                      </option>
                     ))}
                   </select>
                 </Field>
@@ -203,11 +215,11 @@ export default function GameDetail() {
                   <input style={{ width: 180 }} value={newP.name}
                     onChange={(e) => setNewP({ ...newP, name: e.target.value })} />
                 </Field>
-                <Field label="التكلفة">
+                <Field label={amountUnit ? `التكلفة لكل ${fmtQty(amountUnit)}` : "التكلفة"}>
                   <input style={{ width: 100 }} type="number" step="0.01" value={newP.cost_price}
                     onChange={(e) => setNewP({ ...newP, cost_price: e.target.value })} />
                 </Field>
-                <Field label="السعر الموصى">
+                <Field label={amountUnit ? `الموصى لكل ${fmtQty(amountUnit)}` : "السعر الموصى"}>
                   <input style={{ width: 100 }} type="number" step="0.01" value={newP.recommended_price}
                     onChange={(e) => setNewP({ ...newP, recommended_price: e.target.value })} />
                 </Field>
@@ -268,14 +280,21 @@ export default function GameDetail() {
                     <td style={{ ...td, textAlign: "right", paddingInlineStart: 12, fontWeight: 600 }}>
                       <CellEdit value={p.name} width={140} align="right"
                         onSave={(v) => patchProduct(p.id, { name: v })} />
+                      {p.sale_type === "amount" && (
+                        <div style={amountTag} title="يكتب الوكيل كميته بين الحدّين — والسعران لكل كتلة">
+                          ⚖ بالكمية · {fmtQty(p.qty_min)}–{fmtQty(p.qty_max)}
+                        </div>
+                      )}
                     </td>
                     <td style={td}>
                       <CellEdit value={p.cost_price} width={78} numeric format={money}
                         onSave={(v) => patchProduct(p.id, { cost_price: v || "0" })} />
+                      {p.sale_type === "amount" && <div style={perUnit}>لكل {fmtQty(p.qty_unit)}</div>}
                     </td>
                     <td style={td}>
                       <CellEdit value={p.recommended_price} width={78} numeric format={money}
                         onSave={(v) => patchProduct(p.id, { recommended_price: v || "0" })} />
+                      {p.sale_type === "amount" && <div style={perUnit}>لكل {fmtQty(p.qty_unit)}</div>}
                     </td>
                     <td style={{ ...td, color: Number(p.profit) < 0 ? "var(--debt)" : "var(--ok)", fontWeight: 600 }}>
                       {money(p.profit)}
@@ -413,8 +432,11 @@ function ProductModal({
     provider: product.provider,
     provider_alt1: product.provider_alt1,
     provider_alt2: product.provider_alt2,
+    qty_min: String(product.qty_min ?? 1),
+    qty_max: String(product.qty_max ?? 1),
   });
   const [busy, setBusy] = useState(false);
+  const isAmount = product.sale_type === "amount";
   const [err, setErr] = useState("");
 
   const upd = (k: keyof typeof f, v: any) => setF((s) => ({ ...s, [k]: v }));
@@ -430,6 +452,7 @@ function ProductModal({
           recommended_price: f.recommended_price || "0",
           status: f.status, is_parcali: f.is_parcali,
           execution_type: f.execution_type, description: f.description,
+          ...(isAmount ? { qty_min: Number(f.qty_min) || 1, qty_max: Number(f.qty_max) || 1 } : {}),
         }
       : {
           provider_package_id: f.provider_package_id.trim(),
@@ -437,6 +460,11 @@ function ProductModal({
           provider_alt1: f.provider_alt1 || null,
           provider_alt2: f.provider_alt2 || null,
         };
+    if (isAmount && Number(f.qty_min) > Number(f.qty_max)) {
+      setErr("أقل كمية يجب ألا تتجاوز أكبر كمية");
+      setBusy(false);
+      return;
+    }
     try {
       await api.patch(`/catalog/products/${product.id}/`, body);
       onSaved();
@@ -500,6 +528,30 @@ function ProductModal({
                 <input style={mInp} value={f.description}
                   onChange={(e) => upd("description", e.target.value)} />
               </Field>
+              {isAmount && (
+                <>
+                  <div style={{ display: "flex", gap: 10, alignItems: "end" }}>
+                    <Field label="أقل كمية">
+                      <input style={{ ...mInp, width: 140 }} type="number" min={1} dir="ltr"
+                        value={f.qty_min} onChange={(e) => upd("qty_min", e.target.value)} />
+                    </Field>
+                    <Field label="أكبر كمية">
+                      <input style={{ ...mInp, width: 140 }} type="number" min={1} dir="ltr"
+                        value={f.qty_max} onChange={(e) => upd("qty_max", e.target.value)} />
+                    </Field>
+                    <Field label="الأسعار لكل (ثابت)">
+                      <div style={{ ...mInp, width: 120, padding: "6px 8px", background: "var(--row-alt)",
+                        border: "1px solid var(--border)", borderRadius: 4, color: "var(--muted)", fontSize: 13 }}>
+                        {fmtQty(product.qty_unit)} وحدة
+                      </div>
+                    </Field>
+                  </div>
+                  <div style={hint}>
+                    ⚖ باقة بالكمية: يكتب الوكيل كميته بين الحدّين، ويُحسب سعره = السعر × الكمية ÷ {fmtQty(product.qty_unit)}.
+                    ضيّق الحدّين إن شئت، ولا توسّعهما أبعد ممّا يقبله المزوّد. وحجم الكتلة ثابت لأن أسعار المزوّد محفوظةٌ به.
+                  </div>
+                </>
+              )}
             </>
           ) : (
             <>
@@ -643,3 +695,12 @@ const td: React.CSSProperties = {
   background: "var(--surface)", border: "1px solid var(--border)",
   borderBottom: "3px solid var(--row-sep)",
 };
+
+/** 100000 ⇐ «100,000» */
+function fmtQty(n?: number) {
+  return Number(n || 0).toLocaleString("en-US");
+}
+const amountTag: React.CSSProperties = {
+  fontSize: 11, fontWeight: 700, color: "#7c3aed", marginTop: 2,
+};
+const perUnit: React.CSSProperties = { fontSize: 10.5, color: "var(--muted)" };

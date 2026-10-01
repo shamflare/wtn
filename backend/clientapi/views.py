@@ -88,6 +88,12 @@ def _money(user, amount) -> str:
     return str(currency.to_display(user, amount))
 
 
+def _unit_money(user, amount) -> str:
+    """سعر الوحدة الواحدة لباقةٍ بالكمية — كسورٌ دقيقة (0.000061) لا تُقرَّب إلى سنت."""
+    from decimal import Decimal
+    return str((Decimal(str(amount)) * currency.display_rate(user)).quantize(Decimal("0.00000001")).normalize())
+
+
 # ————————————————————————— الرصيد —————————————————————————
 
 @_api
@@ -134,15 +140,18 @@ def products_view(request):
         row = {
             "id": p.id,
             "name": p.name,
-            "price": _money(user, services.resolve_sell_price(user, p)),
+            # الباقة «بالكمية»: سعر الوحدة الواحدة (لغة ZDK) — ونحن نسعّر لكل qty_unit
+            "price": (_unit_money(user, services.resolve_sell_price(user, p) / p.qty_unit)
+                      if p.is_amount else _money(user, services.resolve_sell_price(user, p))),
             "available": True,
             "category_name": p.game.name,
         }
         if not minimal:
             row.update({
                 "params": ["playerId"] if p.game.require_player_id else [],
-                "product_type": "package",
-                "qty_values": None,
+                # «amount» كما يعرضها ZDK: السعر للوحدة الواحدة، والكمية بين الحدّين
+                "product_type": "amount" if p.is_amount else "package",
+                "qty_values": {"min": p.qty_min, "max": p.qty_max} if p.is_amount else None,
                 "category_img": p.game.image_url,
                 "currency": currency.display_currency(user),
             })
@@ -158,7 +167,7 @@ def _order_row(order, user) -> dict:
         "order_id": order.receipt_no,
         "order_uuid": str(order.client_uuid or ""),
         "status": STATUS_OUT.get(order.status, "wait"),
-        "quantity": 1,
+        "quantity": order.quantity,
         "product_id": order.product_id,
         "product_name": order.product.name,
         "price": _money(user, order.buyer_price),
@@ -191,8 +200,6 @@ def new_order_view(request, product_id):
         return errors.error(errors.UUID_REQUIRED)
 
     qty = (request.query_params.get("qty") or "1").strip()
-    if qty not in ("", "1"):
-        return errors.error(errors.QTY_UNSUPPORTED)
 
     # نداءٌ مكرّر ⇒ الطلب الأوّل نفسه، وبحالته الحالية لا بحالته وقت الإنشاء
     existing = Order.objects.filter(
@@ -208,6 +215,10 @@ def new_order_view(request, product_id):
         return errors.error(errors.PRODUCT_NOT_FOUND, http_status=404)
     if product.status != Product.Status.ACTIVE or product.game.status != "active":
         return errors.error(errors.PRODUCT_UNAVAILABLE)
+
+    # الباقة الثابتة كميتها 1 وحدها؛ والكمية للباقة «بالكمية» بين حدّيها
+    if not product.is_amount and qty not in ("", "1"):
+        return errors.error(errors.QTY_UNSUPPORTED)
 
     player_id = (request.query_params.get("playerId") or "").strip()
     if product.game.require_player_id and not player_id:
@@ -229,6 +240,7 @@ def new_order_view(request, product_id):
             customer_phone=(request.query_params.get("customer_phone") or "").strip(),
             dealer_sell_price=retail,
             client_uuid=client_uuid,
+            quantity=qty if product.is_amount else None,
         )
     except IntegrityError:
         # سباق: نداءان بنفس الـ uuid في اللحظة ذاتها. القيد في القاعدة ردّ

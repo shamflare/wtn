@@ -179,6 +179,9 @@ class ZdkAdapter(BaseAdapter):
                 # الأدمن على معرفة ما يجب ضبطه على الربط.
                 "note": ", ".join(str(x) for x in (it.get("params") or []))[:160],
                 "params": [str(x) for x in (it.get("params") or [])],
+                # «package» باقةٌ ثابتة · «amount» سعرٌ للوحدة والكمية يختارها المشتري
+                "type": str(it.get("product_type") or ""),
+                "qty": it.get("qty_values") or {},
             }
             for it in rows if isinstance(it, dict)
         ]

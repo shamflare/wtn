@@ -25,7 +25,11 @@ interface Group {
   counts: { new: number; changed: number; same: number; removed: number };
   removed: { ref: string; name: string }[];
 }
-interface Catalog { currency: string; usd_rate: string; total_packages: number; groups: Group[] }
+interface Catalog {
+  currency: string; usd_rate: string; total_packages: number; groups: Group[];
+  /** ألعابٌ يبيعها المزوّد «بالكمية» فقط (سعرٌ للوحدة) — لا باقات ثابتة تُستورد */
+  amount_only?: { key: string; count: number; min: string; max: string }[];
+}
 
 type Filter = "all" | "new" | "changes" | "existing";
 
@@ -374,6 +378,19 @@ function CatalogBrowser({ source, onBack, onImported }: { source: Source; onBack
           </div>
 
           {result && <div style={result.ok ? okBox : errBoxDark}>{result.text}</div>}
+          {!!cat.amount_only?.length && (
+            <details style={{ ...hintBox, borderColor: "#b45309", background: "#1c1408" }}>
+              <summary style={{ cursor: "pointer" }}>
+                ⚖️ <b>{cat.amount_only.length} لعبة يبيعها المزوّد «بالكمية» فقط</b> — سعرٌ للوحدة بلا باقات ثابتة، فلا تُستورد الآن.
+                (أقسام «-ZNET» دُمجت مع ألعابها، وما فيه باقاتٌ ظاهرٌ في الجدول)
+              </summary>
+              <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {cat.amount_only.map((a) => (
+                  <span key={a.key} style={miniPill} title={`الكمية من ${a.min} إلى ${a.max}`}>{a.key}</span>
+                ))}
+              </div>
+            </details>
+          )}
           {!picked.size && !result && (
             <div style={hintBox}>
               👇 <b>اختر الألعاب</b> بالخانات ☑ (أو خانة العنوان لتحديد الظاهر كلّه)، عدّل أسماءها إن شئت،

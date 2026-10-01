@@ -13,6 +13,7 @@
 «المزوّد نفسه» يُعرف ببصمته: عائلة المحوّل + نطاق الرابط. بركات عند المالك
 وبركات عند صاحب المتجر بصمةٌ واحدة، وإن اختلف مفتاحاهما.
 """
+import re
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from urllib.parse import urlparse
 
@@ -102,14 +103,62 @@ def _raw_packages(source):
     return [p for p in res.packages if not _excluded(p)], ""
 
 
-# ما يعيد المزوّد بيعه من مزوّدين آخرين (أقسام «…-ZNET» وما وُسم بـ barakat)
-# لا يُجلب أصلاً — لا في الكتالوج ولا في الاستيراد ولا في المزامنة.
-EXCLUDED_WORDS = ("barakat", "znet")
+# أكواد محفظة بركات نفسه («Barakat Kodu») — ليست منتجاً يُعاد بيعه.
+EXCLUDED_WORDS = ("barakat",)
 
 
 def _excluded(p: dict) -> bool:
     text = f"{p.get('game') or ''} {p.get('name') or ''}".lower()
     return any(w in text for w in EXCLUDED_WORDS)
+
+
+# بركات يعرض اللعبة الواحدة في قسمين: «4FUN CHAT» فيه منتجٌ «بالكمية» (سعرٌ
+# للوحدة، ويختار المشتري كميته)، و«4FUN CHAT-ZNET» فيه **الباقات** الثابتة
+# (صُنعت لمن يطلب منه ببرمجية ZNET). فالقسمان لعبةٌ واحدة: يُدمجان تحت الاسم
+# بلا اللاحقة، وتُؤخذ الباقات — والمنتج «بالكمية» يُترك متى وُجدت باقات، إذ
+# سعره للوحدة ونظامنا يبيع باقاتٍ بكميةٍ ثابتة.
+_ZNET_SUFFIX = re.compile(r"[\s_\-]*(znet|zent)\s*$", re.I)
+PACKAGE_TYPES = {"package", "specificpackage", ""}
+
+
+def _norm_key(category: str) -> str:
+    return " ".join(_ZNET_SUFFIX.sub("", category or "").split()).upper()
+
+
+def _is_package(p: dict) -> bool:
+    return str(p.get("type") or "").lower() in PACKAGE_TYPES
+
+
+def _grouped(packages: list):
+    """
+    ⇐ (groups, amount_only)
+    groups: {اسم اللعبة: [باقات]} — باقاتٌ ثابتة فقط، بعد دمج «-ZNET».
+    amount_only: {اسم اللعبة: {count, min, max}} — ألعابٌ لا باقات لها بعد.
+    """
+    # الاسم المعروض: القسم الأصلي (بلا لاحقة) إن وُجد، وإلا اسم قسم ZNET منزوعَ اللاحقة.
+    # وهو مفتاح اللعبة في المكتبة (source_key) — فيبقى ثابتاً لما استُورد سابقاً.
+    names: dict[str, str] = {}
+    for p in packages:
+        cat = p.get("game") or "بلا قسم"
+        k = _norm_key(cat)
+        if not _ZNET_SUFFIX.search(cat):
+            names[k] = cat
+        elif k not in names:
+            names[k] = " ".join(_ZNET_SUFFIX.sub("", cat).split()) or cat
+    pkgs: dict[str, list] = {}
+    amounts: dict[str, list] = {}
+    for p in packages:
+        key = names[_norm_key(p.get("game") or "بلا قسم")]
+        (pkgs if _is_package(p) else amounts).setdefault(key, []).append(p)
+    amount_only = {}
+    for key, rows in amounts.items():
+        if key in pkgs:
+            continue
+        q = [r.get("qty") or {} for r in rows]
+        amount_only[key] = {"count": len(rows),
+                            "min": min((str(x.get("min") or "") for x in q), default=""),
+                            "max": max((str(x.get("max") or "") for x in q), default="")}
+    return pkgs, amount_only
 
 
 def fetch_catalog(source) -> dict:
@@ -120,9 +169,7 @@ def fetch_catalog(source) -> dict:
     if err:
         return {"ok": False, "detail": err}
 
-    groups: dict[str, list] = {}
-    for p in packages:
-        groups.setdefault(p.get("game") or "بلا قسم", []).append(p)
+    groups, amount_only = _grouped(packages)
 
     existing = {
         g.source_key: g for g in
@@ -175,7 +222,8 @@ def fetch_catalog(source) -> dict:
             "removed": removed,
         })
     return {"ok": True, "currency": source.currency, "usd_rate": str(source.usd_rate),
-            "total_packages": len(packages), "groups": out}
+            "total_packages": sum(len(g["packages"]) for g in out), "groups": out,
+            "amount_only": [{"key": k, **v} for k, v in sorted(amount_only.items(), key=lambda x: x[0].lower())]}
 
 
 # ════════════════ 2. الاستيراد والمزامنة ════════════════
@@ -193,9 +241,7 @@ def apply_import(source, picks: list, margin=None, update_prices: bool = True) -
     if err:
         return {"ok": False, "detail": err}
     margin = source.default_margin if margin in (None, "") else _dec(margin)
-    groups: dict[str, list] = {}
-    for p in packages:
-        groups.setdefault(p.get("game") or "بلا قسم", []).append(p)
+    groups, _ = _grouped(packages)
 
     summary = {"games_created": 0, "games_updated": 0, "packages_added": 0,
                "prices_updated": 0, "packages_disabled": 0, "skipped": []}
@@ -206,6 +252,10 @@ def apply_import(source, picks: list, margin=None, update_prices: bool = True) -
             key = str(pick.get("key") or "")
             rows = groups.get(key)
             if rows is None:
+                # لا باقات ثابتة لها (بالكمية فقط، أو أُزيلت): الموجود منها في المكتبة يُطفأ
+                lib = LibraryGame.objects.filter(source=source, source_key=key).first()
+                if lib is not None:
+                    summary["packages_disabled"] += lib.products.filter(is_active=True).update(is_active=False)
                 summary["skipped"].append(key)
                 continue
             needs_id = any(

@@ -433,6 +433,8 @@ def library_browse_view(request):
     rows = []
     for g in LibraryGame.objects.filter(is_active=True).select_related("source").prefetch_related("products"):
         active_products = [p for p in g.products.all() if p.is_active]
+        if not active_products:
+            continue   # لا باقة تُباع (كلّها مطفأة: بالكمية فقط، أو أزالها المزوّد)
         rows.append({
             "id": g.id,
             "uuid": g.uuid,

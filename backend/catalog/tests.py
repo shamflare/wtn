@@ -893,15 +893,37 @@ class LibrarySourceTest(APITestCase):
         self.assertEqual(str(p.suggested_cost), "2.00")
 
 
-    def test_barakat_and_znet_items_are_never_fetched(self):
+    def test_znet_sections_merge_into_their_game_and_barakat_codes_are_dropped(self):
+        """
+        بركات: «4FUN CHAT» منتجٌ بالكمية، و«4FUN CHAT-ZNET» باقاته الثابتة — لعبةٌ واحدة.
+        و«Barakat Kodu» أكواد محفظته — لا تُجلب.
+        """
         sid = self._source()
         feed = self.FEED + [
-            {"id": "401", "name": "GALA 100", "game": "GALA STAR-ZNET", "price": "41.50", "params": []},
-            {"id": "402", "name": "Barakat Gift 5$", "game": "Gifts", "price": "41.50", "params": []},
-            {"id": "403", "name": "Card 5$", "game": "Gifts", "price": "41.50", "params": []},
+            {"id": "229", "name": "4FUN CHAT", "game": "4FUN CHAT", "price": "0.003", "type": "amount",
+             "qty": {"min": "15000", "max": "15000000"}, "params": ["USER ID"]},
+            {"id": "2075", "name": "4FUN CHAT 15000", "game": "4FUN CHAT-ZNET", "price": "45.03", "type": "package", "params": []},
+            {"id": "2076", "name": "4FUN CHAT 20000", "game": "4FUN CHAT-ZNET", "price": "60.04", "type": "package", "params": []},
+            {"id": "900", "name": "GALA 100", "game": "GALA STAR-ZNET", "price": "41.50", "type": "package", "params": []},
+            {"id": "950", "name": "YouTube", "game": "Youtube", "price": "0.01", "type": "amount",
+             "qty": {"min": "1000", "max": "100000"}, "params": []},
+            {"id": "990", "name": "Kodu 5 USD", "game": "Barakat Kodu", "price": "210", "type": "package", "params": []},
         ]
         with self._feed(feed):
-            groups = self.client.get(f"/api/platform/library/sources/{sid}/catalog/").json()["groups"]
-        self.assertEqual(sorted(g["key"] for g in groups), ["Gifts", "PUBG Mobile", "Yalla Ludo"])
-        gifts = next(g for g in groups if g["key"] == "Gifts")
-        self.assertEqual([p["ref"] for p in gifts["packages"]], ["403"])
+            cat = self.client.get(f"/api/platform/library/sources/{sid}/catalog/").json()
+        keys = sorted(g["key"] for g in cat["groups"])
+        self.assertEqual(keys, ["4FUN CHAT", "GALA STAR", "PUBG Mobile", "Yalla Ludo"])
+        fun = next(g for g in cat["groups"] if g["key"] == "4FUN CHAT")
+        self.assertEqual(sorted(p["ref"] for p in fun["packages"]), ["2075", "2076"])   # بلا منتج الكمية
+        self.assertEqual([a["key"] for a in cat["amount_only"]], ["Youtube"])
+
+    def test_sync_switches_off_a_game_that_became_amount_only(self):
+        from .models import LibraryProduct
+        sid = self._source()
+        with self._feed():
+            self.client.post(f"/api/platform/library/sources/{sid}/import/",
+                             {"picks": [{"key": "Yalla Ludo"}]}, format="json")
+        feed = [dict(self.FEED[2], type="amount")]
+        with self._feed(feed):
+            self.client.post(f"/api/platform/library/sources/{sid}/import/", {"sync": True}, format="json")
+        self.assertFalse(LibraryProduct.objects.get(source_ref="201").is_active)

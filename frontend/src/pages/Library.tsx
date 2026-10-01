@@ -16,6 +16,7 @@ export default function Library() {
   const [busyId, setBusyId] = useState<number | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [open, setOpen] = useState<number | null>(null);
+  const [q, setQ] = useState("");
 
   function load() {
     setLoading(true);
@@ -37,6 +38,13 @@ export default function Library() {
     } finally { setBusyId(null); }
   }
 
+  // البحث باسم المنتج — ويطابق أسماء الباقات أيضاً («325 UC» يجد PUBG)
+  const term = q.trim().toLowerCase();
+  const shown = term
+    ? games.filter((g) => g.name.toLowerCase().includes(term)
+        || g.products.some((p) => p.name.toLowerCase().includes(term)))
+    : games;
+
   const money = (v: string) => Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 });
 
   return (
@@ -50,6 +58,27 @@ export default function Library() {
         ثم عدّل الأسعار أو احذف ما تشاء بحرّية دون التأثير على المكتبة.
       </p>
 
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
+        <div style={{ position: "relative", width: 340, maxWidth: "100%" }}>
+          <span style={{ position: "absolute", insetInlineStart: 11, top: "50%", transform: "translateY(-50%)",
+                         color: "var(--muted)", pointerEvents: "none", display: "flex" }}>
+            <Icon name="search" size={16} />
+          </span>
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="ابحث باسم المنتج أو الباقة..."
+            autoFocus style={{ width: "100%", height: 38, paddingInlineStart: 34 }} />
+          {q && (
+            <button type="button" onClick={() => setQ("")} aria-label="مسح"
+              style={{ position: "absolute", insetInlineEnd: 6, top: "50%", transform: "translateY(-50%)",
+                       background: "transparent", border: 0, cursor: "pointer", color: "var(--muted)", fontSize: 15 }}>✕</button>
+          )}
+        </div>
+        {!loading && (
+          <span style={{ color: "var(--muted)", fontSize: 13 }}>
+            {term ? `${shown.length} من ${games.length} منتج` : `${games.length} منتج`}
+          </span>
+        )}
+      </div>
+
       {msg && (
         <div style={{
           padding: "10px 14px", borderRadius: 6, marginBottom: 14, fontSize: 14,
@@ -61,7 +90,7 @@ export default function Library() {
 
       {loading ? <div style={{ padding: 24, color: "var(--muted)" }}>جارٍ التحميل...</div> : (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 16 }}>
-          {games.map((g) => (
+          {shown.map((g) => (
             <div key={g.id} style={card}>
               <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                 <div style={thumb}>{g.image_url ? <img src={g.image_url} style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: 8 }} /> : "🎮"}</div>
@@ -109,7 +138,11 @@ export default function Library() {
               </button>
             </div>
           ))}
-          {games.length === 0 && <div style={{ color: "var(--muted)", padding: 24 }}>لا منتجات عالمية متاحة حالياً.</div>}
+          {shown.length === 0 && (
+            <div style={{ color: "var(--muted)", padding: 24 }}>
+              {games.length ? `لا منتج يطابق «${q.trim()}».` : "لا منتجات عالمية متاحة حالياً."}
+            </div>
+          )}
         </div>
       )}
     </div>

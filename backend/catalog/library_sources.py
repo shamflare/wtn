@@ -57,9 +57,25 @@ def _dec(v):
         return None
 
 
+# بركات يضع سعراً وهمياً (100,000,000,000) للباقة غير المعروضة للبيع، وأعلى سعرٍ
+# حقيقي في كتالوجه عشرات الآلاف. ما بلغ هذا الحدّ «بلا سعر»: لا يُحفظ (يفيض
+# الحقل فيسقط الاستيراد كلّه) ولا تُعرض الباقة.
+SANE_MAX = Decimal("1000000")
+
+
+def sane_price(v) -> Decimal | None:
+    d = _dec(v)
+    return d if d is not None and Decimal("0") < d < SANE_MAX else None
+
+
+def sellable(p: dict) -> bool:
+    """متاحةٌ عند المزوّد وبسعرٍ حقيقي."""
+    return p.get("available", True) is not False and sane_price(p.get("price")) is not None
+
+
 def to_usd(source, cost) -> Decimal | None:
     """سعر المصدر بعملته ⇐ دولار المكتبة."""
-    cost = _dec(cost)
+    cost = sane_price(cost)
     if cost is None:
         return None
     rate = source.usd_rate if source.currency.upper() != "USD" else Decimal("1")
@@ -83,7 +99,17 @@ def _raw_packages(source):
     res = ZdkAdapter().list_packages(source.config or {})
     if not res.ok:
         return None, res.note or "تعذّر جلب الكتالوج"
-    return res.packages, ""
+    return [p for p in res.packages if not _excluded(p)], ""
+
+
+# ما يعيد المزوّد بيعه من مزوّدين آخرين (أقسام «…-ZNET» وما وُسم بـ barakat)
+# لا يُجلب أصلاً — لا في الكتالوج ولا في الاستيراد ولا في المزامنة.
+EXCLUDED_WORDS = ("barakat", "znet")
+
+
+def _excluded(p: dict) -> bool:
+    text = f"{p.get('game') or ''} {p.get('name') or ''}".lower()
+    return any(w in text for w in EXCLUDED_WORDS)
 
 
 def fetch_catalog(source) -> dict:
@@ -113,21 +139,23 @@ def fetch_catalog(source) -> dict:
             ref = str(p.get("id") or "")
             usd = to_usd(source, p.get("price"))
             lp = known.get(ref)
+            ok = sellable(p)
+            price = sane_price(p.get("price"))
             if lp is None:
                 state = "new"
-            elif lp.source_cost is not None and _dec(p.get("price")) is not None \
-                    and Decimal(lp.source_cost) != _dec(p.get("price")):
+            elif lp.is_active != ok:
+                state = "changed"   # توفّرت أو انقطعت
+            elif ok and lp.source_cost is not None and Decimal(lp.source_cost) != price:
                 state = "changed"
-            elif not lp.is_active:
-                state = "changed"   # عاد بعد أن أُطفئ
             else:
                 state = "same"
             counts[state] += 1
             pkgs.append({
-                "ref": ref, "name": p.get("name") or "", "price": p.get("price") or "",
+                "ref": ref, "name": p.get("name") or "",
+                "price": str(price) if price is not None else "—",
                 "usd": str(usd) if usd is not None else None,
                 "old_usd": str(lp.suggested_cost) if lp else None,
-                "available": p.get("available", True), "params": p.get("params") or [],
+                "available": ok, "params": p.get("params") or [],
                 "state": state,
             })
         live = {pk["ref"] for pk in pkgs}
@@ -204,23 +232,29 @@ def apply_import(source, picks: list, margin=None, update_prices: bool = True) -
                 if not ref:
                     continue
                 live.add(ref)
-                raw = _dec(p.get("price"))
+                ok = sellable(p)
+                raw = sane_price(p.get("price"))
                 usd = to_usd(source, raw)
                 lp = known.get(ref)
                 if lp is None:
+                    # غير المتاحة تُحفظ مطفأة — تتفعّل وحدها في مزامنةٍ تجدها متاحة
                     LibraryProduct.objects.create(
                         game=lib, name=(p.get("name") or ref)[:120], kupur=ref[:60],
                         source_ref=ref, source_name=(p.get("name") or "")[:200], source_cost=raw,
                         suggested_cost=usd or Decimal("0"),
                         suggested_price=with_margin(usd, margin) if usd is not None else Decimal("0"),
-                        sort_order=len(known) + j,
+                        sort_order=len(known) + j, is_active=ok,
                     )
                     summary["packages_added"] += 1
+                    if not ok:
+                        summary["packages_unavailable"] = summary.get("packages_unavailable", 0) + 1
                     continue
                 fields = []
-                if not lp.is_active:
-                    lp.is_active = True
+                if lp.is_active != ok:
+                    lp.is_active = ok
                     fields.append("is_active")
+                    if not ok:
+                        summary["packages_disabled"] += 1
                 if update_prices and usd is not None and (lp.source_cost is None or Decimal(lp.source_cost) != raw):
                     lp.source_cost = raw
                     lp.suggested_cost = usd

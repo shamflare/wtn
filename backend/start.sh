@@ -29,9 +29,11 @@ if demo and not Product.objects.exists():
 else:
     print("catalog seeds skipped (data already present)")
 
-# المكتبة العالمية + عرض التنفيذ التلقائي idempotent — تُشغَّل دائماً
-subprocess.run(["python", "manage.py", "seed_library"], check=False)
+# المكتبة التجريبية + عرض التنفيذ التلقائي — للنسخة التجريبية وحدها. في نسخة
+# العميل كانت seed_library تُعيد مع كل إقلاعٍ أيَّ لعبةٍ تجريبية حذفها المالك
+# من مكتبته (get_or_create بالاسم) — والمكتبة الآن تُملأ من «مصادر المكتبة».
 if demo:
+    subprocess.run(["python", "manage.py", "seed_library"], check=False)
     subprocess.run(["python", "manage.py", "seed_auto"], check=False)
 # طرق الدفع وسعر الصرف العام — متسامحة، تُنشئ الناقص وتترك تعديلات المالك
 subprocess.run(["python", "manage.py", "seed_payment_methods"], check=False)

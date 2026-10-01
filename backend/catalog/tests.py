@@ -865,3 +865,43 @@ class LibrarySourceTest(APITestCase):
         r = self.client.post("/api/catalog/library/autolink/").json()
         self.assertEqual(r["linked"], 1)   # الباقة الأخرى فقط
         self.assertEqual(ProductLink.objects.get(product=p).package_id, "999")
+
+
+    def test_placeholder_prices_do_not_break_the_import(self):
+        """بركات يسعّر غير المعروض 100,000,000,000 — كان يُفيض الحقل فيسقط الاستيراد كلّه."""
+        from .models import LibraryProduct
+        sid = self._source()
+        feed = self.FEED + [
+            {"id": "301", "name": "GALA 1000", "game": "GALA", "price": "100000000000", "available": True, "params": []},
+            {"id": "302", "name": "GALA 500", "game": "GALA", "price": "41.50", "available": False, "params": []},
+            {"id": "303", "name": "GALA 100", "game": "GALA", "price": "41.50", "available": True, "params": []},
+        ]
+        with self._feed(feed):
+            r = self.client.post(f"/api/platform/library/sources/{sid}/import/",
+                                 {"picks": [{"key": "GALA"}]}, format="json")
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertFalse(LibraryProduct.objects.get(source_ref="301").is_active)
+        self.assertIsNone(LibraryProduct.objects.get(source_ref="301").source_cost)
+        self.assertFalse(LibraryProduct.objects.get(source_ref="302").is_active)
+        self.assertTrue(LibraryProduct.objects.get(source_ref="303").is_active)
+        # وحين تتوفّر بسعرٍ حقيقي تُفعَّل في المزامنة
+        feed[3] = dict(feed[3], price="83.00")
+        with self._feed(feed):
+            self.client.post(f"/api/platform/library/sources/{sid}/import/", {"sync": True}, format="json")
+        p = LibraryProduct.objects.get(source_ref="301")
+        self.assertTrue(p.is_active)
+        self.assertEqual(str(p.suggested_cost), "2.00")
+
+
+    def test_barakat_and_znet_items_are_never_fetched(self):
+        sid = self._source()
+        feed = self.FEED + [
+            {"id": "401", "name": "GALA 100", "game": "GALA STAR-ZNET", "price": "41.50", "params": []},
+            {"id": "402", "name": "Barakat Gift 5$", "game": "Gifts", "price": "41.50", "params": []},
+            {"id": "403", "name": "Card 5$", "game": "Gifts", "price": "41.50", "params": []},
+        ]
+        with self._feed(feed):
+            groups = self.client.get(f"/api/platform/library/sources/{sid}/catalog/").json()["groups"]
+        self.assertEqual(sorted(g["key"] for g in groups), ["Gifts", "PUBG Mobile", "Yalla Ludo"])
+        gifts = next(g for g in groups if g["key"] == "Gifts")
+        self.assertEqual([p["ref"] for p in gifts["packages"]], ["403"])

@@ -108,8 +108,9 @@ class LibraryProductSerializer(serializers.ModelSerializer):
         fields = [
             "id", "uuid", "game", "name", "suggested_cost", "suggested_price",
             "kupur", "is_parcali", "execution_type", "description", "sort_order", "is_active",
+            "source_ref", "source_name", "source_cost",
         ]
-        read_only_fields = ["uuid"]
+        read_only_fields = ["uuid", "source_ref", "source_name", "source_cost"]
 
     def validate(self, attrs):
         """رقم الربط فريد داخل اللعبة — رقمان متطابقان يجعلان الجسر ملتبساً."""
@@ -130,15 +131,16 @@ class LibraryProductSerializer(serializers.ModelSerializer):
 
 class LibraryGameSerializer(serializers.ModelSerializer):
     product_count = serializers.IntegerField(source="products.count", read_only=True)
+    source_name = serializers.CharField(source="source.name", read_only=True, default="")
 
     class Meta:
         model = LibraryGame
         fields = [
             "id", "uuid", "name", "image_url", "description", "require_player_id",
             "kurulu_sale", "toplu_sale", "sms_template", "sort_order", "is_active",
-            "product_count", "created_at",
+            "product_count", "created_at", "source", "source_key", "source_name",
         ]
-        read_only_fields = ["uuid", "created_at"]
+        read_only_fields = ["uuid", "created_at", "source", "source_key"]
 
 
 class LibraryGameDetailSerializer(LibraryGameSerializer):

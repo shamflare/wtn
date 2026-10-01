@@ -178,6 +178,7 @@ class ZdkAdapter(BaseAdapter):
                 # المعاملات التي يطلبها هذا المنتج (playerId مثلاً) — تُعين
                 # الأدمن على معرفة ما يجب ضبطه على الربط.
                 "note": ", ".join(str(x) for x in (it.get("params") or []))[:160],
+                "params": [str(x) for x in (it.get("params") or [])],
             }
             for it in rows if isinstance(it, dict)
         ]

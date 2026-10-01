@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import ImageUpload from "../components/ImageUpload";
+import LibrarySources from "../components/LibrarySources";
 import { useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../auth";
 import Tickets from "../components/Tickets";
@@ -19,7 +20,7 @@ interface Tenant {
 interface Stats { tenants: number; active: number; dealers: number }
 interface LibGame {
   id: number; uuid: string; name: string; image_url: string; description: string;
-  require_player_id: boolean; product_count: number;
+  require_player_id: boolean; product_count: number; source_name?: string;
 }
 interface LibProduct {
   id: number; game: number; name: string; suggested_cost: string;
@@ -34,8 +35,8 @@ const SUB_TONE: Record<string, { bg: string; fg: string; label: string }> = {
   blocked: { bg: "#fee2e2", fg: "#7f1d1d", label: "متوقّف — الشراء ممنوع" },
 };
 
-type Tab = "tenants" | "library" | "invoices" | "messages" | "announce" | "cards";
-const TABS: Tab[] = ["tenants", "library", "invoices", "messages", "announce", "cards"];
+type Tab = "tenants" | "library" | "sources" | "invoices" | "messages" | "announce" | "cards";
+const TABS: Tab[] = ["tenants", "library", "sources", "invoices", "messages", "announce", "cards"];
 
 export default function Platform() {
   const { user, logout } = useAuth();
@@ -61,6 +62,7 @@ export default function Platform() {
       <div style={subnav}>
         <button onClick={() => setTab("tenants")} style={{ ...tabBtn, ...(tab === "tenants" ? tabActive : {}) }}>🏢 المستأجرون</button>
         <button onClick={() => setTab("library")} style={{ ...tabBtn, ...(tab === "library" ? tabActive : {}) }}>🌐 المنتجات العالمية</button>
+        <button onClick={() => setTab("sources")} style={{ ...tabBtn, ...(tab === "sources" ? tabActive : {}) }}>🔌 مصادر المكتبة</button>
         <button onClick={() => setTab("invoices")} style={{ ...tabBtn, ...(tab === "invoices" ? tabActive : {}) }}>🧾 الفواتير</button>
         <button onClick={() => setTab("messages")} style={{ ...tabBtn, ...(tab === "messages" ? tabActive : {}) }}>💬 الرسائل</button>
         <button onClick={() => setTab("announce")} style={{ ...tabBtn, ...(tab === "announce" ? tabActive : {}) }}>📢 الإعلان العام</button>
@@ -70,6 +72,7 @@ export default function Platform() {
       <div style={{ maxWidth: 1150, margin: "0 auto", padding: 24 }}>
         {tab === "tenants" && <TenantsTab />}
         {tab === "library" && <LibraryTab />}
+        {tab === "sources" && <LibrarySources />}
         {tab === "invoices" && <BillingTab />}
         {tab === "announce" && <AnnounceTab />}
         {tab === "cards" && (
@@ -227,7 +230,14 @@ function LibraryTab() {
             ) : games.map((g) => (
               <tr key={g.id} style={{ borderTop: "1px solid #1e293b" }}>
                 <td style={td}>{g.id}</td>
-                <td style={{ ...td, fontWeight: 700, textAlign: "right", paddingInlineStart: 14 }}>{g.name}</td>
+                <td style={{ ...td, fontWeight: 700, textAlign: "right", paddingInlineStart: 14 }}>
+                  {g.name}
+                  {g.source_name && (
+                    <span title="مستوردة من مصدر — «مزامنة» تحدّث باقاتها وأسعارها" style={{
+                      marginInlineStart: 8, fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 999,
+                      background: "#1e3a8a", color: "#bfdbfe" }}>🔌 {g.source_name}</span>
+                  )}
+                </td>
                 <td style={td}>{g.image_url ? <img src={g.image_url} style={{ width: 40, height: 40, borderRadius: 7, objectFit: "cover" }} /> : "—"}</td>
                 <td style={td}><b style={{ color: "#7dd3fc" }}>{g.product_count}</b></td>
                 <td style={td}>{g.require_player_id ? "✅" : "—"}</td>

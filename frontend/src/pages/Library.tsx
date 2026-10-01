@@ -6,6 +6,8 @@ interface LibPkg { name: string; suggested_cost: string; suggested_price: string
 interface LibGame {
   id: number; name: string; image_url: string; description: string;
   require_player_id: boolean; product_count: number; products: LibPkg[]; is_imported: boolean;
+  /** مزوّدو متجري الذين تُربط بهم الباقات تلقائياً عند الاستيراد */
+  auto_link?: string[];
 }
 
 export default function Library() {
@@ -25,7 +27,9 @@ export default function Library() {
     setBusyId(g.id); setMsg(null);
     try {
       const r = await api.post(`/catalog/library/${g.id}/import/`);
-      setMsg({ ok: true, text: `تمت إضافة "${g.name}" مع ${r.data.imported_products} باقات إلى متجرك ✓` });
+      const al = r.data.autolink;
+      setMsg({ ok: true, text: `تمت إضافة "${g.name}" مع ${r.data.imported_products} باقات إلى متجرك ✓`
+        + (al?.linked ? ` · 🔗 رُبطت ${al.linked} باقة تلقائياً بـ ${al.providers.join("، ")} وضُبط توجيهها — جاهزة للبيع` : "") });
       load();
     } catch (e: any) {
       const code = e?.response?.data?.code;
@@ -64,6 +68,13 @@ export default function Library() {
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 700 }}>{g.name}</div>
                   <div style={{ fontSize: 12, color: "var(--muted)" }}>{g.product_count} باقة {g.require_player_id ? "· يتطلّب ID" : ""}</div>
+                  {!!g.auto_link?.length && (
+                    <div title="رقم كل باقة لدى مزوّدك محفوظٌ في المكتبة — تُربط وتُوجَّه وحدها عند الإضافة"
+                      style={{ marginTop: 4, display: "inline-block", fontSize: 11.5, fontWeight: 700, padding: "2px 9px",
+                               borderRadius: 999, background: "#e7f6ec", color: "#15803d", border: "1px solid #b6e0c4" }}>
+                      🔗 تُربط تلقائياً بـ {g.auto_link.join("، ")}
+                    </div>
+                  )}
                 </div>
               </div>
 

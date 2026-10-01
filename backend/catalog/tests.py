@@ -748,3 +748,120 @@ class GameDeleteTest(APITestCase):
     def test_an_agent_cannot_delete(self):
         self.client.force_authenticate(self.dealer)
         self.assertEqual(self.client.delete(f"/api/catalog/games/{self.game.id}/").status_code, 403)
+
+
+class LibrarySourceTest(APITestCase):
+    """
+    مصدر المكتبة (بركات): جلبٌ مجمّع بالقسم، استيرادٌ بالسعر والهامش، مزامنةٌ
+    تُظهر التغيّر، وربطٌ تلقائي عند متجرٍ يملك المزوّد نفسه — لا عند غيره.
+    """
+
+    FEED = [
+        {"id": "101", "name": "60 UC", "game": "PUBG Mobile", "kupur": "", "price": "41.50",
+         "available": True, "params": ["playerId"]},
+        {"id": "102", "name": "325 UC", "game": "PUBG Mobile", "kupur": "", "price": "207.50",
+         "available": True, "params": ["playerId"]},
+        {"id": "201", "name": "100 Gold", "game": "Yalla Ludo", "kupur": "", "price": "83.00",
+         "available": True, "params": []},
+    ]
+
+    def setUp(self):
+        from providers.models import Provider
+        self.owner = User.objects.create(login_id="ls-owner", name="مالك", role=User.Role.PLATFORM_OWNER)
+        self.tenant = Tenant.objects.create(subdomain="ls", name="متجر", base_currency="USD",
+                                            exchange_rates={"TRY": "41.50"})
+        self.admin = User.objects.create(login_id="ls-admin", name="مدير", tenant=self.tenant,
+                                         role=User.Role.TENANT_ADMIN, is_staff=True)
+        self.barakat = Provider.objects.create(
+            tenant=self.tenant, name="بركات", type=Provider.Type.CARD_STORE, currency="TRY",
+            config={"code": "zdk", "base_url": "https://api.barakat.store", "api_token": "T-SHOP"})
+        self.other = Provider.objects.create(
+            tenant=self.tenant, name="آخر", type=Provider.Type.CARD_STORE, currency="TRY",
+            config={"code": "zdk", "base_url": "https://api.other.com", "api_token": "X"})
+        self.client.force_authenticate(self.owner)
+
+    def _feed(self, rows=None):
+        return patch("providers.adapters.zdk.ZdkAdapter.list_packages",
+                     return_value=PackageList(ok=True, packages=rows if rows is not None else self.FEED))
+
+    def _source(self):
+        r = self.client.post("/api/platform/library/sources/", {
+            "from_provider": self.barakat.id, "usd_rate": "41.50", "default_margin": "10"}, format="json")
+        self.assertEqual(r.status_code, 201, r.content)
+        self.assertNotIn("T-SHOP", r.content.decode())   # المفتاح لا يعود للمتصفّح
+        return r.json()["id"]
+
+    def test_catalog_import_and_prices(self):
+        from .models import LibraryGame
+        sid = self._source()
+        with self._feed():
+            cat = self.client.get(f"/api/platform/library/sources/{sid}/catalog/").json()
+            self.assertEqual([g["key"] for g in cat["groups"]], ["PUBG Mobile", "Yalla Ludo"])
+            self.assertTrue(all(g["state"] == "new" for g in cat["groups"]))
+            r = self.client.post(f"/api/platform/library/sources/{sid}/import/",
+                                 {"picks": [{"key": "PUBG Mobile", "name": "ببجي"}]}, format="json")
+        self.assertEqual(r.json()["packages_added"], 2)
+        g = LibraryGame.objects.get(source_key="PUBG Mobile")
+        self.assertEqual(g.name, "ببجي")
+        self.assertTrue(g.require_player_id)
+        p = g.products.get(source_ref="101")
+        self.assertEqual(str(p.suggested_cost), "1.00")    # 41.50 ليرة = 1$
+        self.assertEqual(str(p.suggested_price), "1.10")   # + 10%
+        self.assertEqual(p.kupur, "101")
+
+    def test_sync_shows_and_applies_changes(self):
+        from .models import LibraryProduct
+        sid = self._source()
+        with self._feed():
+            self.client.post(f"/api/platform/library/sources/{sid}/import/",
+                             {"picks": [{"key": "PUBG Mobile"}]}, format="json")
+        changed = [dict(self.FEED[0], price="83.00")]   # 102 أُزيل، 101 تضاعف سعره
+        with self._feed(changed):
+            grp = self.client.get(f"/api/platform/library/sources/{sid}/catalog/").json()["groups"][0]
+            self.assertEqual(grp["state"], "existing")
+            self.assertEqual(grp["counts"]["changed"], 1)
+            self.assertEqual(grp["counts"]["removed"], 1)
+            r = self.client.post(f"/api/platform/library/sources/{sid}/import/", {"sync": True}, format="json")
+        self.assertEqual(r.json()["prices_updated"], 1)
+        self.assertEqual(r.json()["packages_disabled"], 1)
+        self.assertEqual(str(LibraryProduct.objects.get(source_ref="101").suggested_cost), "2.00")
+        self.assertFalse(LibraryProduct.objects.get(source_ref="102").is_active)
+
+    def test_store_import_autolinks_to_the_same_provider_only(self):
+        from .models import Game, LibraryGame, ProductLink
+        sid = self._source()
+        with self._feed():
+            self.client.post(f"/api/platform/library/sources/{sid}/import/",
+                             {"picks": [{"key": "PUBG Mobile"}]}, format="json")
+        lib = LibraryGame.objects.get(source_key="PUBG Mobile")
+        self.client.force_authenticate(self.admin)
+        browse = self.client.get("/api/catalog/library/").json()["results"][0]
+        self.assertEqual(browse["auto_link"], ["بركات"])
+        r = self.client.post(f"/api/catalog/library/{lib.id}/import/")
+        self.assertEqual(r.json()["autolink"]["linked"], 2)
+        game = Game.objects.get(master_library_uuid=lib.uuid)
+        p = game.products.get(kupur="101")
+        link = ProductLink.objects.get(product=p)
+        self.assertEqual(link.provider, self.barakat)          # لا «آخر» ذو النطاق المختلف
+        self.assertEqual(link.package_id, "101")
+        self.assertTrue(link.extra["auto"])
+        self.assertEqual(link.extra["price"], "1.00")          # 41.50 ليرة ⇐ 1$ دفتر المتجر
+        self.assertEqual(p.provider, self.barakat)             # والتوجيه مضبوط
+        self.assertEqual(p.execution_type, "auto")
+
+    def test_manual_link_is_never_overwritten(self):
+        from .models import Game, LibraryGame, ProductLink
+        sid = self._source()
+        with self._feed():
+            self.client.post(f"/api/platform/library/sources/{sid}/import/",
+                             {"picks": [{"key": "PUBG Mobile"}]}, format="json")
+        lib = LibraryGame.objects.get(source_key="PUBG Mobile")
+        self.barakat.status = "passive"; self.barakat.save()
+        self.client.force_authenticate(self.admin)
+        self.client.post(f"/api/catalog/library/{lib.id}/import/")
+        p = Game.objects.get(master_library_uuid=lib.uuid).products.get(kupur="101")
+        ProductLink.objects.create(tenant=self.tenant, product=p, provider=self.barakat, package_id="999")
+        self.barakat.status = "active"; self.barakat.save()
+        r = self.client.post("/api/catalog/library/autolink/").json()
+        self.assertEqual(r["linked"], 1)   # الباقة الأخرى فقط
+        self.assertEqual(ProductLink.objects.get(product=p).package_id, "999")

@@ -428,8 +428,10 @@ def library_browse_view(request):
         .exclude(master_library_uuid="")
         .values_list("master_library_uuid", flat=True)
     )
+    from .library_sources import fingerprint, matching_provider_names
+    mine = matching_provider_names(request.user.tenant)
     rows = []
-    for g in LibraryGame.objects.filter(is_active=True).prefetch_related("products"):
+    for g in LibraryGame.objects.filter(is_active=True).select_related("source").prefetch_related("products"):
         active_products = [p for p in g.products.all() if p.is_active]
         rows.append({
             "id": g.id,
@@ -444,6 +446,8 @@ def library_browse_view(request):
                 "suggested_price": str(p.suggested_price), "kupur": p.kupur,
             } for p in active_products],
             "is_imported": g.uuid in imported,
+            # مزوّدو هذا المتجر الذين تُربط بهم الباقات تلقائياً عند الاستيراد
+            "auto_link": mine.get(fingerprint(g.source.code, g.source.config), []) if g.source else [],
         })
     return Response({"count": len(rows), "results": rows})
 
@@ -637,10 +641,25 @@ def library_import_view(request, library_game_id):
                 sort_order=i,
             )
 
+    # (4) باقات مصدرٍ يملكه المتجر مزوّداً تُربط به الآن — لا يربطها صاحبها بيده
+    from .library_sources import autolink
+    linked = autolink(tenant, games=[game])
+
     return Response(
-        GameDetailSerializer(game).data | {"imported_products": len(packages)},
+        GameDetailSerializer(game).data | {"imported_products": len(packages), "autolink": linked},
         status=201,
     )
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def library_autolink_view(request):
+    """ربطٌ تلقائي لكل ما استُورد من المكتبة — لمن أضاف المزوّد بعد الاستيراد."""
+    from .library_sources import autolink
+
+    if not _require_tenant_admin(request):
+        return Response({"detail": "مخصّص لصاحب المتجر"}, status=403)
+    return Response(autolink(request.user.tenant))
 
 
 @api_view(["GET", "POST", "DELETE"])

@@ -240,6 +240,35 @@ class ProductPrice(models.Model):
 
 
 # ─────────── المكتبة العالمية (Global Library) — يحرّرها مالك المنصّة فقط ───────────
+class LibrarySource(models.Model):
+    """
+    مصدرٌ تُملأ منه المكتبة: مزوّدٌ (ZDK كبركات) يُقرأ كتالوجه **ولا يُشترى منه**.
+
+    مالك المنصّة يجلب الكتالوج، يختار الألعاب، فتُنشأ في المكتبة بباقاتها
+    وأسعارها — ثم «مزامنة» تُظهر ما تغيّر عند المزوّد. وكل باقةٍ تحفظ رقمها
+    لديه (`LibraryProduct.source_ref`): صاحب المتجر الذي يملك المزوّد نفسه
+    تُربط باقاته به تلقائياً عند الاستيراد.
+
+    أسعار المكتبة بالدولار؛ `usd_rate` = كم وحدةً من عملة المصدر تساوي دولاراً.
+    """
+
+    name = models.CharField(max_length=120)
+    code = models.CharField(max_length=20, default="zdk")       # عائلة المحوّل
+    config = models.JSONField(default=dict, blank=True)         # {base_url, api_token}
+    currency = models.CharField(max_length=8, default="USD")
+    usd_rate = models.DecimalField(max_digits=14, decimal_places=4, default=Decimal("1"))
+    default_margin = models.DecimalField(max_digits=6, decimal_places=2, default=Decimal("10"))
+    last_synced_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "library_sources"
+        ordering = ["id"]
+
+    def __str__(self):
+        return f"[Source] {self.name}"
+
+
 class LibraryGame(models.Model):
     """قالب لعبة عالمي مشترك — يستطيع أي صاحب متجر استيراده مع باقاته."""
 
@@ -253,6 +282,10 @@ class LibraryGame(models.Model):
     sms_template = models.TextField(blank=True, default="")
     sort_order = models.PositiveIntegerField(default=0)
     is_active = models.BooleanField(default=True, db_index=True)
+    # من أين جاءت (فارغ = أُضيفت يدوياً) + اسم القسم لدى المصدر — به تُطابَق عند المزامنة
+    source = models.ForeignKey(LibrarySource, null=True, blank=True,
+                               on_delete=models.SET_NULL, related_name="games")
+    source_key = models.CharField(max_length=200, blank=True, default="", db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -279,6 +312,10 @@ class LibraryProduct(models.Model):
     description = models.CharField(max_length=255, blank=True, default="")
     sort_order = models.PositiveIntegerField(default=0)
     is_active = models.BooleanField(default=True, db_index=True)
+    # رقم الباقة واسمها وسعرها لدى المصدر — للمزامنة وللربط التلقائي عند المتاجر
+    source_ref = models.CharField(max_length=120, blank=True, default="", db_index=True)
+    source_name = models.CharField(max_length=200, blank=True, default="")
+    source_cost = models.DecimalField(max_digits=14, decimal_places=4, null=True, blank=True)
 
     class Meta:
         db_table = "library_products"

@@ -18,7 +18,7 @@ type Link = {
   provider: number;
   package_id: string;
   package_name: string;
-  extra: Record<string, string>;
+  extra: Record<string, any>;
 };
 
 const key = (product: number, provider: number) => `${product}:${provider}`;
@@ -36,6 +36,24 @@ export default function PackageLinks() {
   const [q, setQ] = useState("");
   const [open, setOpen] = useState<{ product: Product; provider: Provider } | null>(null);
   const [toast, setToast] = useState("");
+  const [autoBusy, setAutoBusy] = useState(false);
+
+  /** ربطٌ تلقائي لما استُورد من المكتبة — لا يمسّ ربطاً قائماً */
+  async function autolink() {
+    setAutoBusy(true);
+    try {
+      const r = await api.post("/catalog/library/autolink/");
+      const lk = await api.get("/catalog/product-links/");
+      setLinks(new Map((lk.data as Link[]).map((l) => [key(l.product, l.provider), l])));
+      setToast(r.data.linked
+        ? `🔗 رُبطت ${r.data.linked} باقة تلقائياً بـ ${r.data.providers.join("، ")}`
+        : "لا جديد يُربط تلقائياً — الباقات المستوردة من المكتبة مربوطة، أو لا مزوّد مطابق لديك");
+      setTimeout(() => setToast(""), 5000);
+    } catch (e: any) {
+      setToast(e?.response?.data?.detail || "تعذّر الربط التلقائي");
+      setTimeout(() => setToast(""), 5000);
+    } finally { setAutoBusy(false); }
+  }
 
   // كتالوج كل مزوّد يُجلب مرّة واحدة ويُخزَّن
   const [catalog, setCatalog] = useState<Map<number, ProviderPackage[]>>(new Map());
@@ -156,6 +174,10 @@ export default function PackageLinks() {
             <span style={{ fontSize: 12.5, color: linked === needed ? "var(--ok)" : "var(--debt)" }}>
               مربوط {linked} من {needed}
             </span>
+            <button type="button" className="btn g" style={{ height: 32 }} disabled={autoBusy} onClick={autolink}
+              title="يربط باقات المكتبة بمزوّدك المطابق (بركات…) ويضبط توجيهها — ولا يغيّر ربطاً قائماً">
+              {autoBusy ? "جارٍ..." : "🔗 ربط تلقائي من المكتبة"}
+            </button>
             <input placeholder="بحث عن باقة..." value={q} onChange={(e) => setQ(e.target.value)}
               style={{ width: 200 }} />
           </div>
@@ -203,6 +225,7 @@ export default function PackageLinks() {
                                 }}>
                                 {link ? (
                                   <>
+                                    {link.extra?.auto && <span title="رُبطت تلقائياً من المكتبة — اضغط لتغييرها">🔗</span>}
                                     <code style={{ direction: "ltr" }}>{link.package_id}</code>
                                     {link.extra?.kupur && (
                                       <code style={{ direction: "ltr", opacity: 0.75 }}>

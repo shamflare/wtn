@@ -53,6 +53,148 @@ class LibraryGameViewSet(viewsets.ModelViewSet):
             Game.objects.filter(master_library_uuid=lib.uuid).filter(unchanged).update(image_url=lib.image_url)
 
 
+class LibrarySourceViewSet(viewsets.ViewSet):
+    """
+    مصادر المكتبة — مالك المنصّة وحده.
+
+    المفتاح (api_token) لا يُعاد إلى المتصفّح أبداً: يُكتب ولا يُقرأ. وللمصدر
+    طريقان: إدخالٌ يدوي، أو نسخُ إعداد مزوّدٍ قائم لدى أحد المتاجر (`from_provider`)
+    — فلا يحتاج المالك أن يطلب المفتاح من صاحب المتجر.
+    """
+    permission_classes = [IsAuthenticated, IsPlatformOwner]
+
+    @staticmethod
+    def _row(s):
+        from catalog.library_sources import fingerprint
+        cfg = s.config or {}
+        return {
+            "id": s.id, "name": s.name, "code": s.code, "base_url": cfg.get("base_url", ""),
+            "has_token": bool(cfg.get("api_token")), "currency": s.currency,
+            "usd_rate": str(s.usd_rate), "default_margin": str(s.default_margin),
+            "fingerprint": fingerprint(s.code, cfg),
+            "games": s.games.count(),
+            "last_synced_at": s.last_synced_at.strftime("%Y-%m-%d %H:%M") if s.last_synced_at else None,
+        }
+
+    def _get(self, pk):
+        from catalog.models import LibrarySource
+        return LibrarySource.objects.filter(pk=pk).first()
+
+    @staticmethod
+    def _apply(s, data):
+        from catalog.library_sources import _dec
+        if "name" in data:
+            s.name = str(data["name"]).strip()[:120] or s.name
+        if "currency" in data:
+            s.currency = (str(data["currency"]).strip().upper() or "USD")[:8]
+        for f in ("usd_rate", "default_margin"):
+            if f in data and _dec(data[f]) is not None:
+                setattr(s, f, _dec(data[f]))
+        cfg = dict(s.config or {})
+        if "base_url" in data:
+            cfg["base_url"] = str(data["base_url"]).strip()
+        if data.get("api_token"):
+            cfg["api_token"] = str(data["api_token"]).strip()
+        s.config = cfg
+
+    def list(self, request):
+        from catalog.models import LibrarySource
+        return Response([self._row(s) for s in LibrarySource.objects.all()])
+
+    def create(self, request):
+        from catalog.models import LibrarySource
+        from providers.models import Provider
+
+        d = request.data
+        s = LibrarySource(name=str(d.get("name") or "").strip()[:120])
+        if d.get("from_provider"):
+            p = Provider.objects.select_related("tenant").filter(pk=d["from_provider"]).first()
+            if p is None:
+                return Response({"detail": "المزوّد غير موجود"}, status=404)
+            cfg = p.config or {}
+            s.name = s.name or p.name
+            s.code = "zdk"
+            s.config = {"base_url": cfg.get("base_url", ""), "api_token": cfg.get("api_token", "")}
+            s.currency = p.currency or "USD"
+        self._apply(s, {k: v for k, v in d.items() if k != "api_token" or not d.get("from_provider")})
+        if not s.name:
+            return Response({"detail": "اسم المصدر مطلوب"}, status=400)
+        if not (s.config or {}).get("api_token"):
+            return Response({"detail": "مفتاح API مطلوب"}, status=400)
+        s.save()
+        return Response(self._row(s), status=201)
+
+    def partial_update(self, request, pk=None):
+        s = self._get(pk)
+        if s is None:
+            return Response(status=404)
+        self._apply(s, request.data)
+        s.save()
+        return Response(self._row(s))
+
+    def destroy(self, request, pk=None):
+        """حذف المصدر لا يحذف ما استُورد منه — تبقى ألعاب المكتبة بلا مصدر."""
+        s = self._get(pk)
+        if s is None:
+            return Response(status=404)
+        s.delete()
+        return Response(status=204)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated, IsPlatformOwner])
+def library_source_catalog_view(request, source_id):
+    """كتالوج المصدر مجمّعاً، موسوماً بحالته مقابل المكتبة."""
+    from catalog.library_sources import fetch_catalog
+    from catalog.models import LibrarySource
+
+    s = LibrarySource.objects.filter(pk=source_id).first()
+    if s is None:
+        return Response({"detail": "المصدر غير موجود"}, status=404)
+    data = fetch_catalog(s)
+    return Response(data, status=200 if data.get("ok") else 502)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated, IsPlatformOwner])
+def library_source_import_view(request, source_id):
+    """
+    استيراد/مزامنة: {picks: [{key, name?}], margin?, update_prices?}
+    و`sync: true` بلا picks ⇐ كل الألعاب المستوردة من هذا المصدر.
+    """
+    from catalog.library_sources import apply_import
+    from catalog.models import LibrarySource
+
+    s = LibrarySource.objects.filter(pk=source_id).first()
+    if s is None:
+        return Response({"detail": "المصدر غير موجود"}, status=404)
+    picks = request.data.get("picks")
+    if request.data.get("sync"):
+        picks = [{"key": k} for k in s.games.exclude(source_key="").values_list("source_key", flat=True)]
+    if not isinstance(picks, list) or not picks:
+        return Response({"detail": "اختر لعبةً واحدة على الأقل"}, status=400)
+    data = apply_import(s, picks, margin=request.data.get("margin"),
+                        update_prices=request.data.get("update_prices", True) is not False)
+    return Response(data, status=200 if data.get("ok") else 502)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated, IsPlatformOwner])
+def tenant_providers_view(request):
+    """مزوّدو المتاجر الآليّون (ZDK) — ليُنسخ إعداد أحدهم مصدراً. بلا مفاتيح."""
+    from catalog.library_sources import SUPPORTED, family, provider_fingerprint
+    from providers.models import Provider
+
+    rows = []
+    for p in Provider.objects.select_related("tenant").order_by("tenant_id", "id"):
+        code = (p.config or {}).get("code") or ("zdk" if p.type == Provider.Type.CARD_STORE else "")
+        if family(code) not in SUPPORTED or not (p.config or {}).get("api_token"):
+            continue
+        rows.append({"id": p.id, "name": p.name, "tenant": p.tenant.name if p.tenant else "",
+                     "currency": p.currency, "fingerprint": provider_fingerprint(p)})
+    return Response(rows)
+
+
 class LibraryProductViewSet(viewsets.ModelViewSet):
     """CRUD باقات المكتبة العالمية — لمالك المنصّة فقط."""
     permission_classes = [IsAuthenticated, IsPlatformOwner]

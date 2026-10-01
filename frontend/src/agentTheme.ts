@@ -115,16 +115,6 @@ export const AGENT_THEME_GROUPS: AgentThemeGroup[] = [
       { key: "balance_cur", label: "رمز العملة في الرصيد" },
     ],
   },
-  {
-    title: "بطاقة الرصيد (الرئيسية)",
-    fields: [
-      { key: "hero_from", label: "بداية التدرّج" },
-      { key: "hero_to", label: "نهاية التدرّج" },
-      { key: "hero_glow", label: "التوهّج العلوي" },
-      { key: "hero_glow_2", label: "التوهّج السفلي" },
-      { key: "hero_ink", label: "نص البطاقة" },
-    ],
-  },
 ];
 
 /** ثيماتٌ كاملة جاهزة — نقطة بداية يعدّلها صاحب المتجر لوناً لوناً. */

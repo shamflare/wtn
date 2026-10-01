@@ -579,3 +579,21 @@ class StoreWalletStatementTest(APITestCase):
         self.assertGreaterEqual(body["counts"]["order_debit"], 1)
         self.assertEqual(len(get(type="order_debit")["results"]), body["counts"]["order_debit"])
         self.assertEqual(get(date_from="2999-01-01")["counts"]["all"], 0)
+
+
+
+class StoreCatalogNotesTest(APITestCase):
+    """وصف اللعبة وملاحظة الوكيل يصلان إلى كتالوج الوكيل."""
+
+    def test_description_and_dealer_note_reach_the_agent(self):
+        t = Tenant.objects.create(subdomain="cn", name="متجر", base_currency="USD")
+        g = Game.objects.create(tenant=t, name="PUBG", description="باقات ببجي عالمي",
+                                dealer_note="الطلب لا يسترجع")
+        Product.objects.create(tenant=t, game=g, name="60 UC", cost_price=Decimal("1"),
+                               recommended_price=Decimal("2"))
+        d = User.objects.create(login_id="cn-d", name="وكيل", tenant=t, role=User.Role.BAYI, dealer_no=1)
+        Wallet.objects.create(tenant=t, user=d)
+        self.client.force_authenticate(d)
+        game = self.client.get("/api/store/catalog/").json()["games"][0]
+        self.assertEqual(game["description"], "باقات ببجي عالمي")
+        self.assertEqual(game["dealer_note"], "الطلب لا يسترجع")

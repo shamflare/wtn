@@ -176,6 +176,8 @@ def store_catalog_view(request):
             result.append({
                 "id": g.id, "name": g.name, "image_url": g.image_url,
                 "require_player_id": g.require_player_id, "products": products,
+                # ما يكتبه صاحب المتجر في «تفاصيل اللعبة» — يراه الوكيل في صفحتها وعند الشراء
+                "description": g.description, "dealer_note": g.dealer_note,
             })
     return Response({"games": result, "currency": currency.display_currency(user)})
 

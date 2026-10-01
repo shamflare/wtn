@@ -187,10 +187,10 @@
   -webkit-backdrop-filter: saturate(160%) blur(16px);
   border-top: 1px solid var(--border);
 }
-/* ستّ خاناتٍ متساوية بلا زرٍّ عائم — أيقوناتٌ أصغر تتّسع لها أضيق الشاشات (320px) */
+/* خمس خاناتٍ متساوية بلا زرٍّ عائم — أيقوناتٌ أصغر تتّسع لها أضيق الشاشات (320px) */
 .ag-nav-in {
   max-width: 560px; margin: 0 auto;
-  display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); align-items: end;
+  display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); align-items: end;
 }
 .ag-nav-item {
   background: none; border: 0; color: var(--nav-ink);
@@ -760,3 +760,6 @@ button.ag-stat:active { transform: scale(.98); }
   background: var(--surface-2); color: var(--muted); display: grid; place-items: center; padding: 0;
 }
 .ag-eye:hover { color: var(--primary); border-color: color-mix(in srgb, var(--primary) 40%, transparent); }
+
+/* وصف اللعبة تحت اسمها في رأس صفحتها */
+.ag-game-head .ag-game-desc { font-size: 13px; color: var(--text); opacity: .85; margin-top: 6px; line-height: 1.7; white-space: pre-line; }

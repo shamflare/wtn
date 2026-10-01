@@ -217,15 +217,6 @@ function Preview({ screen }: { screen: Screen }) {
       <main className="ag-main">
         {screen === "home" && (
           <>
-            <section className="ag-hero">
-              <div className="ag-hero-hi">أهلاً أحمد 👋 — رصيدك الحالي</div>
-              <div className="ag-hero-amt">125.50<span className="cur">$</span></div>
-              <div className="ag-hero-sub">الحدّ الائتماني 500.00 $</div>
-              <div className="ag-hero-actions">
-                <span className="btn g"><Icon name="plusCircle" size={18} />شحن رصيد</span>
-                <span className="btn ghost"><Icon name="receipt" size={18} />طلباتي</span>
-              </div>
-            </section>
             <div className="ag-stats">
               <div className="ag-stat ok"><div className="v">48</div><div className="l"><Icon name="check" size={13} />طلب ناجح</div></div>
               <div className="ag-stat"><div className="v" style={{ color: "var(--gold)" }}>36.20</div><div className="l"><Icon name="dollar" size={13} />أرباحي $</div></div>
@@ -328,9 +319,9 @@ function Preview({ screen }: { screen: Screen }) {
 
       <nav className="ag-nav">
         <div className="ag-nav-in">
-          {([["home", "الرئيسية"], ["search", "الألعاب"], ["receipt", "طلباتي"], ["bell", "الإشعارات"],
+          {([["home", "الرئيسية"], ["receipt", "طلباتي"], ["bell", "الإشعارات"],
              ["wallet", "محفظتي"], ["grid", "المزيد"]] as [string, string][]).map(([i, l], idx) => {
-            const on = (screen === "home" && idx === 0) || (screen === "orders" && idx === 2) || (screen === "wallet" && idx === 4);
+            const on = (screen === "home" && idx === 0) || (screen === "orders" && idx === 1) || (screen === "wallet" && idx === 3);
             return (
               <span key={i} className={`ag-nav-item${on ? " on" : ""}`}>
                 <span className="ag-nav-ico"><Icon name={i} size={20} /></span>

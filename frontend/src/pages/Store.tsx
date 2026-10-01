@@ -27,7 +27,11 @@ interface SProduct {
   id: number; name: string; price: string;
   recommended_price: string; require_player_id: boolean;
 }
-interface SGame { id: number; name: string; image_url: string; require_player_id: boolean; products: SProduct[] }
+interface SGame {
+  id: number; name: string; image_url: string; require_player_id: boolean; products: SProduct[];
+  /** وصف اللعبة وملاحظة الوكيل — من «تفاصيل اللعبة» لدى صاحب المتجر */
+  description?: string; dealer_note?: string;
+}
 interface Summary {
   balance: string; credit_limit: string; currency: string;
   orders: number; profit: string; sell: string; pending: number;
@@ -220,8 +224,7 @@ export default function Store() {
       {/* ── التنقّل السفلي ── */}
       <nav className="ag-nav" aria-label="التنقّل">
         <div className="ag-nav-in">
-          <NavItem icon="home" label="الرئيسية" on={navOn("home") && !bell} onClick={() => goTab("home")} />
-          <NavItem icon="search" label="الألعاب" on={navOn("sell") && !bell} onClick={() => goTab("sell")} />
+          <NavItem icon="home" label="الرئيسية" on={(navOn("home") || navOn("sell")) && !bell} onClick={() => goTab("home")} />
           <NavItem icon="receipt" label="طلباتي" on={navOn("orders") && !bell} onClick={() => goTab("orders")} />
           <NavItem icon="bell" label="الإشعارات" on={bell} badge={notif.total}
             onClick={() => { setMore(false); setBell(true); notif.markSeen(); }} />
@@ -362,7 +365,6 @@ function GameThumb({ name, img, className = "ag-thumb" }: { name: string; img?: 
 function HomeTab({ summary, onGo, onGame }: {
   summary: Summary | null; onGo: (t: Tab) => void; onGame: (g: SGame) => void;
 }) {
-  const { user } = useAuth();
   // بطاقات يكتبها صاحب المتجر لوكلائه (الإعدادات ← بطاقات الوكلاء)
   const [cards, setCards] = useState<Card[]>([]);
   useEffect(() => {
@@ -374,32 +376,11 @@ function HomeTab({ summary, onGo, onGame }: {
   }, []);
 
   const cur = summary ? symbolOf(summary.currency) : "";
-  const neg = Number(summary?.balance || 0) < 0;
-  const credit = Number(summary?.credit_limit || 0);
 
   return (
     <div>
       <CardStrip cards={cards} />
 
-      <section className="ag-hero">
-        <div className="ag-hero-hi">أهلاً {user?.name?.split(" ")[0] || ""} 👋 — رصيدك الحالي</div>
-        {summary ? (
-          <div className="ag-hero-amt" style={neg ? { color: "var(--danger)" } : undefined}>
-            {money(summary.balance)}<span className="cur">{cur}</span>
-          </div>
-        ) : <div className="ag-skel" style={{ height: 44, width: 180, margin: "6px 0", borderRadius: 12 }} />}
-        <div className="ag-hero-sub">
-          {credit !== 0 ? <>الحدّ الائتماني {money(Math.abs(credit))} {cur}</> : "اشحن رصيدك وابدأ البيع فوراً"}
-        </div>
-        <div className="ag-hero-actions">
-          <button className="btn g" onClick={() => onGo("topup")}>
-            <Icon name="plusCircle" size={18} />شحن رصيد
-          </button>
-          <button className="btn ghost" onClick={() => onGo("orders")}>
-            <Icon name="receipt" size={18} />طلباتي
-          </button>
-        </div>
-      </section>
 
       <div className="ag-stats">
         <button className="ag-stat ok" onClick={() => onGo("orders")}>
@@ -497,8 +478,15 @@ function SellTab({ gameId, onGame, onBought, onFinish }: {
             {active.products.length} باقة
             {active.require_player_id && <> · يتطلّب معرّف اللاعب</>}
           </p>
+          {active.description && <p className="ag-game-desc">{active.description}</p>}
         </div>
       </div>
+      {active.dealer_note && (
+        <div className="ag-note" style={{ marginTop: 0, marginBottom: 14, display: "flex", gap: 8, alignItems: "flex-start" }}>
+          <Icon name="warning" size={16} style={{ flexShrink: 0, marginTop: 3 }} />
+          <span><b>ملاحظة:</b> {active.dealer_note}</span>
+        </div>
+      )}
 
       {/* الباقات بطاقاتٌ بصورة اللعبة: الاسم والسعر تحتها، وزرّ الشراء بعرض البطاقة */}
       <div className="ag-pcards">
@@ -580,6 +568,12 @@ function BuyModal({ product, game, onClose, onBought, onFinish }: {
             <span>سعر الشراء</span>
           </div>
         </div>
+        {game.dealer_note && (
+          <div className="ag-note" style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+            <Icon name="warning" size={16} style={{ flexShrink: 0, marginTop: 3 }} />
+            <span><b>ملاحظة:</b> {game.dealer_note}</span>
+          </div>
+        )}
 
         {requirePlayer && (
           <>

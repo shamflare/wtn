@@ -806,3 +806,25 @@ class AgentThemeTest(APITestCase):
         self.client.put("/api/settings/agent-theme/", {"theme": {}}, format="json")
         self.tenant.refresh_from_db()
         self.assertEqual(self.tenant.agent_theme, {})
+
+
+
+class DealerRowCurrencyTest(APITestCase):
+    """متجرٌ دفتره بالدولار: رصيد الوكيل بالدولار، ومجموعته مجموعة أسعاره."""
+
+    def test_usd_store_shows_usd_and_the_price_group(self):
+        from catalog.models import PriceGroup
+        t = Tenant.objects.create(subdomain="usd", name="متجر", base_currency="USD")
+        admin = User.objects.create(login_id="usd-a", name="م", tenant=t, role=User.Role.TENANT_ADMIN,
+                                    status=User.Status.ACTIVE)
+        g = PriceGroup.objects.create(tenant=t, name="vip1")
+        d = User.objects.create(login_id="usd-d", name="وكيل", tenant=t, role=User.Role.BAYI,
+                                status=User.Status.ACTIVE, price_group=g, dealer_no=1)
+        w = Wallet.objects.create(tenant=t, user=d, balance=Decimal("-1"))
+        self.assertEqual(w.currency, "USD")
+        self.client.force_authenticate(admin)
+        rows = self.client.get("/api/dealers/").json()
+        rows = rows.get("results", rows) if isinstance(rows, dict) else rows
+        row = next(r for r in rows if r["id"] == d.id)
+        self.assertEqual(row["currency"], "USD")
+        self.assertEqual(row["group"], "vip1")

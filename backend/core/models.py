@@ -253,6 +253,8 @@ class Wallet(models.Model):
     credit_limit = models.DecimalField(  # أقصى قيمة سالبة مسموحة (مثال -500)
         max_digits=14, decimal_places=2, default=Decimal("0")
     )
+    # عملة المحفظة = عملة دفتر المتجر دائماً — فالرصيد مخزّنٌ بها (core/currency.py).
+    # كان افتراضها TRY ثابتاً، فمتجرٌ دفتره بالدولار يرى أرصدة وكلائه بالليرة.
     currency = models.CharField(max_length=8, default="TRY")
 
     class Meta:
@@ -260,6 +262,15 @@ class Wallet(models.Model):
 
     def __str__(self):
         return f"محفظة {self.user.name}: {self.balance} {self.currency}"
+
+    def save(self, *args, **kwargs):
+        if self.tenant_id:
+            base = Tenant.objects.filter(pk=self.tenant_id).values_list("base_currency", flat=True).first()
+            if base and base != self.currency:
+                self.currency = base
+                if kwargs.get("update_fields") is not None:
+                    kwargs["update_fields"] = list(set(kwargs["update_fields"]) | {"currency"})
+        super().save(*args, **kwargs)
 
     @property
     def available(self) -> Decimal:

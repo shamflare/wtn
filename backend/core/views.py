@@ -340,12 +340,14 @@ def dealers_view(request):
             "name": u.name,
             "balance": str(wallet.balance) if wallet else "0.00",
             "credit_limit": str(wallet.credit_limit) if wallet else "0.00",
-            "currency": wallet.currency if wallet else "TRY",
+            # الرصيد بعملة دفتر المتجر — لا بحقل المحفظة القديم
+            "currency": currency.base_currency(u.tenant),
             # عملة عرض الوكيل — فارغة تعني عملة الموقع
             "display_currency": u.display_currency or "",
             "status": u.status,
             "country": u.country,
-            "group": mods.get("group", ""),
+            # مجموعة الأسعار الفعلية (ما تحدّده نافذة الإعدادات) — وإلا وسمُ الإنشاء القديم
+            "group": u.price_group.name if u.price_group_id else mods.get("group", ""),
             "shopping": mods.get("shopping", True),   # Alışveriş
             "oyun": mods.get("oyun", True),           # لعبة OyunPin
             "active": u.status == User.Status.ACTIVE,  # Aktif
@@ -679,7 +681,7 @@ def wallet_transactions_view(request, dealer_id):
     txns = wallet.transactions.all()[:100]
     return Response({
         "dealer": {"id": wallet.user_id, "name": wallet.user.name,
-                   "balance": str(wallet.balance), "currency": wallet.currency},
+                   "balance": str(wallet.balance), "currency": currency.base_currency(wallet.tenant)},
         "results": [{
             "id": t.id,
             "type": t.type,

@@ -298,3 +298,31 @@ class ProductLink(models.Model):
 
     def __str__(self):
         return f"{self.product} ← {self.provider}: {self.package_id}"
+
+
+class ImageAsset(models.Model):
+    """
+    صورةٌ مرفوعة من جهاز المستخدم (صور المكتبة العالمية أوّلاً).
+
+    تُحفظ في القاعدة لا على القرص: لا مجلّد وسائط في المشروع، والنسخة
+    الاحتياطية الليلية للقاعدة تحملها معها. وتُقدَّم برابطٍ قصير ثابت
+    (`/api/catalog/img/<key>/`) يُخزّنه المتصفّح سنةً — فلا تُحمَّل الصورة
+    إلا مرّةً، ولا يثقل بها كتالوج الوكيل كما لو كانت نصّاً داخل كل لعبة.
+    والصورة لا تتبدّل تحت رابطها أبداً: صورةٌ جديدة ⇐ مفتاحٌ جديد.
+    """
+
+    key = models.CharField(max_length=32, unique=True, default=_uuid_hex, editable=False)
+    content_type = models.CharField(max_length=40)
+    data = models.BinaryField()
+    size = models.PositiveIntegerField()
+    uploaded_by = models.ForeignKey(
+        "core.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "image_assets"
+
+    @property
+    def url(self) -> str:
+        return f"/api/catalog/img/{self.key}/"

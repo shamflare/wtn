@@ -724,3 +724,57 @@ def refresh_link_prices_view(request):
                        "checked": len(rows), "catalog": len(index)})
 
     return Response({"updated": total, "providers": report})
+
+
+# ════════════════ رفع الصور ════════════════
+# النوع يُعرف من أوّل بايتات الملف لا من اسمه ولا من ترويسة المتصفّح:
+# ملفٌّ يدّعي أنه صورة وهو HTML أو SVG يصير صفحةً تُفتح من نطاق الموقع نفسه.
+_IMAGE_MAX_BYTES = 1_500_000
+
+
+def _sniff_image(head: bytes) -> str:
+    if head.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if head.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return "image/webp"
+    if head[:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif"
+    return ""
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def image_upload_view(request):
+    """رفع صورة (multipart، الحقل `file`) ⇐ {"url": "/api/catalog/img/<key>/"}."""
+    from .models import ImageAsset
+
+    if request.user.role not in (User.Role.PLATFORM_OWNER, User.Role.TENANT_ADMIN):
+        return Response({"detail": "رفع الصور لمالك المنصّة وأصحاب المتاجر"}, status=403)
+    f = request.FILES.get("file")
+    if f is None:
+        return Response({"detail": "لم يصل ملف"}, status=400)
+    if f.size > _IMAGE_MAX_BYTES:
+        return Response({"detail": "الصورة كبيرة — الحدّ 1.5 ميغابايت"}, status=400)
+    data = f.read()
+    kind = _sniff_image(data[:16])
+    if not kind:
+        return Response({"detail": "الملف ليس صورة (PNG · JPG · WEBP · GIF)"}, status=400)
+    img = ImageAsset.objects.create(content_type=kind, data=data, size=len(data), uploaded_by=request.user)
+    return Response({"url": img.url, "size": img.size}, status=201)
+
+
+def image_view(request, key):
+    """الصورة نفسها — عامّة (تظهر للوكيل ولصفحة الدخول)، وتُخزَّن في المتصفّح سنة."""
+    from django.http import Http404, HttpResponse
+    from .models import ImageAsset
+
+    img = ImageAsset.objects.filter(key=key).only("content_type", "data").first()
+    if img is None:
+        raise Http404
+    resp = HttpResponse(bytes(img.data), content_type=img.content_type)
+    resp["Cache-Control"] = "public, max-age=31536000, immutable"
+    resp["X-Content-Type-Options"] = "nosniff"
+    resp["Content-Security-Policy"] = "default-src 'none'"
+    return resp

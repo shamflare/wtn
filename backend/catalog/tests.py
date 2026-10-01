@@ -616,3 +616,55 @@ class LibraryLinkingTest(APITestCase):
         LibraryGame.objects.create(name="PUBG Mobile Global")
         game = Game.objects.create(tenant=self.tenant, name="PUBG Mobile")
         self.assertFalse(self._packages(game)["linked"])
+
+
+
+class ImageUploadTest(APITestCase):
+    """رفع صور المكتبة: صورٌ حقيقية فقط، ولمالك المنصّة وأصحاب المتاجر وحدهم، وعرضها عام."""
+
+    PNG = (b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00"
+           b"\x1f\x15\xc4\x89\x00\x00\x00\rIDATx\x9cc\xf8\xff\xff?\x00\x05\xfe\x02\xfe\xa7\x9a\xa0\xa0"
+           b"\x00\x00\x00\x00IEND\xaeB`\x82")
+
+    def setUp(self):
+        from core.models import User
+        self.owner = User.objects.create(login_id="img-owner", name="مالك", role=User.Role.PLATFORM_OWNER)
+        self.tenant = Tenant.objects.create(subdomain="img", name="متجر")
+        self.agent = User.objects.create(login_id="img-agent", name="وكيل", tenant=self.tenant, role=User.Role.BAYI)
+
+    def _upload(self, content, name="a.png"):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        return self.client.post("/api/catalog/images/",
+                                {"file": SimpleUploadedFile(name, content, content_type="image/png")},
+                                format="multipart")
+
+    def test_upload_then_anyone_can_view(self):
+        self.client.force_authenticate(self.owner)
+        r = self._upload(self.PNG)
+        self.assertEqual(r.status_code, 201)
+        url = r.json()["url"]
+        self.client.force_authenticate(None)
+        img = self.client.get(url)
+        self.assertEqual(img.status_code, 200)
+        self.assertEqual(img["Content-Type"], "image/png")
+        self.assertIn("immutable", img["Cache-Control"])
+        self.assertEqual(img.content, self.PNG)
+
+    def test_a_fake_image_is_refused(self):
+        """HTML باسم صورة — لو قُبل لصار صفحةً تُفتح من نطاق الموقع."""
+        self.client.force_authenticate(self.owner)
+        r = self._upload(b"<html><script>alert(1)</script></html>")
+        self.assertEqual(r.status_code, 400)
+
+    def test_an_agent_cannot_upload(self):
+        self.client.force_authenticate(self.agent)
+        self.assertEqual(self._upload(self.PNG).status_code, 403)
+
+    def test_library_game_keeps_the_uploaded_url_and_can_be_edited(self):
+        self.client.force_authenticate(self.owner)
+        url = self._upload(self.PNG).json()["url"]
+        g = self.client.post("/api/platform/library/games/", {"name": "PUBG", "image_url": url}, format="json").json()
+        r = self.client.patch(f"/api/platform/library/games/{g['id']}/", {"name": "PUBG Mobile"}, format="json")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["name"], "PUBG Mobile")
+        self.assertEqual(r.json()["image_url"], url)

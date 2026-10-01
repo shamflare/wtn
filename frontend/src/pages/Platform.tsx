@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import ImageUpload from "../components/ImageUpload";
 import { useAuth } from "../auth";
 import Tickets from "../components/Tickets";
 import CardsEditor from "../components/HomeCards";
@@ -188,6 +189,7 @@ function TenantsTab() {
 function LibraryTab() {
   const [games, setGames] = useState<LibGame[]>([]);
   const [showAdd, setShowAdd] = useState(false);
+  const [editing, setEditing] = useState<LibGame | null>(null);
   const [manage, setManage] = useState<LibGame | null>(null);
 
   function load() { api.get("/platform/library/games/").then((r) => setGames(r.data.results || r.data)); }
@@ -220,10 +222,11 @@ function LibraryTab() {
               <tr key={g.id} style={{ borderTop: "1px solid #1e293b" }}>
                 <td style={td}>{g.id}</td>
                 <td style={{ ...td, fontWeight: 700, textAlign: "right", paddingInlineStart: 14 }}>{g.name}</td>
-                <td style={td}>{g.image_url ? <img src={g.image_url} style={{ width: 34, height: 34, borderRadius: 6, objectFit: "cover" }} /> : "—"}</td>
+                <td style={td}>{g.image_url ? <img src={g.image_url} style={{ width: 40, height: 40, borderRadius: 7, objectFit: "cover" }} /> : "—"}</td>
                 <td style={td}><b style={{ color: "#7dd3fc" }}>{g.product_count}</b></td>
                 <td style={td}>{g.require_player_id ? "✅" : "—"}</td>
                 <td style={td}>
+                  <button style={editBtn} onClick={() => setEditing(g)}>✏️ تعديل</button>
                   <button style={pkgBtn} onClick={() => setManage(g)}>الباقات</button>
                   <button style={suspendBtn} onClick={() => del(g)}>حذف</button>
                 </td>
@@ -232,28 +235,39 @@ function LibraryTab() {
           </tbody>
         </table>
       </div>
-      {showAdd && <AddLibGame onClose={() => setShowAdd(false)} onDone={() => { setShowAdd(false); load(); }} />}
+      {showAdd && <LibGameForm onClose={() => setShowAdd(false)} onDone={() => { setShowAdd(false); load(); }} />}
+      {editing && <LibGameForm game={editing} onClose={() => setEditing(null)} onDone={() => { setEditing(null); load(); }} />}
       {manage && <ManagePackages game={manage} onClose={() => { setManage(null); load(); }} />}
     </>
   );
 }
 
-function AddLibGame({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
-  const [f, setF] = useState({ name: "", image_url: "", description: "", require_player_id: false });
+/** إضافة منتج عالمي، أو تعديله إن مُرِّر `game`. التعديل لا يمسّ نسخ من استورده. */
+function LibGameForm({ game, onClose, onDone }: { game?: LibGame; onClose: () => void; onDone: () => void }) {
+  const [f, setF] = useState({
+    name: game?.name || "", image_url: game?.image_url || "",
+    description: game?.description || "", require_player_id: game?.require_player_id || false,
+  });
   const [err, setErr] = useState(""); const [busy, setBusy] = useState(false);
   async function submit(e: React.FormEvent) {
     e.preventDefault(); setBusy(true); setErr("");
-    try { await api.post("/platform/library/games/", f); onDone(); }
-    catch (e: any) { setErr(e?.response?.data?.detail || "فشل الإضافة"); }
+    try {
+      if (game) await api.patch(`/platform/library/games/${game.id}/`, f);
+      else await api.post("/platform/library/games/", f);
+      onDone();
+    }
+    catch (e: any) { setErr(e?.response?.data?.detail || (game ? "فشل التعديل" : "فشل الإضافة")); }
     finally { setBusy(false); }
   }
   return (
     <div style={overlay} onClick={onClose}>
       <form style={modal} onClick={(e) => e.stopPropagation()} onSubmit={submit}>
-        <div style={{ background: "#0f172a", padding: "14px 18px", fontWeight: 700, fontSize: 16 }}>إضافة منتج عالمي</div>
+        <div style={{ background: "#0f172a", color: "#e2e8f0", padding: "14px 18px", fontWeight: 700, fontSize: 16 }}>
+          {game ? `تعديل: ${game.name}` : "إضافة منتج عالمي"}
+        </div>
         <div style={{ padding: 20, color: "#0f172a" }}>
           <F label="اسم المنتج"><input style={inp} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required autoFocus /></F>
-          <F label="رابط الصورة (اختياري)"><input style={inp} value={f.image_url} onChange={(e) => setF({ ...f, image_url: e.target.value })} placeholder="https://..." /></F>
+          <F label="الصورة (اختياري)"><ImageUpload value={f.image_url} onChange={(v) => setF({ ...f, image_url: v })} /></F>
           <F label="الوصف (اختياري)"><input style={inp} value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} /></F>
           <label style={{ display: "flex", alignItems: "center", gap: 8, margin: "8px 0", color: "#0f172a", fontSize: 14 }}>
             <input type="checkbox" checked={f.require_player_id} onChange={(e) => setF({ ...f, require_player_id: e.target.checked })} />
@@ -261,7 +275,7 @@ function AddLibGame({ onClose, onDone }: { onClose: () => void; onDone: () => vo
           </label>
           {err && <div style={errBox}>{err}</div>}
           <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
-            <button className="btn g" style={{ flex: 1, height: 40 }} disabled={busy}>{busy ? "جارٍ..." : "حفظ"}</button>
+            <button className="btn g" style={{ flex: 1, height: 40 }} disabled={busy}>{busy ? "جارٍ..." : game ? "حفظ التعديل" : "حفظ"}</button>
             <button type="button" className="btn" style={{ height: 40, background: "#8a999e" }} onClick={onClose}>إلغاء</button>
           </div>
         </div>
@@ -272,22 +286,35 @@ function AddLibGame({ onClose, onDone }: { onClose: () => void; onDone: () => vo
 
 function ManagePackages({ game, onClose }: { game: LibGame; onClose: () => void }) {
   const [rows, setRows] = useState<LibProduct[]>([]);
-  const [f, setF] = useState({ name: "", suggested_cost: "", suggested_price: "", kupur: "" });
+  const blank = { name: "", suggested_cost: "", suggested_price: "", kupur: "" };
+  const [f, setF] = useState(blank);
+  const [editId, setEditId] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
 
   function load() { api.get(`/platform/library/products/?game=${game.id}`).then((r) => setRows(r.data.results || r.data)); }
   useEffect(() => load(), []);
 
   async function add(e: React.FormEvent) {
-    e.preventDefault(); setBusy(true);
+    e.preventDefault(); setBusy(true); setErr("");
+    const body = {
+      name: f.name, suggested_cost: f.suggested_cost || "0", suggested_price: f.suggested_price || "0",
+    };
     try {
-      await api.post("/platform/library/products/", {
-        game: game.id, name: f.name,
-        suggested_cost: f.suggested_cost || "0", suggested_price: f.suggested_price || "0", kupur: f.kupur,
-      });
-      setF({ name: "", suggested_cost: "", suggested_price: "", kupur: "" });
+      // رقم الربط لا يتبدّل بعد الإضافة: عليه تقوم روابط من استورد الباقة
+      if (editId) await api.patch(`/platform/library/products/${editId}/`, body);
+      else await api.post("/platform/library/products/", { ...body, game: game.id, kupur: f.kupur });
+      setF(blank); setEditId(null);
       load();
+    } catch (e: any) {
+      const d = e?.response?.data;
+      const first = d && typeof d === "object" ? Object.values(d)[0] : null;
+      setErr(String(Array.isArray(first) ? first[0] : first || "تعذّر الحفظ"));
     } finally { setBusy(false); }
+  }
+  function startEdit(p: LibProduct) {
+    setErr(""); setEditId(p.id);
+    setF({ name: p.name, suggested_cost: p.suggested_cost, suggested_price: p.suggested_price, kupur: p.kupur });
   }
   async function del(id: number) { await api.delete(`/platform/library/products/${id}/`); load(); }
 
@@ -307,12 +334,15 @@ function ManagePackages({ game, onClose }: { game: LibGame; onClose: () => void 
               {rows.length === 0 ? (
                 <tr><td colSpan={5} style={{ padding: 16, textAlign: "center", color: "#94a3b8" }}>لا باقات — أضف أدناه.</td></tr>
               ) : rows.map((p) => (
-                <tr key={p.id} style={{ borderTop: "1px solid #eef1f2" }}>
+                <tr key={p.id} style={{ borderTop: "1px solid #eef1f2", background: editId === p.id ? "#fef9c3" : undefined }}>
                   <td style={{ padding: "8px", fontWeight: 700 }}>{p.name}</td>
                   <td style={{ padding: "8px", textAlign: "center" }}>{p.suggested_cost}</td>
                   <td style={{ padding: "8px", textAlign: "center" }}>{p.suggested_price}</td>
                   <td style={{ padding: "8px", textAlign: "center" }}>{p.kupur || "—"}</td>
-                  <td style={{ padding: "8px", textAlign: "center" }}><button style={suspendBtn} onClick={() => del(p.id)}>حذف</button></td>
+                  <td style={{ padding: "8px", textAlign: "center", whiteSpace: "nowrap" }}>
+                    <button style={editBtn} onClick={() => startEdit(p)}>✏️ تعديل</button>
+                    <button style={suspendBtn} onClick={() => del(p.id)}>حذف</button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -321,9 +351,16 @@ function ManagePackages({ game, onClose }: { game: LibGame; onClose: () => void 
             <Field label="الباقة"><input style={{ ...inp, width: 140 }} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required /></Field>
             <Field label="التكلفة"><input style={{ ...inp, width: 90 }} type="number" step="0.01" value={f.suggested_cost} onChange={(e) => setF({ ...f, suggested_cost: e.target.value })} /></Field>
             <Field label="السعر"><input style={{ ...inp, width: 90 }} type="number" step="0.01" value={f.suggested_price} onChange={(e) => setF({ ...f, suggested_price: e.target.value })} /></Field>
-            <Field label="رقم الربط"><input style={{ ...inp, width: 90 }} value={f.kupur} onChange={(e) => setF({ ...f, kupur: e.target.value })} required dir="ltr" /></Field>
-            <button className="btn g" style={{ height: 38 }} disabled={busy}>{busy ? "..." : "➕ إضافة"}</button>
+            <Field label="رقم الربط"><input style={{ ...inp, width: 90, ...(editId ? { background: "#f1f5f9", color: "#64748b" } : {}) }}
+              value={f.kupur} onChange={(e) => setF({ ...f, kupur: e.target.value })} required dir="ltr"
+              disabled={!!editId} title={editId ? "رقم الربط لا يتغيّر بعد الإضافة" : undefined} /></Field>
+            <button className="btn g" style={{ height: 38 }} disabled={busy}>{busy ? "..." : editId ? "💾 حفظ التعديل" : "➕ إضافة"}</button>
+            {editId && (
+              <button type="button" className="btn" style={{ height: 38, background: "#8a999e" }}
+                onClick={() => { setEditId(null); setF(blank); setErr(""); }}>إلغاء</button>
+            )}
           </form>
+          {err && <div style={errBox}>{err}</div>}
           <div style={{ marginTop: 10, fontSize: 12.5, color: "#64748b", lineHeight: 1.7 }}>
             رقم الربط جسر الباقة: منه تُبنى قائمة الأرقام التي يختار منها أصحاب المتاجر،
             ولا يستطيع أحدهم تغييره بعد الإضافة. اجعله فريداً داخل اللعبة الواحدة.
@@ -627,6 +664,7 @@ const td: React.CSSProperties = { padding: "12px 8px", textAlign: "center" };
 const addBtn: React.CSSProperties = { background: "#2563eb", color: "#fff", border: 0, padding: "8px 16px", borderRadius: 6, fontWeight: 600, cursor: "pointer" };
 const pkgBtn: React.CSSProperties = { background: "#1d4ed8", color: "#dbeafe", border: 0, padding: "5px 12px", borderRadius: 5, marginInlineEnd: 6, cursor: "pointer" };
 const subBtn: React.CSSProperties = { background: "#7c3aed", color: "#ede9fe", border: 0, padding: "5px 12px", borderRadius: 5, marginInlineEnd: 6, cursor: "pointer" };
+const editBtn: React.CSSProperties = { background: "#a16207", color: "#fef3c7", border: 0, padding: "5px 12px", borderRadius: 5, marginInlineEnd: 6, cursor: "pointer" };
 const suspendBtn: React.CSSProperties = { background: "#7f1d1d", color: "#fecaca", border: 0, padding: "5px 12px", borderRadius: 5, cursor: "pointer" };
 const activateBtn: React.CSSProperties = { background: "#14532d", color: "#bbf7d0", border: 0, padding: "5px 12px", borderRadius: 5, cursor: "pointer" };
 const overlay: React.CSSProperties = { position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 };

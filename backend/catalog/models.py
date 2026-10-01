@@ -276,7 +276,7 @@ class LibraryGame(models.Model):
     name = models.CharField(max_length=120)
     image_url = models.CharField(max_length=300, blank=True, default="")
     description = models.TextField(blank=True, default="")
-    require_player_id = models.BooleanField(default=False)
+    require_player_id = models.BooleanField(default=True)   # الافتراض: يطلب معرّف اللاعب
     kurulu_sale = models.BooleanField(default=True)
     toplu_sale = models.BooleanField(default=False)
     sms_template = models.TextField(blank=True, default="")

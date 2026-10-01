@@ -967,3 +967,14 @@ class LibraryBulkDeleteTest(APITestCase):
         self.client.force_authenticate(admin)
         r = self.client.post("/api/platform/library/games/bulk-delete/", {"ids": [self.games[0].id]}, format="json")
         self.assertEqual(r.status_code, 403)
+
+
+
+class LibraryPlayerIdDefaultTest(APITestCase):
+    def test_new_library_game_requires_player_id_by_default(self):
+        owner = User.objects.create(login_id="pid-o", name="م", role=User.Role.PLATFORM_OWNER)
+        self.client.force_authenticate(owner)
+        g = self.client.post("/api/platform/library/games/", {"name": "X"}, format="json").json()
+        self.assertTrue(g["require_player_id"])
+        r = self.client.patch(f"/api/platform/library/games/{g['id']}/", {"require_player_id": False}, format="json")
+        self.assertFalse(r.json()["require_player_id"])

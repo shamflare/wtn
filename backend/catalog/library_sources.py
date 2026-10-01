@@ -264,13 +264,12 @@ def apply_import(source, picks: list, margin=None, update_prices: bool = True) -
                     summary["packages_disabled"] += lib.products.filter(is_active=True).update(is_active=False)
                 summary["skipped"].append(key)
                 continue
-            needs_id = any(
-                any("player" in str(x).lower() for x in (p.get("params") or [])) for p in rows)
             lib = LibraryGame.objects.filter(source=source, source_key=key).first()
             if lib is None:
                 lib = LibraryGame.objects.create(
                     name=(str(pick.get("name") or "").strip() or key)[:120],
-                    source=source, source_key=key, require_player_id=needs_id,
+                    # الافتراض يطلب معرّف اللاعب — والمالك يُلغيه حيث لا يلزم
+                    source=source, source_key=key, require_player_id=True,
                     sort_order=order_base + i,
                 )
                 summary["games_created"] += 1

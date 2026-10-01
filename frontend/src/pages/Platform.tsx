@@ -323,7 +323,8 @@ function LibraryTab() {
 function LibGameForm({ game, onClose, onDone }: { game?: LibGame; onClose: () => void; onDone: () => void }) {
   const [f, setF] = useState({
     name: game?.name || "", image_url: game?.image_url || "",
-    description: game?.description || "", require_player_id: game?.require_player_id || false,
+    // منتجٌ جديد يطلب معرّف اللاعب افتراضاً — يُلغى حيث لا يلزم
+    description: game?.description || "", require_player_id: game ? game.require_player_id : true,
   });
   const [err, setErr] = useState(""); const [busy, setBusy] = useState(false);
   async function submit(e: React.FormEvent) {

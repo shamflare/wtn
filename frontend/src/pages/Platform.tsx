@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import ImageUpload from "../components/ImageUpload";
+import { useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../auth";
 import Tickets from "../components/Tickets";
 import CardsEditor from "../components/HomeCards";
@@ -34,10 +35,15 @@ const SUB_TONE: Record<string, { bg: string; fg: string; label: string }> = {
 };
 
 type Tab = "tenants" | "library" | "invoices" | "messages" | "announce" | "cards";
+const TABS: Tab[] = ["tenants", "library", "invoices", "messages", "announce", "cards"];
 
 export default function Platform() {
   const { user, logout } = useAuth();
-  const [tab, setTab] = useState<Tab>("tenants");
+  // كل قسمٍ رابطه (/platform/library …) — فالتحديث يُبقيك حيث كنت، والرابط يُنسخ ويُفتح مباشرةً
+  const { section } = useParams();
+  const navigate = useNavigate();
+  const tab: Tab = (TABS as string[]).includes(section || "") ? (section as Tab) : "tenants";
+  const setTab = (t: Tab) => navigate(t === "tenants" ? "/platform" : `/platform/${t}`);
 
   return (
     <div style={{ minHeight: "100vh", background: "#0f172a", color: "#e2e8f0" }}>

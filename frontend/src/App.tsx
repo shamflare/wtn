@@ -65,6 +65,7 @@ export default function App() {
 
           {/* لوحات مستقلة (بحسب الدور) */}
           <Route path="/platform" element={<Guard roles={["platform_owner"]} bare><Platform /></Guard>} />
+          <Route path="/platform/:section" element={<Guard roles={["platform_owner"]} bare><Platform /></Guard>} />
           {/* لوحة الوكيل الكبير — هيكل لوحة صاحب المتجر نفسه بأقسام ثلاثة */}
           <Route path="/bigagent" element={Agent(<AgentHome />)} />
           <Route path="/bigagent/dealers" element={Agent(<AgentDealers />)} />

@@ -46,6 +46,11 @@ export default function LibrarySources({ onLibraryChanged }: { onLibraryChanged?
   }
 
   async function sync(s: Source) {
+    if (!s.games) {
+      flash(false, "المزامنة تحدّث الألعاب المستوردة من هذا المصدر — ولا شيء مستورد بعد. اختر ألعابك من الكتالوج أولاً ↓");
+      setBrowsing(s);
+      return;
+    }
     setSyncing(s.id);
     try {
       const r = await api.post(`/platform/library/sources/${s.id}/import/`, { sync: true });
@@ -63,8 +68,13 @@ export default function LibrarySources({ onLibraryChanged }: { onLibraryChanged?
   }
 
   if (browsing) {
-    return <CatalogBrowser source={browsing} onBack={() => { setBrowsing(null); load(); }}
-      onImported={() => onLibraryChanged?.()} />;
+    return (
+      <>
+        {toast && <div style={toast.ok ? okBox : errBoxDark}>{toast.text}</div>}
+        <CatalogBrowser source={browsing} onBack={() => { setBrowsing(null); load(); }}
+          onImported={() => onLibraryChanged?.()} />
+      </>
+    );
   }
 
   return (
@@ -114,8 +124,8 @@ export default function LibrarySources({ onLibraryChanged }: { onLibraryChanged?
                 </div>
                 <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
                   <button style={{ ...primaryBtn, flex: 1 }} onClick={() => setBrowsing(s)}>📥 جلب الكتالوج</button>
-                  <button style={{ ...ghostBtn, flex: 1 }} disabled={!s.games || syncing === s.id} onClick={() => sync(s)}
-                    title={s.games ? "يأخذ الباقات الجديدة والأسعار المتغيّرة ويطفئ ما أزاله المزوّد" : "استورد لعبةً أولاً"}>
+                  <button style={{ ...ghostBtn, flex: 1 }} disabled={syncing === s.id} onClick={() => sync(s)}
+                    title={s.games ? "يأخذ الباقات الجديدة والأسعار المتغيّرة ويطفئ ما أزاله المزوّد" : "لا ألعاب مستوردة بعد — يفتح الكتالوج"}>
                     {syncing === s.id ? "جارٍ المزامنة..." : "🔄 مزامنة"}
                   </button>
                   <button style={iconBtn} title="الإعدادات" onClick={() => setEditing(s)}>⚙</button>
@@ -309,6 +319,14 @@ function CatalogBrowser({ source, onBack, onImported }: { source: Source; onBack
 
   async function doImport() {
     if (!picked.size) return;
+    const fresh = (cat?.groups || []).filter((g) => picked.has(g.key) && g.state === "new").length;
+    const again = picked.size - fresh;
+    if (!confirm(
+      `إضافة إلى المكتبة العالمية:\n\n`
+      + `• ${picked.size} لعبة (${pickedPackages} باقة)`
+      + (fresh ? `\n• ${fresh} جديدة تُنشأ` : "")
+      + (again ? `\n• ${again} موجودة تُحدَّث باقاتها وأسعارها` : "")
+      + `\n• السعر المقترح = التكلفة + ${m}%\n\nمتابعة؟`)) return;
     setBusy(true); setResult(null);
     try {
       const picks = [...picked].map((key) => ({ key, name: names[key] || undefined }));
@@ -350,14 +368,33 @@ function CatalogBrowser({ source, onBack, onImported }: { source: Source; onBack
             <div style={{ marginInlineStart: "auto", display: "flex", gap: 10, alignItems: "center" }}>
               <span style={{ fontSize: 13, color: "#94a3b8" }}>{picked.size} لعبة · {pickedPackages} باقة</span>
               <button style={{ ...primaryBtn, opacity: picked.size ? 1 : .5 }} disabled={!picked.size || busy} onClick={doImport}>
-                {busy ? "جارٍ الاستيراد..." : `⬇ استيراد المحدد (${picked.size})`}
+                {busy ? "جارٍ الإضافة..." : `⬇ إضافة إلى المكتبة (${picked.size})`}
               </button>
             </div>
           </div>
 
           {result && <div style={result.ok ? okBox : errBoxDark}>{result.text}</div>}
+          {!picked.size && !result && (
+            <div style={hintBox}>
+              👇 <b>اختر الألعاب</b> بالخانات ☑ (أو خانة العنوان لتحديد الظاهر كلّه)، عدّل أسماءها إن شئت،
+              ثم اضغط <b>«إضافة إلى المكتبة»</b> في الشريط أسفل الشاشة.
+            </div>
+          )}
 
-          <div style={{ overflow: "hidden", borderRadius: 10, border: "1px solid #1e293b" }}>
+          {picked.size > 0 && (
+            <div style={actionBar}>
+              <div style={{ flex: 1 }}>
+                <b style={{ fontSize: 15 }}>✓ اخترت {picked.size} لعبة · {pickedPackages} باقة</b>
+                <div style={{ fontSize: 12, color: "#bfdbfe" }}>السعر المقترح = التكلفة + {m}% — تعدّله من الهامش أعلاه</div>
+              </div>
+              <button style={{ ...ghostBtn, background: "transparent" }} onClick={() => setPicked(new Set())}>إلغاء التحديد</button>
+              <button style={{ ...primaryBtn, background: "#16a34a", padding: "11px 22px", fontSize: 15 }} disabled={busy} onClick={doImport}>
+                {busy ? "جارٍ الإضافة..." : `⬇ إضافة إلى المكتبة (${picked.size})`}
+              </button>
+            </div>
+          )}
+
+          <div style={{ overflow: "hidden", borderRadius: 10, border: "1px solid #1e293b", marginBottom: picked.size ? 90 : 0 }}>
             <table style={table}>
               <thead>
                 <tr>
@@ -492,6 +529,13 @@ const darkInp: React.CSSProperties = { background: "#0b1222", color: "#e2e8f0", 
 const table: React.CSSProperties = { width: "100%", borderCollapse: "collapse", fontSize: 13.5 };
 const th: React.CSSProperties = { background: "#1e293b", color: "#94a3b8", padding: "10px 8px", fontWeight: 600, fontSize: 12.5 };
 const td: React.CSSProperties = { padding: "9px 8px", textAlign: "center" };
+const hintBox: React.CSSProperties = { background: "#0c1a33", border: "1px dashed #2563eb", color: "#cbd5e1", padding: "10px 14px", borderRadius: 8, marginBottom: 12, fontSize: 13.5, lineHeight: 1.9 };
+const actionBar: React.CSSProperties = {
+  position: "fixed", bottom: 16, left: "50%", transform: "translateX(-50%)", zIndex: 50,
+  width: "min(900px, calc(100vw - 32px))", display: "flex", alignItems: "center", gap: 12,
+  background: "#1e3a8a", border: "1px solid #3b82f6", borderRadius: 14, padding: "12px 16px",
+  boxShadow: "0 18px 50px rgba(0,0,0,.55)", color: "#fff",
+};
 const okBox: React.CSSProperties = { background: "#052e16", border: "1px solid #166534", color: "#bbf7d0", padding: "10px 14px", borderRadius: 8, marginBottom: 12, fontSize: 14 };
 const errBoxDark: React.CSSProperties = { background: "#450a0a", border: "1px solid #7f1d1d", color: "#fecaca", padding: "10px 14px", borderRadius: 8, marginBottom: 12, fontSize: 14 };
 const overlay: React.CSSProperties = { position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 };

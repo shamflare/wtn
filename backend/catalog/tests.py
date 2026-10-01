@@ -927,3 +927,15 @@ class LibrarySourceTest(APITestCase):
         with self._feed(feed):
             self.client.post(f"/api/platform/library/sources/{sid}/import/", {"sync": True}, format="json")
         self.assertFalse(LibraryProduct.objects.get(source_ref="201").is_active)
+
+
+    def test_long_decimals_do_not_look_changed_on_every_sync(self):
+        sid = self._source()
+        feed = [dict(self.FEED[0], price="41.500000412345678")]
+        with self._feed(feed):
+            self.client.post(f"/api/platform/library/sources/{sid}/import/",
+                             {"picks": [{"key": "PUBG Mobile"}]}, format="json")
+            grp = self.client.get(f"/api/platform/library/sources/{sid}/catalog/").json()["groups"][0]
+            self.assertEqual(grp["counts"]["changed"], 0)
+            r = self.client.post(f"/api/platform/library/sources/{sid}/import/", {"sync": True}, format="json")
+        self.assertEqual(r.json()["prices_updated"], 0)

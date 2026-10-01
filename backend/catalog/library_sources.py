@@ -65,8 +65,14 @@ SANE_MAX = Decimal("1000000")
 
 
 def sane_price(v) -> Decimal | None:
+    """
+    السعر بأربع منازل — دقّة الحقل نفسه. بركات يرسل 0.003002410974493276، والحقل
+    يحفظ 0.0030؛ ومقارنة الخام بالمحفوظ كانت تجعل كل سعرٍ «تغيّر» في كل مزامنة.
+    """
     d = _dec(v)
-    return d if d is not None and Decimal("0") < d < SANE_MAX else None
+    if d is None or not (Decimal("0") < d < SANE_MAX):
+        return None
+    return d.quantize(Decimal("0.0001"), ROUND_HALF_UP)
 
 
 def sellable(p: dict) -> bool:

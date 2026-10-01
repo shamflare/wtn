@@ -30,7 +30,10 @@ export default function Games() {
         {games.map((g) => (
           <div key={g.id} style={card}>
             <div style={thumb} onClick={() => nav(`/oyunpin/${g.id}`)}>
-              {g.image_url ? <img src={g.image_url} style={{ width: "100%", borderRadius: 8 }} /> : "🎮"}
+              {g.image_url
+                ? <img src={g.image_url} alt="" style={{ width: 96, height: 96, objectFit: "cover", borderRadius: 14,
+                                                       boxShadow: "0 4px 12px rgba(0,0,0,.15)" }} />
+                : "🎮"}
             </div>
             <div
               style={{ fontWeight: 700, marginTop: 10, cursor: "pointer" }}
@@ -87,5 +90,6 @@ const thumb: React.CSSProperties = {
   fontSize: 56,
   background: "#f2f5f6",
   borderRadius: 8,
+  overflow: "hidden",
   cursor: "pointer",
 };

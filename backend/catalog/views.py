@@ -655,6 +655,38 @@ def library_import_view(request, library_game_id):
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
+def auto_link_suggest_view(request):
+    """اقتراحات «ربط تلقائي» لعمود مزوّد — للمعاينة، لا تُحفظ. {provider}"""
+    from .smart_link import suggest
+
+    if not _require_tenant_admin(request):
+        return Response({"detail": "مخصّص لصاحب المتجر"}, status=403)
+    provider = Provider.objects.filter(pk=request.data.get("provider"), tenant=request.user.tenant).first()
+    if provider is None:
+        return Response({"detail": "المزوّد غير موجود"}, status=404)
+    data = suggest(request.user.tenant, provider)
+    return Response(data, status=200 if data.get("ok") else 502)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def auto_link_apply_view(request):
+    """حفظ ما وافق عليه صاحب المتجر من الاقتراحات. {provider, picks: [...]}"""
+    from .smart_link import apply_links
+
+    if not _require_tenant_admin(request):
+        return Response({"detail": "مخصّص لصاحب المتجر"}, status=403)
+    provider = Provider.objects.filter(pk=request.data.get("provider"), tenant=request.user.tenant).first()
+    if provider is None:
+        return Response({"detail": "المزوّد غير موجود"}, status=404)
+    picks = request.data.get("picks")
+    if not isinstance(picks, list) or not picks:
+        return Response({"detail": "لم يُحدَّد شيء"}, status=400)
+    return Response(apply_links(request.user.tenant, provider, picks))
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
 def library_autolink_view(request):
     """ربطٌ تلقائي لكل ما استُورد من المكتبة — لمن أضاف المزوّد بعد الاستيراد."""
     from .library_sources import autolink

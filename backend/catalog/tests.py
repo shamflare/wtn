@@ -978,3 +978,73 @@ class LibraryPlayerIdDefaultTest(APITestCase):
         self.assertTrue(g["require_player_id"])
         r = self.client.patch(f"/api/platform/library/games/{g['id']}/", {"require_player_id": False}, format="json")
         self.assertFalse(r.json()["require_player_id"])
+
+
+
+class SmartLinkTest(APITestCase):
+    """
+    «ربط تلقائي» لمزوّد ZNET: مطابقةٌ بالاسم والرقم والوحدة والسعر — اقتراحٌ يُعرض
+    ولا يُحفظ إلا بموافقة، والوحدة المختلفة رفضٌ قاطع.
+    """
+
+    ZNET = [
+        {"id": "1", "name": "PUBG Mobile 60 UC", "game": "PUBG", "kupur": "60", "price": "41.50"},
+        {"id": "1", "name": "PUBG Mobile 325 UC", "game": "PUBG", "kupur": "325", "price": "415.00"},
+        {"id": "23", "name": "✅PUBG LITE 60 BC", "game": "PUBG Lite", "kupur": "60", "price": "20.00"},
+        {"id": "9", "name": "Free Fire 100 Diamond", "game": "Free Fire", "kupur": "100", "price": "41.50"},
+    ]
+
+    def setUp(self):
+        from providers.models import Provider
+        from .models import Game, Product, ProductLink
+        self.t = Tenant.objects.create(subdomain="sl", name="متجر", base_currency="USD",
+                                       exchange_rates={"TRY": "41.50"})
+        self.admin = User.objects.create(login_id="sl-a", name="م", tenant=self.t,
+                                         role=User.Role.TENANT_ADMIN, is_staff=True)
+        self.znet = Provider.objects.create(tenant=self.t, name="علايا", type=Provider.Type.SAME_SYSTEM,
+                                            currency="TRY", config={"code": "znet"})
+        self.barakat = Provider.objects.create(tenant=self.t, name="بركات", type=Provider.Type.CARD_STORE,
+                                               currency="TRY", config={"code": "zdk", "api_token": "x"})
+        pubg = Game.objects.create(tenant=self.t, name="PUBG Turkey")
+        self.p60 = Product.objects.create(tenant=self.t, game=pubg, name="Global 60 UC", cost_price=Decimal("1"))
+        self.p325 = Product.objects.create(tenant=self.t, game=pubg, name="Global 325 UC", cost_price=Decimal("5"))
+        self.p999 = Product.objects.create(tenant=self.t, game=pubg, name="Global 999 UC", cost_price=Decimal("5"))
+        ProductLink.objects.create(tenant=self.t, product=self.p60, provider=self.barakat,
+                                   package_id="22", extra={"price": "1.00"})
+        self.client.force_authenticate(self.admin)
+
+    def _suggest(self):
+        with patch("providers.adapters.znet.ZnetAdapter.list_packages",
+                   return_value=PackageList(ok=True, packages=self.ZNET)):
+            return self.client.post("/api/catalog/auto-link/suggest/", {"provider": self.znet.id}, format="json").json()
+
+    def test_suggestions_and_confidence(self):
+        from .models import ProductLink
+        r = self._suggest()
+        s = {x["product"]: x for x in r["suggestions"]}
+        # 60 UC ↔ PUBG 60 UC لا PUBG LITE 60 BC (وحدةٌ مختلفة)
+        self.assertEqual(s[self.p60.id]["package"]["name"], "PUBG Mobile 60 UC")
+        # «PUBG Turkey» ليست «PUBG» ⇒ مشكوك لا مؤكَّد (و«Global» كلمةٌ لا تميّز: PUBG Global = PUBG)
+        self.assertEqual(s[self.p60.id]["confidence"], "medium")
+        # 325: السعر 415 ليرة = 10$ ضعف المرجع (5$) ⇒ بعيد
+        self.assertTrue(any("بعيد" in w for w in s[self.p325.id]["warnings"]))
+        self.assertIn(self.p999.id, [u["product"] for u in r["unmatched"]])
+        self.assertFalse(ProductLink.objects.filter(provider=self.znet).exists())   # المعاينة لا تحفظ
+
+    def test_exact_game_name_and_close_price_is_high(self):
+        self.p60.game.name = "PUBG Global"; self.p60.game.save()
+        s = {x["product"]: x for x in self._suggest()["suggestions"]}
+        self.assertEqual(s[self.p60.id]["confidence"], "high")
+
+    def test_apply_saves_only_picks_and_never_overwrites(self):
+        from .models import ProductLink
+        r = self.client.post("/api/catalog/auto-link/apply/", {"provider": self.znet.id, "picks": [
+            {"product": self.p60.id, "package_id": "1", "kupur": "60", "name": "PUBG Mobile 60 UC", "price": "41.50"},
+        ]}, format="json").json()
+        self.assertEqual(r["linked"], 1)
+        link = ProductLink.objects.get(product=self.p60, provider=self.znet)
+        self.assertEqual((link.package_id, link.extra["kupur"], link.extra["price"]), ("1", "60", "1.00"))
+        again = self.client.post("/api/catalog/auto-link/apply/", {"provider": self.znet.id, "picks": [
+            {"product": self.p60.id, "package_id": "777"}]}, format="json").json()
+        self.assertEqual(again["linked"], 0)
+        self.assertEqual(ProductLink.objects.get(product=self.p60, provider=self.znet).package_id, "1")

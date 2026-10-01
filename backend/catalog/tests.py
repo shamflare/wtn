@@ -939,3 +939,31 @@ class LibrarySourceTest(APITestCase):
             self.assertEqual(grp["counts"]["changed"], 0)
             r = self.client.post(f"/api/platform/library/sources/{sid}/import/", {"sync": True}, format="json")
         self.assertEqual(r.json()["prices_updated"], 0)
+
+
+
+class LibraryBulkDeleteTest(APITestCase):
+    def setUp(self):
+        from .models import Game, LibraryGame, LibraryProduct
+        self.owner = User.objects.create(login_id="bd-owner", name="مالك", role=User.Role.PLATFORM_OWNER)
+        self.games = [LibraryGame.objects.create(name=f"G{i}") for i in range(3)]
+        LibraryProduct.objects.create(game=self.games[0], name="p", kupur="1")
+        t = Tenant.objects.create(subdomain="bd", name="متجر")
+        self.copy = Game.objects.create(tenant=t, name="G0", master_library_uuid=self.games[0].uuid)
+
+    def test_owner_deletes_many_and_store_copies_stay(self):
+        from .models import Game, LibraryGame, LibraryProduct
+        self.client.force_authenticate(self.owner)
+        r = self.client.post("/api/platform/library/games/bulk-delete/",
+                             {"ids": [self.games[0].id, self.games[1].id]}, format="json")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(list(LibraryGame.objects.values_list("name", flat=True)), ["G2"])
+        self.assertFalse(LibraryProduct.objects.exists())
+        self.assertTrue(Game.objects.filter(pk=self.copy.pk).exists())
+
+    def test_others_cannot(self):
+        t = Tenant.objects.get(subdomain="bd")
+        admin = User.objects.create(login_id="bd-a", name="م", tenant=t, role=User.Role.TENANT_ADMIN)
+        self.client.force_authenticate(admin)
+        r = self.client.post("/api/platform/library/games/bulk-delete/", {"ids": [self.games[0].id]}, format="json")
+        self.assertEqual(r.status_code, 403)

@@ -5,7 +5,7 @@ from decimal import Decimal
 from django.conf import settings
 from django.db import transaction
 from rest_framework import status as http, viewsets
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.response import Response
 
@@ -34,6 +34,21 @@ class LibraryGameViewSet(viewsets.ModelViewSet):
 
     def get_serializer_class(self):
         return LibraryGameDetailSerializer if self.action == "retrieve" else LibraryGameSerializer
+
+    @action(detail=False, methods=["post"], url_path="bulk-delete")
+    def bulk_delete(self, request):
+        """حذفٌ جماعي: {ids: [..]} — طلبٌ واحد بدل مئات. لا يمسّ نسخ المتاجر."""
+        ids = request.data.get("ids")
+        if not isinstance(ids, list) or not ids:
+            return Response({"detail": "لم يُحدَّد شيء"}, status=400)
+        try:
+            ids = [int(i) for i in ids]
+        except (TypeError, ValueError):
+            return Response({"detail": "معرّفات غير صالحة"}, status=400)
+        qs = LibraryGame.objects.filter(pk__in=ids)
+        count = qs.count()
+        qs.delete()
+        return Response({"deleted": count})
 
     def perform_update(self, serializer):
         """

@@ -200,6 +200,9 @@ function LibraryTab() {
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState<LibGame | null>(null);
   const [manage, setManage] = useState<LibGame | null>(null);
+  const [q, setQ] = useState("");
+  const [picked, setPicked] = useState<Set<number>>(new Set());
+  const [busy, setBusy] = useState(false);
 
   function load() { api.get("/platform/library/games/").then((r) => setGames(r.data.results || r.data)); }
   useEffect(() => load(), []);
@@ -207,7 +210,40 @@ function LibraryTab() {
   async function del(g: LibGame) {
     if (!confirm(`حذف "${g.name}" من المكتبة العالمية؟ (لا يؤثّر على من استوردها)`)) return;
     await api.delete(`/platform/library/games/${g.id}/`);
+    setPicked((s) => { const n = new Set(s); n.delete(g.id); return n; });
     load();
+  }
+
+  // البحث يضيّق الجدول، و«تحديد الكل» يحدّد الظاهر وحده — فـ«chat» ثم تحديد الكل يكفي
+  const term = q.trim().toLowerCase();
+  const shown = term
+    ? games.filter((g) => g.name.toLowerCase().includes(term) || (g.source_name || "").toLowerCase().includes(term))
+    : games;
+  const allShown = shown.length > 0 && shown.every((g) => picked.has(g.id));
+  function toggleAll() {
+    setPicked((s) => {
+      const n = new Set(s);
+      for (const g of shown) allShown ? n.delete(g.id) : n.add(g.id);
+      return n;
+    });
+  }
+  function toggle(id: number) {
+    setPicked((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  }
+
+  async function bulkDelete() {
+    const names = games.filter((g) => picked.has(g.id)).map((g) => g.name);
+    if (!confirm(`حذف ${names.length} منتج من المكتبة العالمية مع كل باقاتها؟\n\n`
+      + names.slice(0, 12).join("، ") + (names.length > 12 ? ` … و${names.length - 12} غيرها` : "")
+      + "\n\nلا يؤثّر على المتاجر التي استوردتها.")) return;
+    setBusy(true);
+    try {
+      await api.post("/platform/library/games/bulk-delete/", { ids: [...picked] });
+      setPicked(new Set());
+      load();
+    } catch (e: any) {
+      alert(e?.response?.data?.detail || "تعذّر الحذف");
+    } finally { setBusy(false); }
   }
 
   return (
@@ -219,16 +255,41 @@ function LibraryTab() {
       <p style={{ color: "#94a3b8", fontSize: 13, marginBottom: 16 }}>
         منتجات جاهزة مع باقاتها؛ يستوردها أصحاب المتاجر بضغطة، ويعدّلون نسختهم بحرّية دون التأثير هنا.
       </p>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="🔍 ابحث عن منتج..."
+          style={{ width: 260, height: 36, background: "#0b1222", color: "#e2e8f0", border: "1px solid #334155", borderRadius: 8, padding: "0 10px" }} />
+        <span style={{ color: "#94a3b8", fontSize: 13 }}>
+          {term ? `${shown.length} من ${games.length}` : `${games.length} منتج`}
+          {picked.size > 0 && <> · <b style={{ color: "#fecaca" }}>محدّد {picked.size}</b></>}
+        </span>
+        {picked.size > 0 && (
+          <>
+            <button style={{ ...suspendBtn, padding: "8px 16px", fontWeight: 700 }} disabled={busy} onClick={bulkDelete}>
+              {busy ? "جارٍ الحذف..." : `🗑 حذف المحدّد (${picked.size})`}
+            </button>
+            <button style={{ background: "transparent", border: "1px solid #334155", color: "#cbd5e1", padding: "7px 12px", borderRadius: 6, cursor: "pointer" }}
+              onClick={() => setPicked(new Set())}>إلغاء التحديد</button>
+          </>
+        )}
+      </div>
       <div style={{ overflow: "hidden", borderRadius: 10, border: "1px solid #1e293b" }}>
         <table style={table}>
           <thead>
-            <tr>{["#", "المنتج", "الصورة", "الباقات", "معرّف لاعب", "إجراء"].map((h) => <th key={h} style={th}>{h}</th>)}</tr>
+            <tr>
+              <th style={{ ...th, width: 42 }}>
+                <input type="checkbox" checked={allShown} onChange={toggleAll} title="تحديد كل الظاهر" />
+              </th>
+              {["#", "المنتج", "الصورة", "الباقات", "معرّف لاعب", "إجراء"].map((h) => <th key={h} style={th}>{h}</th>)}
+            </tr>
           </thead>
           <tbody>
-            {games.length === 0 ? (
-              <tr><td colSpan={6} style={{ ...td, color: "#64748b", padding: 24 }}>لا منتجات عالمية بعد — أضف أول منتج.</td></tr>
-            ) : games.map((g) => (
-              <tr key={g.id} style={{ borderTop: "1px solid #1e293b" }}>
+            {shown.length === 0 ? (
+              <tr><td colSpan={7} style={{ ...td, color: "#64748b", padding: 24 }}>
+                {games.length ? "لا نتائج." : "لا منتجات عالمية بعد — أضف أول منتج."}
+              </td></tr>
+            ) : shown.map((g) => (
+              <tr key={g.id} style={{ borderTop: "1px solid #1e293b", background: picked.has(g.id) ? "#2a1215" : undefined }}>
+                <td style={td}><input type="checkbox" checked={picked.has(g.id)} onChange={() => toggle(g.id)} /></td>
                 <td style={td}>{g.id}</td>
                 <td style={{ ...td, fontWeight: 700, textAlign: "right", paddingInlineStart: 14 }}>
                   {g.name}

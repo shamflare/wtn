@@ -14,8 +14,8 @@ export default function Providers() {
   const [showPassive, setShowPassive] = useState(false);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState<{ edit?: Provider } | null>(null);
-  const [refreshing, setRefreshing] = useState<number | null>(null);
-  const [flash, setFlash] = useState<{ ok: boolean; text: string } | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [flash, setFlash] = useState<{ ok: boolean; text: string; lines?: { ok: boolean; text: string }[] } | null>(null);
   const [del, setDel] = useState<Provider | null>(null);
   const [deleting, setDeleting] = useState(false);
 
@@ -60,21 +60,44 @@ export default function Providers() {
   };
   const kindKey = (p: Provider) => (p.config?.code || "").toLowerCase() || p.type;
 
-  async function refreshBalance(p: Provider) {
-    setRefreshing(p.id); setFlash(null);
-    try {
-      const r = await api.post(`/providers/${p.id}/refresh-balance/`);
-      setProviders((list) => list.map((x) => (x.id === r.data.id ? r.data : x)));
-      api.get("/providers/totals/").then((t) => setTotals(t.data));
-      setFlash({
+  /** المبلغ بعملة المزوّد نفسه، ومعه ما يعادله بعملة الدفتر إن اختلفتا */
+  function inCurrency(v: string, base: string | null, d: Provider) {
+    const own = `${num(v)} ${symbolOf(d.shown_currency)}`;
+    return d.shown_currency !== d.base_currency && base !== null
+      ? `${own} (≈ ${num(base)} ${symbolOf(d.base_currency)})` : own;
+  }
+
+  /** ☀ زرٌّ واحد: أرصدة كل المزوّدين الآليين معاً — والمنفّذ اليدوي لا رصيد له */
+  async function refreshAll() {
+    const targets = providers.filter((p) => p.type !== "loader");
+    if (!targets.length) return;
+    setRefreshing(true); setFlash(null);
+    const results = await Promise.allSettled(
+      targets.map((p) => api.post(`/providers/${p.id}/refresh-balance/`)));
+    const fresh = new Map<number, Provider>();
+    const lines = results.map((r, i) => {
+      const p = targets[i];
+      if (r.status === "rejected") {
+        return { ok: false, text: `«${p.name}»: ${r.reason?.response?.data?.detail || "فشل جلب الرصيد"}` };
+      }
+      const d = r.value.data as Provider & { balance_note?: string };
+      fresh.set(d.id, d);
+      return {
         ok: true,
-        text: `تم تحديث «${p.name}»: الرصيد الفعلي ${money(r.data.real_balance)}` +
-          (Number(r.data.debt) > 0 ? ` · الدين ${money(r.data.debt)}` : "") +
-          (r.data.balance_note ? ` — ${r.data.balance_note}` : ""),
-      });
-    } catch (e: any) {
-      setFlash({ ok: false, text: `«${p.name}»: ${e?.response?.data?.detail || "فشل جلب الرصيد"}` });
-    } finally { setRefreshing(null); }
+        text: `«${p.name}»: ${inCurrency(d.real_balance, d.real_balance_base, d)}`
+          + (Number(d.debt) > 0 ? ` · الدين ${inCurrency(d.debt, d.debt_base, d)}` : "")
+          + (d.balance_note ? ` — ${d.balance_note}` : ""),
+      };
+    });
+    setProviders((list) => list.map((x) => fresh.get(x.id) || x));
+    api.get("/providers/totals/").then((t) => setTotals(t.data));
+    const failed = lines.filter((l) => !l.ok).length;
+    setFlash({
+      ok: failed === 0,
+      text: failed ? `تمّ تحديث ${lines.length - failed} من ${lines.length} — تعذّر الباقي:` : `☀ تمّ تحديث أرصدة ${lines.length} مزوّد`,
+      lines,
+    });
+    setRefreshing(false);
   }
 
   async function confirmDelete() {
@@ -101,6 +124,12 @@ export default function Providers() {
         <button className={showPassive ? "btn" : "btn r"} onClick={() => setShowPassive((v) => !v)}>
           {showPassive ? "عرض النشطة" : "⏸ المعطّلة"}
         </button>
+        <button className="btn" onClick={refreshAll} disabled={refreshing}
+          title="يجلب الرصيد الفعلي والدين من كل المزوّدين دفعةً واحدة"
+          style={{ background: "#e8a416", color: "#2b1d00", display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <Icon name="sun" size={16} style={refreshing ? { animation: "spin 1.1s linear infinite" } : undefined} />
+          {refreshing ? "جارٍ تحديث الأرصدة..." : "تحديث الأرصدة"}
+        </button>
       </div>
 
       {flash && (
@@ -111,6 +140,13 @@ export default function Providers() {
           fontSize: 13, padding: "9px 12px", borderRadius: 6, marginBottom: 12,
         }}>
           {flash.text}
+          {flash.lines && (
+            <ul style={{ margin: "6px 0 0", paddingInlineStart: 18, lineHeight: 1.9 }}>
+              {flash.lines.map((l, i) => (
+                <li key={i} style={{ color: l.ok ? "#1e7a35" : "var(--danger)" }}>{l.text}</li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
 
@@ -147,22 +183,12 @@ export default function Providers() {
                   curr={p.shown_currency} baseCur={p.base_currency} />
               </td>
               <td style={td}>
-                {/* ثلاثة أزرار عاملة لا غير: أيقونتا «card» و«chart» كانتا
-                    مرسومتين من التصميم المرجعي بلا وظيفة ولا حدث — تبدوان
-                    زرّين وليستا كذلك، فتُخفيان الزرّ الحقيقي بينها. */}
+                {/* تعديلٌ وحذف لا غير — وتحديث الرصيد زرٌّ واحد أعلى الصفحة لكل المزوّدين.
+                    (أيقونتا «card» و«chart» كانتا مرسومتين من التصميم المرجعي بلا وظيفة.) */}
                 <div style={{ display: "flex", gap: 6, justifyContent: "center", alignItems: "center" }}>
                   <button onClick={() => setModal({ edit: p })} title="تعديل المزوّد وإعدادات الاتصال"
                     style={{ background: "transparent", border: 0, color: "var(--primary)", cursor: "pointer" }}>
                     <Icon name="edit" size={15} />
-                  </button>
-                  <button onClick={() => refreshBalance(p)} title="تحديث الرصيد الفعلي"
-                    disabled={refreshing !== null}
-                    style={{
-                      background: "transparent", border: 0, color: "#e8a416",
-                      cursor: refreshing !== null ? "wait" : "pointer",
-                    }}>
-                    <Icon name="sun" size={15}
-                      style={refreshing === p.id ? { animation: "spin 1.1s linear infinite" } : undefined} />
                   </button>
                   <button onClick={() => setDel(p)} title="حذف المزوّد"
                     style={{ background: "transparent", border: 0, color: "var(--danger)", cursor: "pointer" }}>

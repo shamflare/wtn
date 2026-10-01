@@ -65,7 +65,6 @@ const ST_CHIPS: { key: string; label: string }[] = [
   { key: "all", label: "الكل" },
   { key: "success", label: "ناجح" },
   { key: "pending", label: "قيد الانتظار" },
-  { key: "processing", label: "قيد التنفيذ" },
   { key: "cancelled", label: "ملغى" },
 ];
 

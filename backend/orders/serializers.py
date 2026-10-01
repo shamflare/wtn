@@ -7,7 +7,15 @@ from .models import Order
 # خاطئ أو مزوّد ساقط أو تسعير خاسر. والوكيل لا شأن له بذلك ولا حيلة له فيه،
 # فيراها **انتظاراً**: طلبه لم يُحسم بعد، وهذا كل ما يعنيه الأمر بعينه.
 # وتبقى «عالق» ظاهرةً في لوحة صاحب المتجر وحده — فهو من يعالجها.
-DEALER_STATUS = {Order.Status.STUCK: Order.Status.PENDING}
+# ما يراه الوكيل: «عالق» تعثّرٌ في توجيه صاحب المتجر لا شأن للوكيل به، و«قيد التنفيذ»
+# و«قيد الانتظار» عنده معنىً واحد: لم يُحسم بعد. فكلاهما «قيد الانتظار».
+DEALER_STATUS = {Order.Status.STUCK: Order.Status.PENDING,
+                 Order.Status.PROCESSING: Order.Status.PENDING}
+
+
+def dealer_filter(status: str) -> list:
+    """الحالات الفعلية خلف حالةٍ يختارها الوكيل في فلتره."""
+    return [s for s in Order.Status.values if DEALER_STATUS.get(s, s) == status] or [status]
 
 
 class OrderSerializer(serializers.ModelSerializer):

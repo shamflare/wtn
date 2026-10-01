@@ -14,7 +14,7 @@ from catalog.models import Product
 from providers.models import Provider
 from . import services
 from .models import Order
-from .serializers import DEALER_STATUS, OrderSerializer, StoreOrderSerializer
+from .serializers import DEALER_STATUS, OrderSerializer, StoreOrderSerializer, dealer_filter
 
 
 def _filtered_orders(request):
@@ -265,9 +265,7 @@ def store_orders_view(request):
     if status_filter and status_filter != "all":
         # الوكيل يرى العالق انتظاراً (انظر DEALER_STATUS)، فليجده مع الانتظار —
         # وإلّا اختفى طلبه من الفلترين معاً فظنّه ضائعاً.
-        wanted = ([Order.Status.PENDING, Order.Status.STUCK]
-                  if status_filter == Order.Status.PENDING else [status_filter])
-        qs = qs.filter(status__in=wanted)
+        qs = qs.filter(status__in=dealer_filter(status_filter))
     return Response({
         "count": qs.count(),
         "counts": counts,
@@ -410,9 +408,7 @@ def store_summary_view(request):
         "orders": agg["count"] or 0,
         "profit": str(show(user, agg["profit"] or 0)),
         "sell": str(show(user, agg["sell"] or 0)),
-        "pending": mine.filter(
-            status__in=[Order.Status.PENDING, Order.Status.STUCK]
-        ).count(),
+        "pending": mine.filter(status__in=dealer_filter(Order.Status.PENDING)).count(),
         # هويّة المتجر لرأس لوحة الوكيل — تعمل على الباب العام أيضاً لا على عنوان المتجر وحده
         "store": {
             "name": user.tenant.name if user.tenant else "",

@@ -9,6 +9,7 @@ from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.response import Response
 
 from core import currency
+from orders.serializers import DEALER_STATUS, dealer_filter
 from core.text import clean_login_id
 from core.models import User, Wallet, WalletTransaction
 from catalog.models import AgentMargin, AgentPriceGroup, AgentProductPrice, Product
@@ -313,7 +314,7 @@ def orders_view(request):
     qs = Order.objects.filter(dealer_id__in=ids).select_related("dealer", "game", "product").order_by("-created_at")
     st = request.query_params.get("status")
     if st and st != "all":
-        qs = qs.filter(status=st)
+        qs = qs.filter(status__in=dealer_filter(st))
     show = currency.to_display
     rows = [{
         "id": o.id, "receipt_no": o.receipt_no, "dealer_name": o.dealer.name,
@@ -321,7 +322,9 @@ def orders_view(request):
         # ما دفعه دكانه له، وما ربحه هو من الصفقة
         "sell_price": str(show(request.user, o.buyer_price)),
         "profit": str(show(request.user, o.agent_profit)),
-        "status": o.status, "status_label": o.get_status_display(),
+        # كدكانه: «عالق» و«قيد التنفيذ» يراهما «قيد الانتظار» (DEALER_STATUS)
+        "status": DEALER_STATUS.get(o.status, o.status),
+        "status_label": dict(Order.Status.choices)[DEALER_STATUS.get(o.status, o.status)],
         "created_at": o.created_at.strftime("%Y-%m-%d %H:%M"),
     } for o in qs[:200]]
     return Response({

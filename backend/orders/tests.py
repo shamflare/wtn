@@ -597,3 +597,24 @@ class StoreCatalogNotesTest(APITestCase):
         game = self.client.get("/api/store/catalog/").json()["games"][0]
         self.assertEqual(game["description"], "باقات ببجي عالمي")
         self.assertEqual(game["dealer_note"], "الطلب لا يسترجع")
+
+
+
+class ProcessingLooksPendingTest(APITestCase):
+    """«قيد التنفيذ» و«قيد الانتظار» عند الوكيل حالةٌ واحدة: قيد الانتظار."""
+
+    def test_processing_is_pending_for_the_dealer(self):
+        t = Tenant.objects.create(subdomain="pp", name="متجر", base_currency="USD")
+        g = Game.objects.create(tenant=t, name="PUBG")
+        p = Product.objects.create(tenant=t, game=g, name="60 UC", cost_price=Decimal("1"), recommended_price=Decimal("2"))
+        d = User.objects.create(login_id="pp-d", name="وكيل", tenant=t, role=User.Role.BAYI, dealer_no=1)
+        Wallet.objects.create(tenant=t, user=d, balance=Decimal("100"))
+        o = create_order(d, p)
+        Order.objects.filter(pk=o.pk).update(status=Order.Status.PROCESSING)
+        self.client.force_authenticate(d)
+        body = self.client.get("/api/store/orders/", {"status": "pending"}).json()
+        self.assertEqual(body["count"], 1)
+        self.assertEqual(body["results"][0]["status"], "pending")
+        self.assertEqual(body["results"][0]["status_label"], "قيد الانتظار")
+        self.assertEqual(body["counts"], {"all": 1, "pending": 1})
+        self.assertEqual(self.client.get("/api/store/summary/").json()["pending"], 1)

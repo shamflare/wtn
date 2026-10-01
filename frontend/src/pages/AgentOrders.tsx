@@ -5,7 +5,7 @@ import { symbolOf } from "../currency";
 
 const STATUSES: [string, string][] = [
   ["all", "الكل"], ["success", "ناجح"], ["pending", "قيد الانتظار"],
-  ["processing", "قيد التنفيذ"], ["cancelled", "ملغى"],
+  ["cancelled", "ملغى"],
 ];
 
 /**

@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { api } from "../api";
+import { showPrice } from "../unitPrice";
 
 /**
  * «ربط تلقائي» لعمود مزوّدٍ واحد — معاينةٌ قبل الحفظ.
@@ -14,6 +15,7 @@ interface Suggestion {
   price_base: string | null; ref_price: string | null;
   confidence: "exact" | "high" | "medium";
   reasons: string[]; warnings?: string[];
+  sale_type?: string; qty_unit?: number;
 }
 interface Unmatched { product: number; product_name: string; game_name: string; why: string }
 
@@ -85,7 +87,6 @@ export default function AutoLinkModal({ provider, baseSymbol, onClose, onDone }:
     }
   }
 
-  const fmt = (v: string | null) => (v == null ? "—" : Number(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
 
   return (
     <div style={overlay} onClick={onClose}>
@@ -165,8 +166,8 @@ export default function AutoLinkModal({ provider, baseSymbol, onClose, onDone }:
                                 {s.package.game} · <code dir="ltr">{s.package.id}{s.package.kupur ? `/${s.package.kupur}` : ""}</code>
                               </div>
                             </td>
-                            <td style={{ ...td, direction: "ltr" }}>{fmt(s.price_base)}</td>
-                            <td style={{ ...td, direction: "ltr", color: "var(--muted)" }}>{fmt(s.ref_price)}</td>
+                            <td style={{ ...td, direction: "ltr" }}>{s.price_base == null ? "—" : showPrice(s.price_base, s)}</td>
+                            <td style={{ ...td, direction: "ltr", color: "var(--muted)" }}>{s.ref_price == null ? "—" : showPrice(s.ref_price, s)}</td>
                             <td style={{ ...td, textAlign: "right" }}>
                               <span style={{ ...badge, background: CONF[s.confidence].bg, color: CONF[s.confidence].fg }}>
                                 {CONF[s.confidence].label}

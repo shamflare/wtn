@@ -200,6 +200,7 @@ def group_prices_view(request):
             "cost": str(currency.to_display(agent, cost)),
             "price": str(currency.to_display(agent, price)) if price is not None else "",
             "profit": str(currency.to_display(agent, price - cost)) if price is not None else "",
+            "sale_type": p.sale_type, "qty_unit": p.qty_unit,
         })
     return Response({
         "group": {"id": group.id, "name": group.name},
@@ -351,6 +352,7 @@ def margins_view(request):
             "cost": str(currency.to_display(agent, cost)),
             "margin_percent": str(pct),
             "dealer_price": str(currency.to_display(agent, dealer_price)),
+            "sale_type": p.sale_type, "qty_unit": p.qty_unit,
         })
     return Response({"results": rows, "currency": currency.display_currency(agent)})
 

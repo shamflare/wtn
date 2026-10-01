@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { editValue, isAmountP, showPrice, toBlock } from "../unitPrice";
 import { api } from "../api";
 import Icon from "../components/Icon";
 import { symbolOf } from "../currency";
@@ -7,6 +8,7 @@ interface Group { id: number; name: string; dealers: number }
 interface Row {
   product: number; name: string; game: string;
   cost: string; price: string; profit: string;
+  sale_type?: string; qty_unit?: number;
 }
 
 /**
@@ -63,7 +65,9 @@ export default function AgentPrices() {
 
   async function savePrice(product: number) {
     try {
-      await api.post("/agent/price-groups/prices/", { group: active, product, price: draft });
+      // بالكمية: ما كُتب سعرُ وحدة ⇐ يُحفظ لكل كتلة
+      const row = rows.find((r) => r.product === product);
+      await api.post("/agent/price-groups/prices/", { group: active, product, price: toBlock(draft, row) });
       setEdit(null);
       if (active) loadPrices(active);
     } catch (e: any) {
@@ -72,7 +76,6 @@ export default function AgentPrices() {
     }
   }
 
-  const money = (v: string) => Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 });
   const sym = symbolOf(cur);
   const shown = q ? rows.filter((r) => r.name.includes(q) || r.game.includes(q)) : rows;
   const priced = rows.filter((r) => r.price).length;
@@ -150,21 +153,24 @@ export default function AgentPrices() {
                     <tr><td colSpan={5} style={{ padding: 26, color: "var(--muted)" }}>لا باقات مطابقة</td></tr>
                   ) : shown.map((r) => (
                     <tr key={r.product}>
-                      <td className="cell-start" style={{ fontWeight: 700 }}>{r.name}</td>
+                      <td className="cell-start" style={{ fontWeight: 700 }}>
+                        {r.name}
+                        {isAmountP(r) && <span style={{ fontSize: 10.5, color: "#7c3aed", marginInlineStart: 6 }}>⚖ للوحدة</span>}
+                      </td>
                       <td style={{ color: "var(--muted)", fontSize: 13 }}>{r.game}</td>
-                      <td className="num">{money(r.cost)} <small style={{ color: "var(--faint)" }}>{sym}</small></td>
+                      <td className="num">{showPrice(r.cost, r)} <small style={{ color: "var(--faint)" }}>{sym}</small></td>
                       <td className="num" style={{ cursor: "pointer", fontWeight: 700, color: "var(--primary-dark)" }}
-                        onClick={() => { setEdit(r.product); setDraft(r.price || r.cost); }}>
+                        onClick={() => { setEdit(r.product); setDraft(editValue(r.price || r.cost, r)); }}>
                         {edit === r.product ? (
-                          <input autoFocus type="number" step="0.01" value={draft}
+                          <input autoFocus type="number" step="any" value={draft}
                             onChange={(e) => setDraft(e.target.value)}
                             onBlur={() => savePrice(r.product)}
                             onKeyDown={(e) => e.key === "Enter" && savePrice(r.product)}
                             style={{ width: 100, height: 28, direction: "ltr" }} />
-                        ) : (r.price ? money(r.price) : "—")}
+                        ) : (r.price ? showPrice(r.price, r) : "—")}
                       </td>
                       <td className={`num ${r.profit ? "bal-pos" : ""}`} style={{ fontWeight: 700 }}>
-                        {r.profit ? money(r.profit) : "—"}
+                        {r.profit ? showPrice(r.profit, r) : "—"}
                       </td>
                     </tr>
                   ))}

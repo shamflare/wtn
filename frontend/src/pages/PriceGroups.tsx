@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
+import { editValue, isAmountP, showPrice, toBlock } from "../unitPrice";
 import { api, type Provider } from "../api";
 import Icon from "../components/Icon";
 import ProductPicker, { type PickerProduct } from "../components/ProductPicker";
@@ -15,6 +16,7 @@ function marginLabel(m: Margin): string {
 }
 interface MatrixProduct {
   id: number; name: string; cost_price: string; recommended_price: string;
+  sale_type?: string; qty_unit?: number;
   prices: Record<string, Cell>;
 }
 interface MatrixGame { game_id: number; game_name: string; products: MatrixProduct[] }
@@ -82,8 +84,12 @@ export default function PriceGroups() {
     load();
   }
 
+  /** الباقة بمعرّفها — لتحويل سعر الوحدة المكتوب إلى سعر الكتلة المخزّن */
+  const prodOf = (id: number) => games.flatMap((g) => g.products).find((p) => p.id === id);
+
   async function saveCell(productId: number, groupId: number) {
-    const value = draft.trim();
+    const typed = draft.trim();
+    const value = typed === "" ? "" : toBlock(typed, prodOf(productId));
     setEditing(null);
     if (value === "") return;
     await api.post("/catalog/set-price/", { product: productId, price_group: groupId, price: value });
@@ -101,7 +107,8 @@ export default function PriceGroups() {
   /** حفظ التكلفة أو السعر الموصى — نفس حقلَي المنتج المُحرَّرين من باقات المنتجات،
    *  فالتعديل من هنا أو من هناك يصلان إلى السجلّ ذاته. */
   async function saveProductField(productId: number, field: "cost_price" | "recommended_price") {
-    const value = draft.trim();
+    const typed = draft.trim();
+    const value = typed === "" ? "" : toBlock(typed, prodOf(productId));
     setEditing(null);
     if (value === "") return;
     await api.patch(`/catalog/products/${productId}/`, { [field]: value });
@@ -131,12 +138,11 @@ export default function PriceGroups() {
     setDraft(current);
   }
 
-  const money = (v: string) => Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 });
 
   /** حقل التحرير المشترك لكل الخلايا. */
   function cellInput(commit: () => void) {
     return (
-      <input autoFocus type="number" step="0.01" value={draft}
+      <input autoFocus type="number" step="any" value={draft}
         onChange={(e) => setDraft(e.target.value)}
         onBlur={commit}
         onKeyDown={(e) => {
@@ -196,18 +202,21 @@ export default function PriceGroups() {
                 {game.products.map((p, i) => (
                   <tr key={p.id} style={{ background: i % 2 ? "var(--row-alt)" : "#fff" }}>
                     <td style={{ ...td, color: "var(--muted)" }}>{p.id}</td>
-                    <td style={{ ...td, textAlign: "right", paddingInlineStart: 12, fontWeight: 600 }}>{p.name}</td>
+                    <td style={{ ...td, textAlign: "right", paddingInlineStart: 12, fontWeight: 600 }}>
+                      {p.name}
+                      {isAmountP(p) && <span style={unitTag} title="باقة بالكمية — الأسعار في صفّها للوحدة الواحدة">⚖ للوحدة</span>}
+                    </td>
                     <td style={{ ...td, color: "var(--muted)", cursor: "pointer" }}
-                      onClick={() => startEdit(p.id, "cost", p.cost_price)}>
+                      onClick={() => startEdit(p.id, "cost", editValue(p.cost_price, p))}>
                       {editing?.p === p.id && editing?.g === "cost"
                         ? cellInput(() => saveProductField(p.id, "cost_price"))
-                        : money(p.cost_price)}
+                        : showPrice(p.cost_price, p)}
                     </td>
                     <td style={{ ...td, cursor: "pointer" }}
-                      onClick={() => startEdit(p.id, "rec", p.recommended_price)}>
+                      onClick={() => startEdit(p.id, "rec", editValue(p.recommended_price, p))}>
                       {editing?.p === p.id && editing?.g === "rec"
                         ? cellInput(() => saveProductField(p.id, "recommended_price"))
-                        : money(p.recommended_price)}
+                        : showPrice(p.recommended_price, p)}
                     </td>
                     {groups.map((g) => {
                       const cell = p.prices[g.id];
@@ -216,7 +225,7 @@ export default function PriceGroups() {
                         <td key={g.id} style={{ ...td, cursor: "pointer",
                           color: cell?.custom ? "var(--primary-dark)" : "var(--muted)",
                           fontWeight: cell?.custom ? 700 : 400 }}
-                          onClick={() => startEdit(p.id, g.id, cell?.price ?? "")}
+                          onClick={() => startEdit(p.id, g.id, editValue(cell?.price ?? "", p))}
                           title={cell?.margin
                             ? `مرتبطة بالتكلفة: ${marginLabel(cell.margin)} — تتبعها كلّما تغيّرت. التعديل اليدوي يفكّ الارتباط.`
                             : undefined}>
@@ -224,7 +233,7 @@ export default function PriceGroups() {
                             ? cellInput(() => saveCell(p.id, g.id))
                             : (
                               <>
-                                {money(cell?.price ?? "0")}
+                                {showPrice(cell?.price ?? "0", p)}
                                 {cell?.margin && (
                                   <sup style={linkTag}>{marginLabel(cell.margin)}</sup>
                                 )}
@@ -674,4 +683,8 @@ const toastBox: React.CSSProperties = {
   position: "fixed", insetInlineStart: 18, bottom: 18, zIndex: 90, maxWidth: 460,
   background: "#123", color: "#fff", padding: "11px 16px", borderRadius: 8,
   fontSize: 13, lineHeight: 1.7, boxShadow: "0 8px 26px rgba(0,0,0,.3)",
+};
+const unitTag: React.CSSProperties = {
+  marginInlineStart: 6, fontSize: 10.5, fontWeight: 700, color: "#7c3aed",
+  background: "#ede9fe", borderRadius: 999, padding: "1px 7px",
 };

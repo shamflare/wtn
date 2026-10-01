@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { api } from "../api";
+import { showPrice } from "../unitPrice";
 
 /* ═══════════════════════════════════════════════════════════════════════
    لوحة المنصّة ← مصادر المكتبة.
@@ -467,20 +468,22 @@ function CatalogBrowser({ source, onBack, onImported }: { source: Source; onBack
                                   <td style={{ ...td, padding: 6, textAlign: "right" }}>{p.name}{!p.available && " (غير متوفّرة)"}
                                     {p.sale_type === "amount" && (
                                       <div style={{ fontSize: 11, color: "#c4b5fd" }}>
-                                        ⚖ بالكمية {Number(p.qty_min).toLocaleString("en-US")}–{Number(p.qty_max).toLocaleString("en-US")} · السعر لكل {Number(p.qty_unit).toLocaleString("en-US")}
+                                        ⚖ بالكمية {Number(p.qty_min).toLocaleString("en-US")}–{Number(p.qty_max).toLocaleString("en-US")} · الأسعار للوحدة
                                       </div>
                                     )}
                                   </td>
-                                  <td style={{ ...td, padding: 6, direction: "ltr" }}>{p.price}</td>
+                                  <td style={{ ...td, padding: 6, direction: "ltr" }}>{p.price === "—" ? "—" : showPrice(p.price, p)}</td>
                                   <td style={{ ...td, padding: 6, direction: "ltr" }}>
-                                    {p.usd ?? "—"}
+                                    {p.usd == null ? "—" : showPrice(p.usd, p)}
                                     {p.state === "changed" && p.old_usd && (
                                       <span style={{ color: Number(p.usd) > Number(p.old_usd) ? "#fca5a5" : "#86efac", marginInlineStart: 6 }}>
-                                        (كان {p.old_usd})
+                                        (كان {showPrice(p.old_usd, p)})
                                       </span>
                                     )}
                                   </td>
-                                  <td style={{ ...td, padding: 6, direction: "ltr", fontWeight: 700, color: "#86efac" }}>{withMargin(p.usd)}</td>
+                                  <td style={{ ...td, padding: 6, direction: "ltr", fontWeight: 700, color: "#86efac" }}>
+                                    {p.usd == null ? "—" : showPrice(withMargin(p.usd), p)}
+                                  </td>
                                   <td style={{ ...td, padding: 6 }}><StateBadge state={p.state} /></td>
                                 </tr>
                               ))}

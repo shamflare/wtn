@@ -95,6 +95,8 @@ def price_matrix_view(request):
             "cost_price": str(p.cost_price),
             "recommended_price": str(p.recommended_price),
             "prices": cells,
+            # «بالكمية»: الأسعار مخزّنة لكل qty_unit — والواجهة تعرضها وتستقبلها للوحدة
+            "sale_type": p.sale_type, "qty_unit": p.qty_unit,
         })
 
     return Response({

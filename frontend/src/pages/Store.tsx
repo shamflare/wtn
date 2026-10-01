@@ -12,6 +12,7 @@ import ApiDocs from "../components/ApiDocs";
 import { CardStrip, type Card } from "../components/HomeCards";
 import TopUp from "../components/TopUp";
 import { applyThemeConfig } from "../theme";
+import { showPrice } from "../unitPrice";
 import { AGENT_THEME_DEFAULTS, applyAgentTheme, cachedAgentTheme, type AgentTheme } from "../agentTheme";
 import "./store.css";
 
@@ -518,11 +519,11 @@ function SellTab({ gameId, onGame, onBought, onFinish }: {
             <div className="ag-pcard-body">
               <div className="ag-pcard-row">
                 <b className="ag-pcard-name">{p.name}</b>
-                <span className="ag-pcard-price" dir="ltr"><small>{cur}</small>{money(p.price)}</span>
+                <span className="ag-pcard-price" dir="ltr"><small>{cur}</small>{showPrice(p.price, p)}</span>
               </div>
               {isAmount(p) ? (
                 <div className="ag-pcard-rec">
-                  لكل {fmtQty(p.qty_unit)} · من {fmtQty(p.qty_min)} إلى {fmtQty(p.qty_max)}
+                  للوحدة · من {fmtQty(p.qty_min)} إلى {fmtQty(p.qty_max)}
                 </div>
               ) : Number(p.recommended_price) > 0 && (
                 <div className="ag-pcard-rec">المقترح {money(p.recommended_price)} {cur}</div>
@@ -600,8 +601,8 @@ function BuyModal({ product, game, onClose, onBought, onFinish }: {
             <span>{game.name}</span>
           </div>
           <div className="ag-row-end">
-            <b style={{ color: "var(--primary)" }}>{money(product.price)} <small style={{ color: "var(--gold)", fontSize: 12 }}>{cur}</small></b>
-            <span>{amount ? `لكل ${fmtQty(product.qty_unit)}` : "سعر الشراء"}</span>
+            <b style={{ color: "var(--primary)" }}>{showPrice(product.price, product)} <small style={{ color: "var(--gold)", fontSize: 12 }}>{cur}</small></b>
+            <span>{amount ? "سعر الوحدة" : "سعر الشراء"}</span>
           </div>
         </div>
         {amount && (
@@ -719,8 +720,8 @@ function PackagesTab() {
                   </span>
                 </div>
                 <div className="ag-row-end">
-                  <b style={{ color: "var(--primary)" }}>{money(r.buy_price)} {symbolOf(cur)}</b>
-                  <span>{r.sale_type === "amount" ? `لكل ${fmtQty(r.qty_unit)}` : `مقترح ${money(r.recommended_price)}`}</span>
+                  <b style={{ color: "var(--primary)" }}>{showPrice(r.buy_price, r)} {symbolOf(cur)}</b>
+                  <span>{r.sale_type === "amount" ? "للوحدة" : `مقترح ${money(r.recommended_price)}`}</span>
                 </div>
               </div>
             ))}

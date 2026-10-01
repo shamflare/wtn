@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { editValue, fmtPrecise, showPrice, toBlock } from "../unitPrice";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, type GameDetail as GameDetailType, type Product, type Provider } from "../api";
 import Icon from "../components/Icon";
@@ -89,7 +90,8 @@ export default function GameDetail() {
     const lib = libPkgs.find((p) => p.kupur === kupur);
     setAddErr("");
     setNewP(lib
-      ? { kupur, name: lib.name, cost_price: lib.suggested_cost, recommended_price: lib.suggested_price }
+      ? { kupur, name: lib.name,
+          cost_price: editValue(lib.suggested_cost, lib), recommended_price: editValue(lib.suggested_price, lib) }
       : { ...newP, kupur });
   }
 
@@ -106,7 +108,8 @@ export default function GameDetail() {
     try {
       await api.post("/catalog/products/", {
         game: game!.id, name: newP.name,
-        cost_price: newP.cost_price || "0", recommended_price: newP.recommended_price || "0",
+        // بالكمية: ما كُتب سعرُ وحدة ⇐ يُحفظ لكل كتلة
+        cost_price: toBlock(newP.cost_price || "0", lib), recommended_price: toBlock(newP.recommended_price || "0", lib),
         kupur: newP.kupur,
         ...(lib?.sale_type === "amount" ? {
           sale_type: "amount", qty_min: lib.qty_min, qty_max: lib.qty_max, qty_unit: lib.qty_unit,
@@ -134,7 +137,6 @@ export default function GameDetail() {
     load();
   }
 
-  const money = (v: string) => Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 });
 
   return (
     <div style={{ padding: 16 }}>
@@ -206,7 +208,7 @@ export default function GameDetail() {
                     </option>
                     {libPkgs.map((p) => (
                       <option key={p.kupur} value={p.kupur}>
-                        {p.kupur} — {p.name}{p.sale_type === "amount" ? ` (بالكمية · لكل ${fmtQty(p.qty_unit)})` : ""}
+                        {p.kupur} — {p.name}{p.sale_type === "amount" ? " (بالكمية)" : ""}
                       </option>
                     ))}
                   </select>
@@ -215,12 +217,12 @@ export default function GameDetail() {
                   <input style={{ width: 180 }} value={newP.name}
                     onChange={(e) => setNewP({ ...newP, name: e.target.value })} />
                 </Field>
-                <Field label={amountUnit ? `التكلفة لكل ${fmtQty(amountUnit)}` : "التكلفة"}>
-                  <input style={{ width: 100 }} type="number" step="0.01" value={newP.cost_price}
+                <Field label={amountUnit ? "تكلفة الوحدة" : "التكلفة"}>
+                  <input style={{ width: 110 }} type="number" step="any" value={newP.cost_price}
                     onChange={(e) => setNewP({ ...newP, cost_price: e.target.value })} />
                 </Field>
-                <Field label={amountUnit ? `الموصى لكل ${fmtQty(amountUnit)}` : "السعر الموصى"}>
-                  <input style={{ width: 100 }} type="number" step="0.01" value={newP.recommended_price}
+                <Field label={amountUnit ? "سعر الوحدة الموصى" : "السعر الموصى"}>
+                  <input style={{ width: 110 }} type="number" step="any" value={newP.recommended_price}
                     onChange={(e) => setNewP({ ...newP, recommended_price: e.target.value })} />
                 </Field>
                 <button className="btn g" style={{ height: 32 }} disabled={!newP.kupur}>
@@ -287,17 +289,19 @@ export default function GameDetail() {
                       )}
                     </td>
                     <td style={td}>
-                      <CellEdit value={p.cost_price} width={78} numeric format={money}
-                        onSave={(v) => patchProduct(p.id, { cost_price: v || "0" })} />
-                      {p.sale_type === "amount" && <div style={perUnit}>لكل {fmtQty(p.qty_unit)}</div>}
+                      <CellEdit value={editValue(p.cost_price, p)} width={78} numeric
+                        format={(v) => fmtPrecise(Number(v))}
+                        onSave={(v) => patchProduct(p.id, { cost_price: toBlock(v || "0", p) })} />
+                      {p.sale_type === "amount" && <div style={perUnit}>للوحدة</div>}
                     </td>
                     <td style={td}>
-                      <CellEdit value={p.recommended_price} width={78} numeric format={money}
-                        onSave={(v) => patchProduct(p.id, { recommended_price: v || "0" })} />
-                      {p.sale_type === "amount" && <div style={perUnit}>لكل {fmtQty(p.qty_unit)}</div>}
+                      <CellEdit value={editValue(p.recommended_price, p)} width={78} numeric
+                        format={(v) => fmtPrecise(Number(v))}
+                        onSave={(v) => patchProduct(p.id, { recommended_price: toBlock(v || "0", p) })} />
+                      {p.sale_type === "amount" && <div style={perUnit}>للوحدة</div>}
                     </td>
                     <td style={{ ...td, color: Number(p.profit) < 0 ? "var(--debt)" : "var(--ok)", fontWeight: 600 }}>
-                      {money(p.profit)}
+                      {showPrice(p.profit, p)}
                     </td>
                     <td style={td} title="رقم الربط ثابت — مصدره المكتبة العالمية">
                       {p.kupur
@@ -399,7 +403,7 @@ function CellEdit({
   }
   return (
     <input autoFocus value={v} style={{ width }} dir={numeric ? "ltr" : undefined}
-      type={numeric ? "number" : "text"} step={numeric ? "0.01" : undefined}
+      type={numeric ? "number" : "text"} step={numeric ? "any" : undefined}
       onChange={(e) => setV(e.target.value)}
       onBlur={commit}
       onKeyDown={(e) => {
@@ -421,8 +425,9 @@ function ProductModal({
 }) {
   const [f, setF] = useState({
     name: product.name,
-    cost_price: product.cost_price,
-    recommended_price: product.recommended_price,
+    // بالكمية: يُعرض ويُكتب سعر الوحدة، ويُحفظ لكل كتلة
+    cost_price: editValue(product.cost_price, product),
+    recommended_price: editValue(product.recommended_price, product),
     kupur: product.kupur,
     status: product.status,
     is_parcali: product.is_parcali,
@@ -448,8 +453,8 @@ function ProductModal({
     const body: any = mode === "edit"
       ? {
           // بلا kupur — رقم الربط جسر ثابت يأتي من المكتبة العالمية
-          name: f.name, cost_price: f.cost_price || "0",
-          recommended_price: f.recommended_price || "0",
+          name: f.name, cost_price: toBlock(f.cost_price || "0", product),
+          recommended_price: toBlock(f.recommended_price || "0", product),
           status: f.status, is_parcali: f.is_parcali,
           execution_type: f.execution_type, description: f.description,
           ...(isAmount ? { qty_min: Number(f.qty_min) || 1, qty_max: Number(f.qty_max) || 1 } : {}),
@@ -487,12 +492,12 @@ function ProductModal({
                 <input style={mInp} value={f.name} onChange={(e) => upd("name", e.target.value)} />
               </Field>
               <div style={{ display: "flex", gap: 10 }}>
-                <Field label="التكلفة">
-                  <input style={{ ...mInp, width: 120 }} type="number" step="0.01"
+                <Field label={isAmount ? "تكلفة الوحدة" : "التكلفة"}>
+                  <input style={{ ...mInp, width: 120 }} type="number" step="any"
                     value={f.cost_price} onChange={(e) => upd("cost_price", e.target.value)} />
                 </Field>
-                <Field label="السعر الموصى">
-                  <input style={{ ...mInp, width: 120 }} type="number" step="0.01"
+                <Field label={isAmount ? "سعر الوحدة الموصى" : "السعر الموصى"}>
+                  <input style={{ ...mInp, width: 120 }} type="number" step="any"
                     value={f.recommended_price} onChange={(e) => upd("recommended_price", e.target.value)} />
                 </Field>
                 <Field label="رقم الربط (ثابت)">
@@ -539,16 +544,11 @@ function ProductModal({
                       <input style={{ ...mInp, width: 140 }} type="number" min={1} dir="ltr"
                         value={f.qty_max} onChange={(e) => upd("qty_max", e.target.value)} />
                     </Field>
-                    <Field label="الأسعار لكل (ثابت)">
-                      <div style={{ ...mInp, width: 120, padding: "6px 8px", background: "var(--row-alt)",
-                        border: "1px solid var(--border)", borderRadius: 4, color: "var(--muted)", fontSize: 13 }}>
-                        {fmtQty(product.qty_unit)} وحدة
-                      </div>
-                    </Field>
                   </div>
                   <div style={hint}>
-                    ⚖ باقة بالكمية: يكتب الوكيل كميته بين الحدّين، ويُحسب سعره = السعر × الكمية ÷ {fmtQty(product.qty_unit)}.
-                    ضيّق الحدّين إن شئت، ولا توسّعهما أبعد ممّا يقبله المزوّد. وحجم الكتلة ثابت لأن أسعار المزوّد محفوظةٌ به.
+                    ⚖ باقة بالكمية: السعران أعلاه <b>للوحدة الواحدة</b> (مثل 0.03)، ويكتب الوكيل كميته بين
+                    الحدّين فيُحسب ما يدفعه = سعر الوحدة × الكمية. ضيّق الحدّين إن شئت، ولا توسّعهما أبعد
+                    ممّا يقبله المزوّد.
                   </div>
                 </>
               )}

@@ -3,6 +3,7 @@ import { api, type Product, type Provider } from "../api";
 import Icon from "../components/Icon";
 import AutoLinkModal from "../components/AutoLinkModal";
 import { useBaseSymbol } from "../currency";
+import { showPrice } from "../unitPrice";
 
 /** باقة لدى المزوّد كما يعيدها الكتالوج. */
 type ProviderPackage = {
@@ -244,15 +245,15 @@ export default function PackageLinks() {
                                     {link.extra?.price && (
                                       <span
                                         title={Number(link.extra.price) > Number(p.recommended_price)
-                                          ? `تكلفة المزوّد ${link.extra.price} أعلى من سعر بيعك ${p.recommended_price} — بيع بخسارة`
-                                          : `تكلفة المزوّد ${link.extra.price}`}
+                                          ? `تكلفة المزوّد ${showPrice(link.extra.price, p)} أعلى من سعر بيعك ${showPrice(p.recommended_price, p)} — بيع بخسارة`
+                                          : `تكلفة المزوّد ${showPrice(link.extra.price, p)}${p.sale_type === "amount" ? " للوحدة" : ""}`}
                                         style={{
                                           fontSize: 11, fontWeight: 700, direction: "ltr",
                                           color: Number(link.extra.price) > Number(p.recommended_price)
                                             ? "var(--danger)" : "var(--ok)",
                                         }}>
                                         {Number(link.extra.price) > Number(p.recommended_price) ? "⚠ " : ""}
-                                        {link.extra.price}
+                                        {showPrice(link.extra.price, p)}
                                       </span>
                                     )}
                                   </>

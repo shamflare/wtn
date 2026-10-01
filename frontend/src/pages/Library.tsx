@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import { showPrice } from "../unitPrice";
 import Icon from "../components/Icon";
 
 interface LibPkg {
@@ -127,9 +128,9 @@ export default function Library() {
                         {p.sale_type === "amount" && <span style={{ color: "#7c3aed", fontWeight: 700 }}> ⚖ بالكمية</span>}
                       </span>
                       <b style={{ color: "var(--primary-dark)" }}>
-                        {money(p.suggested_price)}
+                        {p.sale_type === "amount" ? showPrice(p.suggested_price, p) : money(p.suggested_price)}
                         {p.sale_type === "amount" && (
-                          <span style={{ fontWeight: 400, fontSize: 11, color: "var(--muted)" }}> / {Number(p.qty_unit).toLocaleString("en-US")}</span>
+                          <span style={{ fontWeight: 400, fontSize: 11, color: "var(--muted)" }}> للوحدة</span>
                         )}
                       </b>
                     </div>

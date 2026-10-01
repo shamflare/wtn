@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import ImageUpload from "../components/ImageUpload";
 import LibrarySources from "../components/LibrarySources";
+import { editValue, pickUnit, showPrice, toBlock } from "../unitPrice";
 import { useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../auth";
 import Tickets from "../components/Tickets";
@@ -365,7 +366,8 @@ function LibGameForm({ game, onClose, onDone }: { game?: LibGame; onClose: () =>
 
 function ManagePackages({ game, onClose }: { game: LibGame; onClose: () => void }) {
   const [rows, setRows] = useState<LibProduct[]>([]);
-  const blank = { name: "", suggested_cost: "", suggested_price: "", kupur: "" };
+  const blank = { name: "", suggested_cost: "", suggested_price: "", kupur: "",
+                  sale_type: "package", qty_min: "", qty_max: "" };
   const [f, setF] = useState(blank);
   const [editId, setEditId] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
@@ -376,8 +378,22 @@ function ManagePackages({ game, onClose }: { game: LibGame; onClose: () => void 
 
   async function add(e: React.FormEvent) {
     e.preventDefault(); setBusy(true); setErr("");
-    const body = {
-      name: f.name, suggested_cost: f.suggested_cost || "0", suggested_price: f.suggested_price || "0",
+    const amount = f.sale_type === "amount";
+    if (amount && !(Number(f.qty_min) >= 1 && Number(f.qty_max) >= Number(f.qty_min))) {
+      setErr("حدّا الكمية: الأقل 1 فأكثر، والأكبر لا يقلّ عن الأقل"); setBusy(false); return;
+    }
+    // بالكمية: السعران المكتوبان للوحدة ⇐ يُحفظان لكل كتلة. الكتلة تُختار عند الإضافة
+    // بحيث يُحفظ السعر بالضبط (0.03 ⇐ لكل 100)، وتبقى عند التعديل كما هي.
+    const editing = rows.find((r) => r.id === editId);
+    const unit = !amount ? 1 : editing?.qty_unit
+      || Math.max(pickUnit(Number(f.suggested_cost) || 0), pickUnit(Number(f.suggested_price) || 0));
+    const qtyLike = { sale_type: amount ? "amount" : "package", qty_unit: unit };
+    const body: Record<string, unknown> = {
+      name: f.name,
+      suggested_cost: toBlock(f.suggested_cost || "0", qtyLike),
+      suggested_price: toBlock(f.suggested_price || "0", qtyLike),
+      ...(amount ? { qty_min: Number(f.qty_min), qty_max: Number(f.qty_max) } : {}),
+      ...(amount && !editId ? { sale_type: "amount", qty_unit: unit } : {}),
     };
     try {
       // رقم الربط لا يتبدّل بعد الإضافة: عليه تقوم روابط من استورد الباقة
@@ -393,13 +409,15 @@ function ManagePackages({ game, onClose }: { game: LibGame; onClose: () => void 
   }
   function startEdit(p: LibProduct) {
     setErr(""); setEditId(p.id);
-    setF({ name: p.name, suggested_cost: p.suggested_cost, suggested_price: p.suggested_price, kupur: p.kupur });
+    setF({ name: p.name, suggested_cost: editValue(p.suggested_cost, p), suggested_price: editValue(p.suggested_price, p),
+           kupur: p.kupur, sale_type: p.sale_type || "package",
+           qty_min: String(p.qty_min ?? ""), qty_max: String(p.qty_max ?? "") });
   }
   async function del(id: number) { await api.delete(`/platform/library/products/${id}/`); load(); }
 
   return (
     <div style={overlay} onClick={onClose}>
-      <div style={{ ...modal, width: 620, color: "#0f172a" }} onClick={(e) => e.stopPropagation()}>
+      <div style={{ ...modal, width: 760, color: "#0f172a" }} onClick={(e) => e.stopPropagation()}>
         <div style={{ background: "#0f172a", color: "#e2e8f0", padding: "14px 18px", fontWeight: 700, fontSize: 16, display: "flex", justifyContent: "space-between" }}>
           <span>باقات: {game.name}</span>
           <button onClick={onClose} style={{ background: "transparent", border: 0, color: "#94a3b8", fontSize: 18, cursor: "pointer" }}>✕</button>
@@ -418,12 +436,12 @@ function ManagePackages({ game, onClose }: { game: LibGame; onClose: () => void 
                     {p.name}
                     {p.sale_type === "amount" && (
                       <div style={{ fontSize: 11, color: "#7c3aed", fontWeight: 700 }}>
-                        ⚖ بالكمية {Number(p.qty_min).toLocaleString("en-US")}–{Number(p.qty_max).toLocaleString("en-US")} · السعران لكل {Number(p.qty_unit).toLocaleString("en-US")}
+                        ⚖ بالكمية {Number(p.qty_min).toLocaleString("en-US")}–{Number(p.qty_max).toLocaleString("en-US")} · السعران للوحدة
                       </div>
                     )}
                   </td>
-                  <td style={{ padding: "8px", textAlign: "center" }}>{p.suggested_cost}</td>
-                  <td style={{ padding: "8px", textAlign: "center" }}>{p.suggested_price}</td>
+                  <td style={{ padding: "8px", textAlign: "center", direction: "ltr" }}>{showPrice(p.suggested_cost, p)}</td>
+                  <td style={{ padding: "8px", textAlign: "center", direction: "ltr" }}>{showPrice(p.suggested_price, p)}</td>
                   <td style={{ padding: "8px", textAlign: "center" }}>{p.kupur || "—"}</td>
                   <td style={{ padding: "8px", textAlign: "center", whiteSpace: "nowrap" }}>
                     <button style={editBtn} onClick={() => startEdit(p)}>✏️ تعديل</button>
@@ -434,9 +452,23 @@ function ManagePackages({ game, onClose }: { game: LibGame; onClose: () => void 
             </tbody>
           </table>
           <form onSubmit={add} style={{ display: "flex", gap: 8, marginTop: 14, alignItems: "end", flexWrap: "wrap" }}>
+            <Field label="النوع">
+              <select style={{ ...inp, width: 110 }} value={f.sale_type} disabled={!!editId}
+                title={editId ? "النوع لا يتغيّر بعد الإضافة" : undefined}
+                onChange={(e) => setF({ ...f, sale_type: e.target.value })}>
+                <option value="package">باقة ثابتة</option>
+                <option value="amount">بالكمية ⚖</option>
+              </select>
+            </Field>
             <Field label="الباقة"><input style={{ ...inp, width: 140 }} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required /></Field>
-            <Field label="التكلفة"><input style={{ ...inp, width: 90 }} type="number" step="0.01" value={f.suggested_cost} onChange={(e) => setF({ ...f, suggested_cost: e.target.value })} /></Field>
-            <Field label="السعر"><input style={{ ...inp, width: 90 }} type="number" step="0.01" value={f.suggested_price} onChange={(e) => setF({ ...f, suggested_price: e.target.value })} /></Field>
+            <Field label={f.sale_type === "amount" ? "تكلفة الوحدة" : "التكلفة"}><input style={{ ...inp, width: 100 }} type="number" step="any" dir="ltr" value={f.suggested_cost} onChange={(e) => setF({ ...f, suggested_cost: e.target.value })} /></Field>
+            <Field label={f.sale_type === "amount" ? "سعر الوحدة" : "السعر"}><input style={{ ...inp, width: 100 }} type="number" step="any" dir="ltr" value={f.suggested_price} onChange={(e) => setF({ ...f, suggested_price: e.target.value })} /></Field>
+            {f.sale_type === "amount" && (
+              <>
+                <Field label="أقل كمية"><input style={{ ...inp, width: 100 }} type="number" min={1} dir="ltr" value={f.qty_min} onChange={(e) => setF({ ...f, qty_min: e.target.value })} required /></Field>
+                <Field label="أكبر كمية"><input style={{ ...inp, width: 110 }} type="number" min={1} dir="ltr" value={f.qty_max} onChange={(e) => setF({ ...f, qty_max: e.target.value })} required /></Field>
+              </>
+            )}
             <Field label="رقم الربط"><input style={{ ...inp, width: 90, ...(editId ? { background: "#f1f5f9", color: "#64748b" } : {}) }}
               value={f.kupur} onChange={(e) => setF({ ...f, kupur: e.target.value })} required dir="ltr"
               disabled={!!editId} title={editId ? "رقم الربط لا يتغيّر بعد الإضافة" : undefined} /></Field>

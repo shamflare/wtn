@@ -111,6 +111,7 @@ def suggest(tenant, provider) -> dict:
             "price_base": str(price) if price is not None else None,
             "ref_price": str(ref_price[p.id]) if p.id in ref_price else None,
             "confidence": "exact", "reasons": ["رقمها لدى المزوّد محفوظٌ في المكتبة"],
+            "sale_type": p.sale_type, "qty_unit": p.qty_unit,
         })
         exact_done.add(p.id)
 

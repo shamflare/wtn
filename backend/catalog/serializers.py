@@ -127,8 +127,20 @@ class LibraryProductSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["uuid", "source_ref", "source_name", "source_cost"]
 
+    def update(self, instance, validated_data):
+        # النوع وحجم الكتلة ثابتان بعد الإنشاء: نسخ المتاجر وأسعار الربط محفوظةٌ بهما
+        validated_data.pop("sale_type", None)
+        validated_data.pop("qty_unit", None)
+        return super().update(instance, validated_data)
+
     def validate(self, attrs):
         """رقم الربط فريد داخل اللعبة — رقمان متطابقان يجعلان الجسر ملتبساً."""
+        get = lambda k, d: attrs.get(k, getattr(self.instance, k, d) if self.instance else d)
+        if get("sale_type", "package") == Product.SaleType.AMOUNT:
+            lo, hi, unit = get("qty_min", 1), get("qty_max", 1), get("qty_unit", 1)
+            if not unit or unit < 1 or lo < 1 or hi < lo:
+                raise serializers.ValidationError(
+                    {"qty_min": "حدّا الكمية: أقلّها 1 فأكثر ولا يتجاوز أكبرها"})
         game = attrs.get("game") or getattr(self.instance, "game", None)
         kupur = (attrs.get("kupur") if "kupur" in attrs else getattr(self.instance, "kupur", ""))
         kupur = (kupur or "").strip()

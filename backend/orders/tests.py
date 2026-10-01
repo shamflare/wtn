@@ -548,3 +548,34 @@ class DealerNeverSeesStuckTest(APITestCase):
         rows = self.client.get("/api/orders/").json()["results"]
         self.assertEqual(rows[0]["status"], "stuck")
         self.assertEqual(rows[0]["status_label"], "عالق")
+
+
+class StoreWalletStatementTest(APITestCase):
+    """كشف حركات الوكيل: فلترٌ بالنوع والتاريخ، وحركة الطلب تحمل طلبها للتفاصيل."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(subdomain="w1", name="متجر", base_currency="USD")
+        game = Game.objects.create(tenant=self.tenant, name="PUBG")
+        product = Product.objects.create(
+            tenant=self.tenant, game=game, name="60 UC",
+            cost_price=Decimal("6"), recommended_price=Decimal("10"),
+        )
+        self.dealer = User.objects.create(
+            login_id="w-d1", name="وكيل", tenant=self.tenant, role=User.Role.BAYI, dealer_no=1)
+        Wallet.objects.create(tenant=self.tenant, user=self.dealer, balance=Decimal("100"))
+        self.order = create_order(self.dealer, product)
+        self.client.force_authenticate(self.dealer)
+
+    def test_order_debit_carries_its_order(self):
+        rows = self.client.get("/api/store/wallet/").json()["results"]
+        debit = next(r for r in rows if r["type"] == "order_debit")
+        self.assertEqual(debit["order"]["id"], self.order.id)
+        self.assertIn("balance_before", debit)
+
+    def test_type_and_date_filters(self):
+        get = lambda **p: self.client.get("/api/store/wallet/", p).json()
+        body = get(type="topup")
+        self.assertEqual(body["results"], [])
+        self.assertGreaterEqual(body["counts"]["order_debit"], 1)
+        self.assertEqual(len(get(type="order_debit")["results"]), body["counts"]["order_debit"])
+        self.assertEqual(get(date_from="2999-01-01")["counts"]["all"], 0)

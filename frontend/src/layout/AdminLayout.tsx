@@ -56,6 +56,7 @@ const SUBNAV_BAYILER = [
 // قسم الإعدادات — إعدادات المتجر نفسه
 const SUBNAV_AYARLAR = [
   { label: "إعدادات الموقع", to: "/settings/site" },
+  { label: "تصميم واجهة الوكلاء", to: "/settings/agent-design" },
   { label: "بطاقات الوكلاء", to: "/settings/cards" },
   { label: "إعدادات SMS", to: "/settings/sms" },
   { label: "واتساب", to: "/settings/whatsapp" },

@@ -80,6 +80,8 @@ class Tenant(models.Model):
     exchange_rates = models.JSONField(default=dict, blank=True)
 
     theme_config = models.JSONField(default=dict, blank=True)  # تخصيص المظهر (لوحة التخصيص)
+    # ألوان واجهة الوكلاء (/store): {"primary": "#2fe27b", …} — ما لم يُذكر يبقى افتراضياً
+    agent_theme = models.JSONField(default=dict, blank=True)
     sub_monthly_price = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("0"))
     sub_yearly_price = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("0"))
     sub_plan = models.CharField(max_length=8, choices=SubPlan.choices, default=SubPlan.NONE)

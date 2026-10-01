@@ -280,22 +280,56 @@ def store_orders_view(request):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def store_wallet_view(request):
-    """محفظة الوكيل نفسه + كشف حركاتها (Hesap Hareketleri الخاصة به)."""
+    """
+    محفظة الوكيل نفسه + كشف حركاتها (Hesap Hareketleri الخاصة به).
+
+    فلاتر: `type` (نوع الحركة) · `date_from` / `date_to`. والعدّادات `counts`
+    تُحسب على نطاق التاريخ وحده — فيرى الوكيل كم حركةً من كل نوع قبل أن يختار.
+    وحركة الطلب تحمل طلبها كاملاً (`order`) لزرّ «التفاصيل».
+    """
+    from core.models import WalletTransaction
+
     wallet = getattr(request.user, "wallet", None)
     if wallet is None:
         return Response({"detail": "لا توجد محفظة"}, status=404)
-    txns = wallet.transactions.all()[:100]
     user = request.user
     show = currency.to_display
+    p = request.query_params
+
+    qs = wallet.transactions.all()
+    if p.get("date_from"):
+        qs = qs.filter(created_at__date__gte=p["date_from"])
+    if p.get("date_to"):
+        qs = qs.filter(created_at__date__lte=p["date_to"])
+    counts = {r["type"]: r["n"] for r in qs.values("type").annotate(n=Count("id")).order_by()}
+    counts["all"] = sum(counts.values())
+    kind = p.get("type") or "all"
+    if kind != "all":
+        qs = qs.filter(type=kind)
+    txns = list(qs[:200])
+
+    order_ids = [t.ref_id for t in txns if t.ref_type == "order" and t.ref_id]
+    orders = {
+        o.id: _store_order_row(o, user)
+        for o in Order.objects.filter(id__in=order_ids, tenant=user.tenant, dealer=user)
+        .select_related("product", "game")
+    }
+
     return Response({
         "balance": str(show(user, wallet.balance)),
         "credit_limit": str(show(user, wallet.credit_limit)),
         "available": str(show(user, wallet.balance - wallet.credit_limit)),
         "currency": currency.display_currency(user),
+        "counts": counts,
+        "types": [{"key": k, "label": label} for k, label in WalletTransaction.Type.choices],
         "results": [{
             "id": t.id, "type": t.type, "type_label": t.get_type_display(),
-            "amount": str(show(user, t.amount)), "balance_after": str(show(user, t.balance_after)),
+            "amount": str(show(user, t.amount)),
+            "balance_before": str(show(user, t.balance_before)),
+            "balance_after": str(show(user, t.balance_after)),
             "note": t.note, "created_at": t.created_at.strftime("%Y-%m-%d %H:%M"),
+            "ref_type": t.ref_type, "ref_id": t.ref_id,
+            "order": orders.get(t.ref_id) if t.ref_type == "order" else None,
         } for t in txns],
     })
 

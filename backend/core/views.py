@@ -1,4 +1,5 @@
 """API views للقلب: تسجيل الدخول (JWT + 2FA)، المستخدم، الوكلاء، المحفظة."""
+import re
 from decimal import Decimal, InvalidOperation
 
 import pyotp
@@ -741,3 +742,34 @@ def theme_config_view(request):
         tenant.theme_config = cfg
         tenant.save(update_fields=["theme_config"])
     return Response({"config": tenant.theme_config or {}})
+
+
+_HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
+_THEME_KEY = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
+
+
+@api_view(["GET", "PUT"])
+@permission_classes([IsAuthenticated])
+def agent_theme_view(request):
+    """
+    ألوان واجهة الوكلاء: يقرؤها كل من في المتجر، ويضبطها صاحبه وحده.
+
+    القيم ألوانٌ سداسية فقط (`#rrggbb`) — تُكتب في وسم <style> على صفحة الوكيل،
+    فأيّ نصٍّ آخر هنا بابٌ لحقن CSS. والمفاتيح يعرفها الواجهة (agentTheme.ts)؛
+    مفتاحٌ لا تعرفه يُهمَل هناك، فلا داعي لقائمةٍ ثانية تُنسى عند الإضافة.
+    """
+    tenant = request.user.tenant
+    if tenant is None:
+        return Response({"theme": {}})
+    if request.method == "PUT":
+        if request.user.role != User.Role.TENANT_ADMIN:
+            return Response({"detail": "تصميم واجهة الوكلاء لصاحب المتجر فقط"}, status=403)
+        theme = request.data.get("theme")
+        if not isinstance(theme, dict) or len(theme) > 60:
+            return Response({"detail": "إعدادات غير صالحة"}, status=400)
+        for k, v in theme.items():
+            if not _THEME_KEY.match(str(k)) or not isinstance(v, str) or not _HEX_COLOR.match(v):
+                return Response({"detail": f"لونٌ غير صالح: {k}"}, status=400)
+        tenant.agent_theme = {k: v.lower() for k, v in theme.items()}
+        tenant.save(update_fields=["agent_theme"])
+    return Response({"theme": tenant.agent_theme or {}})

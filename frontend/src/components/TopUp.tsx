@@ -20,9 +20,9 @@ interface Deposit {
 }
 
 const STATUS_TONE: Record<string, { bg: string; fg: string }> = {
-  pending: { bg: "rgba(255,176,32,.14)", fg: "#ffb020" },
-  approved: { bg: "rgba(47,226,123,.14)", fg: "#2fe27b" },
-  rejected: { bg: "rgba(255,93,108,.14)", fg: "#ff5d6c" },
+  pending: { bg: "color-mix(in srgb, var(--warn) 14%, transparent)", fg: "var(--warn)" },
+  approved: { bg: "color-mix(in srgb, var(--ok) 14%, transparent)", fg: "var(--ok)" },
+  rejected: { bg: "color-mix(in srgb, var(--danger) 14%, transparent)", fg: "var(--danger)" },
 };
 
 /* ═════════ القسم: شبكة الطرق · نموذج الطريقة · سجلّ الطلبات ═════════ */
@@ -70,8 +70,8 @@ export default function TopUp({ onDone }: { onDone: () => void }) {
           {methods.map((m) => (
             <button key={m.id} className="ag-method" onClick={() => setOpen(m)}>
               <span className="ag-method-logo" style={m.logo_url
-                ? { backgroundImage: `url(${m.logo_url})`, backgroundColor: "#0d1117" }
-                : { background: `linear-gradient(145deg, ${m.color || "#2f6f8f"}, #101418)` }}>
+                ? { backgroundImage: `url(${m.logo_url})`, backgroundColor: "var(--surface-2)" }
+                : { background: `linear-gradient(145deg, ${m.color || "#2f6f8f"}, var(--surface))` }}>
                 {!m.logo_url && m.name.trim().charAt(0)}
               </span>
               <b>{m.name}</b>
@@ -104,7 +104,7 @@ export default function TopUp({ onDone }: { onDone: () => void }) {
 /** دفعةٌ واحدة: سطرٌ مختصر، يُفتح على تفاصيلها */
 function DepositRow({ d }: { d: Deposit }) {
   const [open, setOpen] = useState(false);
-  const tone = STATUS_TONE[d.status] || { bg: "rgba(138,148,167,.14)", fg: "#8a94a7" };
+  const tone = STATUS_TONE[d.status] || { bg: "color-mix(in srgb, var(--muted) 14%, transparent)", fg: "var(--muted)" };
   return (
     <div className={`ag-acc${open ? " open" : ""}`}>
       <button className="ag-acc-head" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
@@ -175,7 +175,7 @@ function MethodForm({
           {method.name}
         </h3>
         {method.subtitle && (
-          <div style={{ textAlign: "center", color: "#9fb0b5", fontSize: 13, marginTop: -10, marginBottom: 16 }}>
+          <div style={{ textAlign: "center", color: "var(--muted)", fontSize: 13, marginTop: -10, marginBottom: 16 }}>
             {method.subtitle}
           </div>
         )}
@@ -202,7 +202,7 @@ function MethodForm({
         {/* الحقول التي بناها صاحب المتجر */}
         {method.fields_list.map((f) => (
           <div key={f.id} style={{ marginBottom: 12 }}>
-            <div style={fieldLabel}>{f.label}{f.required && <span style={{ color: "#ff8a7a" }}> *</span>}</div>
+            <div style={fieldLabel}>{f.label}{f.required && <span style={{ color: "var(--danger)" }}> *</span>}</div>
             {f.kind === "textarea" ? (
               <textarea rows={5} value={vals[f.id] || ""} placeholder={f.placeholder}
                 onChange={(e) => setVals((o) => ({ ...o, [f.id]: e.target.value }))}
@@ -229,7 +229,7 @@ function MethodForm({
           <div style={fieldLabel}>
             القيمة
             {Number(method.min_amount) > 0 && (
-              <span style={{ color: "#8fa0a5", fontWeight: 400 }}> — الحد الأدنى {money(method.min_amount)} {sym}</span>
+              <span style={{ color: "var(--muted)", fontWeight: 400 }}> — الحد الأدنى {money(method.min_amount)} {sym}</span>
             )}
           </div>
           <div style={{ position: "relative" }}>
@@ -241,18 +241,18 @@ function MethodForm({
 
         {/* المحصّلة */}
         <div style={resultBox}>
-          <div style={{ fontSize: 12.5, color: "#7fd8a0" }}>القيمة التي سيتم إضافتها إلى رصيدك</div>
+          <div style={{ fontSize: 12.5, color: "var(--primary)" }}>القيمة التي سيتم إضافتها إلى رصيدك</div>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <b style={{ fontSize: 20 }}>{money(credit)}</b>
-            <span style={{ fontSize: 15, color: "#7fd8a0" }}>{symbolOf(walletCurrency)} {walletCurrency}</span>
+            <span style={{ fontSize: 15, color: "var(--primary)" }}>{symbolOf(walletCurrency)} {walletCurrency}</span>
           </div>
-          <div style={{ fontSize: 11.5, color: "#6f8a78", marginTop: 4 }}>
+          <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 4 }}>
             1 {sym} = {money(rate, 4)} {symbolOf(walletCurrency)}
             {commission > 0 && <> · العمولة {money(commission)}%</>}
           </div>
         </div>
 
-        {msg && <div style={{ ...warnBox, background: "rgba(221,68,68,.14)", color: "#ffb3a7" }}>{msg.text}</div>}
+        {msg && <div style={{ ...warnBox, background: "color-mix(in srgb, var(--danger) 14%, transparent)", color: "var(--danger)" }}>{msg.text}</div>}
 
         <button onClick={submit} disabled={busy || !amount} style={submitBtn}>
           {busy ? "جارٍ الإرسال..." : "طلب"}
@@ -268,7 +268,7 @@ const panel: React.CSSProperties = {
   border: "1px solid var(--border)", boxShadow: "var(--shadow-soft)",
 };
 const instructions: React.CSSProperties = {
-  fontSize: 13.5, lineHeight: 2, color: "#c4d2d6", marginBottom: 16, whiteSpace: "pre-wrap",
+  fontSize: 13.5, lineHeight: 2, color: "var(--text)", marginBottom: 16, whiteSpace: "pre-wrap",
 };
 const accountBox: React.CSSProperties = {
   width: "100%", background: "var(--bg)", color: "var(--text)", border: "1px dashed var(--border-strong)",
@@ -277,24 +277,24 @@ const accountBox: React.CSSProperties = {
 };
 const copyHint: React.CSSProperties = {
   position: "absolute", insetInlineEnd: 10, top: "50%", transform: "translateY(-50%)",
-  fontSize: 10.5, color: "#7fd8a0", border: "1px solid #24503a", borderRadius: 5, padding: "2px 7px",
+  fontSize: 10.5, color: "var(--primary)", border: "1px solid color-mix(in srgb, var(--primary) 35%, transparent)", borderRadius: 5, padding: "2px 7px",
 };
 const warnBox: React.CSSProperties = {
-  background: "rgba(232,176,19,.12)", color: "#f0cd6a", borderRadius: 8,
+  background: "color-mix(in srgb, var(--gold) 12%, transparent)", color: "var(--gold)", borderRadius: 8,
   padding: "9px 12px", fontSize: 12.5, marginBottom: 14, lineHeight: 1.7,
 };
-const fieldLabel: React.CSSProperties = { fontSize: 13, color: "#a9b9be", marginBottom: 6, fontWeight: 600 };
+const fieldLabel: React.CSSProperties = { fontSize: 13, color: "var(--muted)", marginBottom: 6, fontWeight: 600 };
 const darkInp: React.CSSProperties = { width: "100%" };
 const inpSymbol: React.CSSProperties = {
   position: "absolute", insetInlineEnd: 16, top: "50%", transform: "translateY(-50%)",
-  color: "#8fa0a5", fontSize: 15, pointerEvents: "none",
+  color: "var(--muted)", fontSize: 15, pointerEvents: "none",
 };
 const resultBox: React.CSSProperties = {
-  background: "rgba(29,90,52,.35)", border: "1px solid #24503a", borderRadius: 12,
+  background: "color-mix(in srgb, var(--primary) 12%, transparent)", border: "1px solid color-mix(in srgb, var(--primary) 30%, transparent)", borderRadius: 12,
   padding: "12px 16px", marginBottom: 16,
 };
 const submitBtn: React.CSSProperties = {
   width: "100%", height: 52, borderRadius: 999, border: 0, cursor: "pointer",
   background: "var(--primary)", color: "var(--on-primary)", fontSize: 16, fontWeight: 800,
-  boxShadow: "0 10px 26px rgba(47,226,123,.25)",
+  boxShadow: "0 10px 26px color-mix(in srgb, var(--primary) 25%, transparent)",
 };

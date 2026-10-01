@@ -16,6 +16,7 @@ import Providers from "./pages/Providers";
 import Orders from "./pages/Orders";
 import Pool from "./pages/Pool";
 import SiteSettings from "./pages/SiteSettings";
+import AgentDesign from "./pages/AgentDesign";
 import DealerCards from "./pages/DealerCards";
 import Accounts from "./pages/Accounts";
 import PaymentMethods from "./pages/PaymentMethods";
@@ -96,6 +97,7 @@ export default function App() {
 
           {/* الإعدادات — إعدادات المتجر نفسه */}
           <Route path="/settings/site" element={Admin(<SiteSettings />)} />
+          <Route path="/settings/agent-design" element={Admin(<AgentDesign />)} />
           <Route path="/settings/cards" element={Admin(<DealerCards />)} />
           <Route path="/settings/sms" element={Admin(<SmsSettings />)} />
           <Route path="/settings/whatsapp" element={Admin(<WhatsAppSettings />)} />

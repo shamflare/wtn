@@ -755,3 +755,54 @@ class UiScaleTest(APITestCase):
         self.client.force_authenticate(None)
         r = self.client.get("/api/storefront/", HTTP_HOST="sc.wtn4.com")
         self.assertEqual(r.json()["store"]["ui_scale"], 90)
+
+
+class AgentThemeTest(APITestCase):
+    """
+    ألوان واجهة الوكلاء تُكتب في وسم <style> على صفحة كل وكيل — فلا يُقبل
+    إلا لونٌ سداسي، ولا يكتبها إلا صاحب المتجر.
+    """
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(subdomain="th", name="متجر")
+        self.admin = User.objects.create(
+            login_id="th-admin", name="مدير", tenant=self.tenant,
+            role=User.Role.TENANT_ADMIN, status=User.Status.ACTIVE,
+        )
+        self.agent = User.objects.create(
+            login_id="th-agent", name="وكيل", tenant=self.tenant,
+            role=User.Role.BAYI, status=User.Status.ACTIVE,
+        )
+
+    def test_owner_saves_and_agent_reads(self):
+        self.client.force_authenticate(self.admin)
+        r = self.client.put("/api/settings/agent-theme/",
+                            {"theme": {"primary": "#FF0000", "bg": "#000000"}}, format="json")
+        self.assertEqual(r.status_code, 200)
+        self.client.force_authenticate(self.agent)
+        self.assertEqual(self.client.get("/api/settings/agent-theme/").json()["theme"],
+                         {"primary": "#ff0000", "bg": "#000000"})
+
+    def test_agent_cannot_write(self):
+        self.client.force_authenticate(self.agent)
+        r = self.client.put("/api/settings/agent-theme/", {"theme": {"primary": "#ff0000"}}, format="json")
+        self.assertEqual(r.status_code, 403)
+        self.tenant.refresh_from_db()
+        self.assertEqual(self.tenant.agent_theme, {})
+
+    def test_only_hex_colors_are_accepted(self):
+        self.client.force_authenticate(self.admin)
+        for bad in ({"primary": "red;}body{display:none"}, {"primary": "#fff"},
+                    {"Bad-Key": "#ffffff"}, {"primary": 5}, "x"):
+            r = self.client.put("/api/settings/agent-theme/", {"theme": bad}, format="json")
+            self.assertEqual(r.status_code, 400, bad)
+        self.tenant.refresh_from_db()
+        self.assertEqual(self.tenant.agent_theme, {})
+
+    def test_empty_theme_resets(self):
+        self.tenant.agent_theme = {"primary": "#ff0000"}
+        self.tenant.save(update_fields=["agent_theme"])
+        self.client.force_authenticate(self.admin)
+        self.client.put("/api/settings/agent-theme/", {"theme": {}}, format="json")
+        self.tenant.refresh_from_db()
+        self.assertEqual(self.tenant.agent_theme, {})

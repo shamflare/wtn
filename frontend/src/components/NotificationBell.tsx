@@ -22,12 +22,12 @@ interface Item {
  * والفتحُ لا يمسح الرسائل: قراءتها تقع عند فتح المحادثة نفسها، فمسحُها هنا
  * يُخفي ما لم يُقرأ. أمّا البطاقات فالفتح **هو** رؤيتها.
  */
-export default function NotificationBell({ onOpenItem }: {
-  onOpenItem?: (item: Item) => void;
-}) {
-  const [data, setData] = useState<{ total: number; messages: number; cards: number; items: Item[] } | null>(null);
-  const [open, setOpen] = useState(false);
-  const box = useRef<HTMLDivElement>(null);
+export type NotificationItem = Item;
+type NotifData = { total: number; messages: number; cards: number; items: Item[] };
+
+/** الإشعارات مع تحديثٍ كل ١٥ ثانية — للجرس وللخانة في الشريط السفلي. */
+export function useNotifications() {
+  const [data, setData] = useState<NotifData | null>(null);
 
   function load() {
     api.get("/notifications/").then((r) => setData(r.data)).catch(() => {});
@@ -39,6 +39,70 @@ export default function NotificationBell({ onOpenItem }: {
     return () => clearInterval(id);
   }, []);
 
+  /** فتحُ القائمة هو رؤيةُ البطاقات — نعلّمها ثم نعيد التحميل */
+  async function markSeen() {
+    if (!data?.cards) return;
+    await api.post("/my-cards/seen/", {}).catch(() => {});
+    load();
+  }
+
+  return { data, total: data?.total || 0, markSeen };
+}
+
+/** ملخّص العدّ: «٢ رسالة · ١ إعلان» */
+export function NotificationSummary({ data }: { data: NotifData | null }) {
+  if (!data?.total) return null;
+  return (
+    <span>
+      {data.messages ? `${data.messages} رسالة` : ""}
+      {data.messages && data.cards ? " · " : ""}
+      {data.cards ? `${data.cards} إعلان` : ""}
+    </span>
+  );
+}
+
+/** قائمة الإشعارات نفسها — داخل لوحة الجرس أو في ورقةٍ سفلية. */
+export function NotificationList({ data, onPick }: {
+  data: NotifData | null; onPick: (it: Item) => void;
+}) {
+  if (!data?.items.length) {
+    return (
+      <div style={{ padding: "30px 16px", color: "var(--muted)", fontSize: 14, textAlign: "center" }}>
+        <Icon name="bell" size={28} style={{ display: "block", margin: "0 auto 8px", opacity: 0.5 }} />
+        لا جديد.
+      </div>
+    );
+  }
+  return (
+    <div>
+      {data.items.map((it) => (
+        <div key={`${it.kind}-${it.id}`} className="ag-bell-row" onClick={() => onPick(it)}>
+          <span className="ag-bell-ic" style={it.kind === "message"
+            ? { background: "color-mix(in srgb, var(--ok) 12%, transparent)", color: "var(--ok)" }
+            : { background: "color-mix(in srgb, var(--gold) 12%, transparent)", color: "var(--gold)" }}>
+            <Icon name={it.kind === "message" ? "chat" : "bell"} size={16} />
+          </span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 700, fontSize: 13.5 }}>{it.title}</div>
+            <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2,
+                          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {it.who ? `${it.who} · ` : ""}{it.body}
+            </div>
+            <div style={{ fontSize: 11, color: "var(--faint)", marginTop: 2 }}>{it.at}</div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export default function NotificationBell({ onOpenItem }: {
+  onOpenItem?: (item: Item) => void;
+}) {
+  const { data, total, markSeen } = useNotifications();
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+
   // النقر خارج اللوحة يغلقها — بدونه تبقى معلّقة فوق ما يريد قراءته
   useEffect(() => {
     if (!open) return;
@@ -49,17 +113,11 @@ export default function NotificationBell({ onOpenItem }: {
     return () => document.removeEventListener("mousedown", onDoc);
   }, [open]);
 
-  async function toggle() {
+  function toggle() {
     const next = !open;
     setOpen(next);
-    if (next && data?.cards) {
-      // فتحُ اللوحة هو رؤيةُ البطاقات — نعلّمها ثم نعيد التحميل
-      await api.post("/my-cards/seen/", {}).catch(() => {});
-      load();
-    }
+    if (next) markSeen();
   }
-
-  const total = data?.total || 0;
 
   return (
     <div ref={box} style={{ position: "relative" }}>
@@ -72,42 +130,11 @@ export default function NotificationBell({ onOpenItem }: {
         <div className="ag-bell-panel">
           <div className="ag-bell-head">
             الإشعارات
-            {total > 0 && (
-              <span>
-                {data?.messages ? `${data.messages} رسالة` : ""}
-                {data?.messages && data?.cards ? " · " : ""}
-                {data?.cards ? `${data.cards} إعلان` : ""}
-              </span>
-            )}
+            <NotificationSummary data={data} />
           </div>
-
-          {!data?.items.length ? (
-            <div style={{ padding: "30px 16px", color: "var(--muted)", fontSize: 14, textAlign: "center" }}>
-              <Icon name="bell" size={28} style={{ display: "block", margin: "0 auto 8px", opacity: 0.5 }} />
-              لا جديد.
-            </div>
-          ) : (
-            <div style={{ maxHeight: "min(420px, 60vh)", overflowY: "auto" }}>
-              {data.items.map((it) => (
-                <div key={`${it.kind}-${it.id}`} className="ag-bell-row"
-                  onClick={() => { setOpen(false); onOpenItem?.(it); }}>
-                  <span className="ag-bell-ic" style={it.kind === "message"
-                    ? { background: "rgba(47,226,123,.12)", color: "#2fe27b" }
-                    : { background: "rgba(255,194,61,.12)", color: "#ffc23d" }}>
-                    <Icon name={it.kind === "message" ? "chat" : "bell"} size={16} />
-                  </span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 700, fontSize: 13.5 }}>{it.title}</div>
-                    <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2,
-                                  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {it.who ? `${it.who} · ` : ""}{it.body}
-                    </div>
-                    <div style={{ fontSize: 11, color: "var(--faint)", marginTop: 2 }}>{it.at}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+          <div style={{ maxHeight: "min(420px, 60vh)", overflowY: "auto" }}>
+            <NotificationList data={data} onPick={(it) => { setOpen(false); onOpenItem?.(it); }} />
+          </div>
         </div>
       )}
     </div>

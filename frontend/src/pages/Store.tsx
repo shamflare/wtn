@@ -6,12 +6,13 @@ import { useAuth } from "../auth";
 import { money, symbolOf } from "../currency";
 import { downloadCsv } from "../csv";
 import Icon from "../components/Icon";
-import NotificationBell from "../components/NotificationBell";
+import { NotificationList, NotificationSummary, useNotifications } from "../components/NotificationBell";
 import Tickets from "../components/Tickets";
 import ApiDocs from "../components/ApiDocs";
 import { CardStrip, type Card } from "../components/HomeCards";
 import TopUp from "../components/TopUp";
 import { applyThemeConfig } from "../theme";
+import { AGENT_THEME_DEFAULTS, applyAgentTheme, cachedAgentTheme, type AgentTheme } from "../agentTheme";
 import "./store.css";
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -45,8 +46,8 @@ function parsePath(pathname: string): { tab: Tab; gameId: number | null } {
 }
 const pathForTab = (t: Tab) => (t === "home" ? "/store" : `/store/${t}`);
 
-/** أقسام «المزيد» — لا تتّسع لها خمس خانات في الشريط السفلي */
-const MORE_TABS: Tab[] = ["packages", "reports", "support", "settings", "api"];
+/** أقسام «المزيد» — لا تتّسع لها ستّ خانات في الشريط السفلي */
+const MORE_TABS: Tab[] = ["topup", "packages", "reports", "support", "settings", "api"];
 
 /**
  * لون الحالة بمنظور الوكيل: انتظار · تنفيذ · نجاح · رفض.
@@ -54,7 +55,7 @@ const MORE_TABS: Tab[] = ["packages", "reports", "support", "settings", "api"];
  * — فالتعثّر في توجيه صاحب المتجر شأنه، ولا حيلة للوكيل فيه.
  */
 const ST_COLOR: Record<string, string> = {
-  success: "#2fe27b", pending: "#ffb020", processing: "#4da3ff", cancelled: "#ff5d6c",
+  success: "var(--ok)", pending: "var(--warn)", processing: "var(--info)", cancelled: "var(--danger)",
 };
 const ST_CHIPS: { key: string; label: string }[] = [
   { key: "all", label: "الكل" },
@@ -99,11 +100,16 @@ export default function Store() {
   const nav = useNavigate();
   const loc = useLocation();
   const { tab, gameId } = parsePath(loc.pathname);
-  const goTab = (t: Tab) => { setMore(false); nav(pathForTab(t)); };
+  const goTab = (t: Tab) => { setMore(false); setBell(false); nav(pathForTab(t)); };
   const [summary, setSummary] = useState<Summary | null>(null);
   const [games, setGames] = useState<SGame[] | null>(null);
   const [unread, setUnread] = useState(0);
   const [more, setMore] = useState(false);
+  const [bell, setBell] = useState(false);
+  const notif = useNotifications();
+  // ألوان صاحب المتجر لواجهة الوكيل: المخزّن محلياً فوراً (بلا وميض الافتراضي)، ثم الخادم
+  const [agTheme, setAgTheme] = useState<AgentTheme>(() => cachedAgentTheme());
+  const pageBg = agTheme.bg || AGENT_THEME_DEFAULTS.bg;
 
   function loadSummary() {
     api.get("/store/summary/").then((r) => setSummary(r.data)).catch(() => {});
@@ -113,7 +119,9 @@ export default function Store() {
     api.get("/store/catalog/").then((r) => setGames(r.data.games)).catch(() => setGames([]));
     // الخط يرثه الوكيل من تخصيص متجره — والألوان للّوحة الداكنة نفسها
     api.get("/settings/theme/").then((r) => applyThemeConfig(r.data.config || {})).catch(() => {});
+    api.get("/settings/agent-theme/").then((r) => setAgTheme(r.data.theme || {})).catch(() => {});
   }, []);
+  useEffect(() => { applyAgentTheme(agTheme); }, [agTheme]);
 
   /* لوحة الإدارة بعرضٍ ثابت (1366) — والوكيل وحده يعمل بعرض جهازه.
      نبدّل وسم viewport ولون شريط المتصفّح ما دامت اللوحة مفتوحة، ونعيدهما عند الخروج. */
@@ -125,15 +133,15 @@ export default function Store() {
     const createdTc = !tc;
     if (!tc) { tc = document.createElement("meta"); tc.setAttribute("name", "theme-color"); document.head.appendChild(tc); }
     const prevTc = tc.getAttribute("content");
-    tc.setAttribute("content", "#07090e");
+    tc.setAttribute("content", pageBg);
     const prevBg = document.body.style.background;
-    document.body.style.background = "#07090e";
+    document.body.style.background = pageBg;
     return () => {
       if (vp && prevVp !== null) vp.setAttribute("content", prevVp);
       if (createdTc) tc?.remove(); else if (prevTc !== null) tc?.setAttribute("content", prevTc);
       document.body.style.background = prevBg;
     };
-  }, []);
+  }, [pageBg]);
 
   // عدّاد رسائل الدعم غير المقروءة
   useEffect(() => {
@@ -151,8 +159,7 @@ export default function Store() {
   const storeName = summary?.store?.short_name || user?.tenant?.name || "متجر الشحن";
   const logo = summary?.store?.logo_url || "";
   const navOn = (t: Tab) =>
-    t === "home" ? tab === "home" || tab === "sell"
-      : t === "settings" ? MORE_TABS.includes(tab) : tab === t;
+    t === "settings" ? MORE_TABS.includes(tab) : tab === t;
 
   return (
     <CurrencyCtx.Provider value={currency}>
@@ -179,7 +186,6 @@ export default function Store() {
               </>
             )}
           </button>
-          <NotificationBell onOpenItem={(it) => goTab(it.kind === "message" ? "support" : "home")} />
           <button className={`ag-balance${Number(balance) < 0 ? " neg" : ""}`} onClick={() => goTab("wallet")}
             title="رصيدي">
             <span className="cur">{symbolOf(currency)}</span>{money(balance)}
@@ -214,24 +220,36 @@ export default function Store() {
       {/* ── التنقّل السفلي ── */}
       <nav className="ag-nav" aria-label="التنقّل">
         <div className="ag-nav-in">
-          <NavItem icon="home" label="الرئيسية" on={navOn("home")} onClick={() => goTab("home")} />
-          <NavItem icon="receipt" label="طلباتي" on={navOn("orders")} onClick={() => goTab("orders")} />
-          <NavItem icon="plus" label="شحن رصيد" fab on={navOn("topup")} onClick={() => goTab("topup")} />
-          <NavItem icon="wallet" label="محفظتي" on={navOn("wallet")} onClick={() => goTab("wallet")} />
-          <NavItem icon="grid" label="المزيد" on={navOn("settings") || more} badge={unread}
-            onClick={() => setMore(true)} />
+          <NavItem icon="home" label="الرئيسية" on={navOn("home") && !bell} onClick={() => goTab("home")} />
+          <NavItem icon="search" label="الألعاب" on={navOn("sell") && !bell} onClick={() => goTab("sell")} />
+          <NavItem icon="receipt" label="طلباتي" on={navOn("orders") && !bell} onClick={() => goTab("orders")} />
+          <NavItem icon="bell" label="الإشعارات" on={bell} badge={notif.total}
+            onClick={() => { setMore(false); setBell(true); notif.markSeen(); }} />
+          <NavItem icon="wallet" label="محفظتي" on={navOn("wallet") && !bell} onClick={() => goTab("wallet")} />
+          <NavItem icon="grid" label="المزيد" on={(navOn("settings") || more) && !bell} badge={unread}
+            onClick={() => { setBell(false); setMore(true); }} />
         </div>
       </nav>
 
       {more && (
         <Sheet title="المزيد" onClose={() => setMore(false)}>
           <div className="ag-menu">
-            <MenuBtn icon="tag" label="قائمة الباقات" tone="#ffc23d" onClick={() => goTab("packages")} />
-            <MenuBtn icon="chart" label="تقاريري" tone="#4da3ff" onClick={() => goTab("reports")} />
-            <MenuBtn icon="chat" label="الدعم" tone="#2fe27b" badge={unread} onClick={() => goTab("support")} />
-            <MenuBtn icon="user" label="حسابي" tone="#b18cff" onClick={() => goTab("settings")} />
-            <MenuBtn icon="api" label="الربط الخارجي" tone="#22d3ee" onClick={() => goTab("api")} />
-            <MenuBtn icon="logout" label="خروج آمن" tone="#ff5d6c" danger onClick={logout} />
+            <MenuBtn icon="plusCircle" label="شحن رصيد" tone="var(--primary)" onClick={() => goTab("topup")} />
+            <MenuBtn icon="tag" label="قائمة الباقات" tone="var(--gold)" onClick={() => goTab("packages")} />
+            <MenuBtn icon="chart" label="تقاريري" tone="var(--info)" onClick={() => goTab("reports")} />
+            <MenuBtn icon="chat" label="الدعم" tone="var(--ok)" badge={unread} onClick={() => goTab("support")} />
+            <MenuBtn icon="user" label="حسابي" tone="var(--violet)" onClick={() => goTab("settings")} />
+            <MenuBtn icon="api" label="الربط الخارجي" tone="var(--cyan)" onClick={() => goTab("api")} />
+            <MenuBtn icon="logout" label="خروج آمن" tone="var(--danger)" danger onClick={logout} />
+          </div>
+        </Sheet>
+      )}
+
+      {bell && (
+        <Sheet title={<>الإشعارات <NotificationSummary data={notif.data} /></>} onClose={() => setBell(false)}>
+          <div className="ag-bell-list">
+            <NotificationList data={notif.data}
+              onPick={(it) => goTab(it.kind === "message" ? "support" : "home")} />
           </div>
         </Sheet>
       )}
@@ -241,14 +259,14 @@ export default function Store() {
   );
 }
 
-function NavItem({ icon, label, on, onClick, fab, badge }: {
-  icon: string; label: string; on: boolean; onClick: () => void; fab?: boolean; badge?: number;
+function NavItem({ icon, label, on, onClick, badge }: {
+  icon: string; label: string; on: boolean; onClick: () => void; badge?: number;
 }) {
   return (
-    <button className={`ag-nav-item${on ? " on" : ""}${fab ? " ag-nav-fab" : ""}`} onClick={onClick}
+    <button className={`ag-nav-item${on ? " on" : ""}`} onClick={onClick}
       aria-current={on ? "page" : undefined}>
-      <span className="ag-nav-ico"><Icon name={icon} size={fab ? 26 : 22} /></span>
-      {label}
+      <span className="ag-nav-ico"><Icon name={icon} size={20} /></span>
+      <span>{label}</span>
       {!!badge && <span className="ag-badge">{badge > 9 ? "9+" : badge}</span>}
     </button>
   );
@@ -259,7 +277,7 @@ function MenuBtn({ icon, label, tone, onClick, badge, danger }: {
 }) {
   return (
     <button onClick={onClick} className={danger ? "danger" : undefined}>
-      <span className="mi" style={{ background: `${tone}1f`, color: tone }}><Icon name={icon} size={21} /></span>
+      <span className="mi" style={{ background: `color-mix(in srgb, ${tone} 12%, transparent)`, color: tone }}><Icon name={icon} size={21} /></span>
       {label}
       {!!badge && <span className="ag-badge" style={{ top: 8, insetInlineEnd: 8 }}>{badge}</span>}
     </button>
@@ -366,7 +384,7 @@ function HomeTab({ summary, onGo, onGame }: {
       <section className="ag-hero">
         <div className="ag-hero-hi">أهلاً {user?.name?.split(" ")[0] || ""} 👋 — رصيدك الحالي</div>
         {summary ? (
-          <div className="ag-hero-amt" style={neg ? { color: "#ff98a2" } : undefined}>
+          <div className="ag-hero-amt" style={neg ? { color: "var(--danger)" } : undefined}>
             {money(summary.balance)}<span className="cur">{cur}</span>
           </div>
         ) : <div className="ag-skel" style={{ height: 44, width: 180, margin: "6px 0", borderRadius: 12 }} />}
@@ -482,20 +500,25 @@ function SellTab({ gameId, onGame, onBought, onFinish }: {
         </div>
       </div>
 
-      <div className="ag-pkgs">
+      {/* الباقات بطاقاتٌ بصورة اللعبة: الاسم والسعر تحتها، وزرّ الشراء بعرض البطاقة */}
+      <div className="ag-pcards">
         {active.products.map((p) => (
-          <div key={p.id} className="ag-pkg">
-            <span className="ag-pkg-ico"><Icon name="bolt" size={20} /></span>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div className="ag-pkg-name">{p.name}</div>
-              <div className="ag-pkg-price">{money(p.price)}<small>{cur}</small></div>
-              {Number(p.recommended_price) > 0 && (
-                <div className="ag-pkg-rec">سعر البيع المقترح {money(p.recommended_price)} {cur}</div>
-              )}
+          <div key={p.id} className="ag-pcard" onClick={() => setBuy(p)}>
+            <div className="ag-pcard-img">
+              <GameThumb name={active.name} img={active.image_url} className="ag-pcard-pic" />
             </div>
-            <button className="btn" onClick={() => setBuy(p)}>
-              <Icon name="cart" size={15} />شراء
-            </button>
+            <div className="ag-pcard-body">
+              <div className="ag-pcard-row">
+                <b className="ag-pcard-name">{p.name}</b>
+                <span className="ag-pcard-price" dir="ltr"><small>{cur}</small>{money(p.price)}</span>
+              </div>
+              {Number(p.recommended_price) > 0 && (
+                <div className="ag-pcard-rec">المقترح {money(p.recommended_price)} {cur}</div>
+              )}
+              <button className="ag-pcard-buy" onClick={(e) => { e.stopPropagation(); setBuy(p); }}>
+                شراء<Icon name="cart" size={18} />
+              </button>
+            </div>
           </div>
         ))}
       </div>
@@ -750,7 +773,7 @@ function OrdersTab() {
       ) : (
         <div className="ag-orders">
           {rows.map((o) => {
-            const st = ST_COLOR[o.status] || "#8a94a7";
+            const st = ST_COLOR[o.status] || "var(--muted)";
             const wait = o.status === "pending" || o.status === "processing";
             const profit = Number(o.dealer_profit);
             return (
@@ -808,12 +831,22 @@ function OrdersTab() {
 
 /* تفاصيل الطلب للوكيل — بياناته هو فقط: زبونه وأسعاره وحالة طلبه. */
 function OrderDetails({ order: o, img, onClose }: { order: any; img?: string; onClose: () => void }) {
-  const cur = useCur();
-  const [copied, copy] = useCopy();
-  const st = ST_COLOR[o.status] || "#8a94a7";
   return (
     <Sheet title={<>تفاصيل الطلب <span style={{ color: "var(--muted)", fontWeight: 600, fontSize: 13 }} dir="ltr">#{o.receipt_no}</span></>}
       onClose={onClose}>
+      <OrderBody order={o} img={img} />
+      <button className="btn ag-cta" onClick={onClose}>إغلاق</button>
+    </Sheet>
+  );
+}
+
+/** ما في الطلب: الباقة وحالتها، الكود، الأسعار — في تفاصيل الطلب وتفاصيل حركة المحفظة */
+function OrderBody({ order: o, img }: { order: any; img?: string }) {
+  const cur = useCur();
+  const [copied, copy] = useCopy();
+  const st = ST_COLOR[o.status] || "var(--muted)";
+  return (
+    <>
       <div className="ag-row" style={{ background: "var(--surface-2)", ["--st" as any]: st }}>
         <GameThumb name={o.game_name} img={img} />
         <div className="ag-row-main"><b>{o.product_name}</b><span>{o.game_name}</span></div>
@@ -851,8 +884,7 @@ function OrderDetails({ order: o, img, onClose }: { order: any; img?: string; on
           <b style={{ color: "var(--text)" }}>ملاحظة:</b> {o.provider_note}
         </div>
       )}
-      <button className="btn ag-cta" onClick={onClose}>إغلاق</button>
-    </Sheet>
+    </>
   );
 }
 
@@ -930,11 +962,11 @@ function ReportsTab() {
             <div key={i} className="ag-row" style={{ alignItems: "stretch", flexDirection: "column", gap: 10 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <div className="ag-row-main"><b>{r.product}</b><span>{r.game}</span></div>
-                <span className="ag-pillst" style={{ background: "rgba(77,163,255,.12)", color: "var(--info)" }}>× {r.count}</span>
+                <span className="ag-pillst" style={{ background: "color-mix(in srgb, var(--info) 12%, transparent)", color: "var(--info)" }}>× {r.count}</span>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, textAlign: "center" }}>
-                <MiniVal label="الشراء" value={money(r.cost)} color="#ff9aa5" />
-                <MiniVal label="المبيعات" value={money(r.sell)} color="#c6a9ff" />
+                <MiniVal label="الشراء" value={money(r.cost)} color="var(--danger)" />
+                <MiniVal label="المبيعات" value={money(r.sell)} color="var(--violet)" />
                 <MiniVal label="الربح" value={money(r.profit)} color="var(--primary)" />
               </div>
             </div>
@@ -956,7 +988,23 @@ function MiniVal({ label, value, color }: { label: string; value: string; color:
 /* ═════════════════════════ محفظتي ═════════════════════════ */
 function WalletTab({ summary, onTopUp }: { summary: Summary | null; onTopUp: () => void }) {
   const [data, setData] = useState<any>(null);
-  useEffect(() => { api.get("/store/wallet/").then((r) => setData(r.data)).catch(() => setData({ results: [] })); }, []);
+  const [list, setList] = useState<any[] | null>(null);
+  const [kind, setKind] = useState("all");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [open, setOpen] = useState<any | null>(null);
+
+  function load(k = kind, f = from, t = to) {
+    setList(null);
+    const params: Record<string, string> = { type: k };
+    if (f) params.date_from = f;
+    if (t) params.date_to = t;
+    api.get("/store/wallet/", { params })
+      .then((r) => { setData(r.data); setList(r.data.results || []); })
+      .catch(() => { setData((d: any) => d ?? { results: [] }); setList([]); });
+  }
+  useEffect(() => { load(); }, []);
+  const counts: Record<string, number> = data?.counts || {};
   const sym = symbolOf(data?.currency || summary?.currency || "");
 
   return (
@@ -966,7 +1014,7 @@ function WalletTab({ summary, onTopUp }: { summary: Summary | null; onTopUp: () 
         <div className="ag-tile t-green">
           <span className="ic"><Icon name="wallet" size={18} /></span>
           <div>
-            <div className="v" style={Number(data?.balance) < 0 ? { color: "#ffb3bb" } : undefined}>
+            <div className="v" style={Number(data?.balance) < 0 ? { color: "var(--danger)" } : undefined}>
               {data?.balance !== undefined ? money(data.balance) : "—"}<small>{sym}</small>
             </div>
             <div className="l">رصيدك الحالي</div>
@@ -991,32 +1039,106 @@ function WalletTab({ summary, onTopUp }: { summary: Summary | null; onTopUp: () 
       </button>
 
       <div className="ag-h2"><Icon name="receipt" size={18} style={{ color: "var(--primary)" }} />كشف الحركات</div>
-      {data === null ? <Skeleton h={66} /> : !data.results?.length ? (
-        <Empty icon="wallet" text="لا توجد حركات بعد" />
+      <form onSubmit={(e) => { e.preventDefault(); load(); }}>
+        <div className="ag-dates">
+          <DateField label="من" value={from} max={to} onChange={setFrom} />
+          <DateField label="إلى" value={to} min={from} onChange={setTo} />
+          {from || to ? (
+            <button type="button" className="ag-round ghost" aria-label="إزالة الفلتر"
+              onClick={() => { setFrom(""); setTo(""); load(kind, "", ""); }}>
+              <Icon name="x" size={19} />
+            </button>
+          ) : (
+            <button className="ag-round" aria-label="بحث"><Icon name="search" size={21} /></button>
+          )}
+        </div>
+      </form>
+
+      <div className="ag-chips">
+        {[{ key: "all", label: "الكل" }, ...(data?.types || [])]
+          .filter((c: any) => c.key === "all" || kind === c.key || counts[c.key])
+          .map((c: any) => (
+            <button key={c.key} className={`ag-chip${kind === c.key ? " on" : ""}`}
+              onClick={() => { setKind(c.key); load(c.key); }}>
+              {c.key !== "all" && <span className="dot" style={{ background: txnTone(c.key) }} />}
+              {c.label}<span className="n">{counts[c.key] || 0}</span>
+            </button>
+          ))}
+      </div>
+
+      {list === null ? <div style={{ marginTop: 12 }}><Skeleton h={66} /></div> : !list.length ? (
+        <Empty icon="wallet" text={kind === "all" && !from && !to ? "لا توجد حركات بعد" : "لا حركات مطابقة"} />
       ) : (
-        <div className="ag-list">
-          {data.results.map((t: any) => {
+        <div className="ag-list" style={{ marginTop: 12 }}>
+          {list.map((t: any) => {
             const inflow = Number(t.amount) >= 0;
-            const tone = inflow ? "#2fe27b" : "#ff5d6c";
+            const tone = inflow ? "var(--ok)" : "var(--danger)";
             return (
-              <div key={t.id} className="ag-row">
-                <span className="ag-row-ico" style={{ background: `${tone}1a`, color: tone }}>
+              <div key={t.id} className="ag-row ag-row-click" onClick={() => setOpen(t)}>
+                <span className="ag-row-ico" style={{ background: `color-mix(in srgb, ${tone} 10%, transparent)`, color: tone }}>
                   <Icon name={inflow ? "arrowDown" : "arrowUp"} size={19} />
                 </span>
                 <div className="ag-row-main">
                   <b>{t.type_label}</b>
-                  <span>{t.note || t.created_at}</span>
+                  <span>{t.order ? `${t.order.game_name} · ${t.order.product_name}` : t.note || t.created_at}</span>
                 </div>
                 <div className="ag-row-end">
                   <b style={{ color: tone }} dir="ltr">{inflow ? "+" : ""}{money(t.amount)}</b>
-                  <span dir="ltr">{t.note ? t.created_at : `= ${money(t.balance_after)}`}</span>
+                  <span dir="ltr">{t.created_at}</span>
                 </div>
+                <button className="ag-eye" aria-label="التفاصيل" title="التفاصيل"
+                  onClick={(e) => { e.stopPropagation(); setOpen(t); }}>
+                  <Icon name="eye" size={17} />
+                </button>
               </div>
             );
           })}
         </div>
       )}
+
+      {open && <TxnDetails txn={open} cur={sym} onClose={() => setOpen(null)} />}
     </div>
+  );
+}
+
+/** لون نوع الحركة: داخلٌ أخضر، خارجٌ أحمر، والتسوية محايدة */
+function txnTone(type: string) {
+  if (type === "topup" || type === "refund" || type === "manual_credit") return "var(--ok)";
+  if (type === "order_debit" || type === "manual_debit") return "var(--danger)";
+  return "var(--info)";
+}
+
+function TxnDetails({ txn: t, cur, onClose }: { txn: any; cur: string; onClose: () => void }) {
+  const games = useContext(GamesCtx);
+  const inflow = Number(t.amount) >= 0;
+  const img = t.order ? games?.find((g) => g.name === t.order.game_name)?.image_url : undefined;
+  return (
+    <Sheet title={<>تفاصيل العملية <span style={{ color: "var(--muted)", fontWeight: 600, fontSize: 13 }} dir="ltr">#{t.id}</span></>}
+      onClose={onClose}>
+      <div style={{ textAlign: "center", padding: "6px 0 12px" }}>
+        <div style={{ fontSize: 13, color: "var(--muted)", fontWeight: 700 }}>{t.type_label}</div>
+        <div dir="ltr" style={{ fontSize: 30, fontWeight: 800, color: inflow ? "var(--ok)" : "var(--danger)",
+                               fontVariantNumeric: "tabular-nums" }}>
+          {inflow ? "+" : ""}{money(t.amount)} <small style={{ fontSize: 15, color: "var(--gold)" }}>{cur}</small>
+        </div>
+      </div>
+      <div className="ag-kv"><span>الرصيد قبل</span><b dir="ltr">{money(t.balance_before)} {cur}</b></div>
+      <div className="ag-kv"><span>الرصيد بعد</span><b dir="ltr">{money(t.balance_after)} {cur}</b></div>
+      <div className="ag-kv"><span>التاريخ</span><b dir="ltr">{t.created_at}</b></div>
+      {t.order && <div className="ag-kv"><span>رقم الفيش</span><b dir="ltr">#{t.order.receipt_no}</b></div>}
+      {t.note && <div className="ag-note" style={{ background: "var(--surface-2)", color: "var(--text)", borderColor: "var(--border)" }}>
+        <b>ملاحظة:</b> {t.note}
+      </div>}
+      {t.order && (
+        <>
+          <div className="ag-h2" style={{ margin: "18px 2px 10px" }}>
+            <Icon name="receipt" size={17} style={{ color: "var(--primary)" }} />الطلب
+          </div>
+          <OrderBody order={t.order} img={img} />
+        </>
+      )}
+      <button className="btn ag-cta" onClick={onClose}>إغلاق</button>
+    </Sheet>
   );
 }
 
@@ -1090,7 +1212,7 @@ function AccountPane() {
           </div>
           <div className="ag-kv"><span>المتجر</span><b>{user?.tenant?.name || "—"}</b></div>
         </div>
-        <button className="btn" style={{ width: "100%", marginTop: 14, color: "#ff98a2" }} onClick={logout}>
+        <button className="btn" style={{ width: "100%", marginTop: 14, color: "var(--danger)" }} onClick={logout}>
           <Icon name="logout" size={16} />خروج آمن
         </button>
       </div>

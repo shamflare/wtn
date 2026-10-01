@@ -11,6 +11,7 @@ urlpatterns = [
     path("settings/site/", views.site_settings_view, name="site-settings"),
     path("settings/sms/", views.sms_settings_view, name="sms-settings"),
     path("settings/theme/", views.theme_config_view, name="theme-config"),
+    path("settings/agent-theme/", views.agent_theme_view, name="agent-theme"),
     path("settings/exchange/", views.exchange_rates_view, name="exchange-rates"),
     path("ledger/", views.ledger_view, name="ledger"),
     path("dealers/", views.dealers_view, name="dealers"),

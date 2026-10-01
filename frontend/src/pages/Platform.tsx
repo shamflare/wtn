@@ -417,15 +417,18 @@ function ManagePackages({ game, onClose }: { game: LibGame; onClose: () => void 
 
   return (
     <div style={overlay} onClick={onClose}>
-      <div style={{ ...modal, width: 760, color: "#0f172a" }} onClick={(e) => e.stopPropagation()}>
+      {/* النافذة لا تتجاوز الشاشة: الجدول وحده يتمرّر، ونموذج الإضافة ثابتٌ أسفلها */}
+      <div style={{ ...modal, width: 760, color: "#0f172a", maxHeight: "92vh", display: "flex", flexDirection: "column" }}
+        onClick={(e) => e.stopPropagation()}>
         <div style={{ background: "#0f172a", color: "#e2e8f0", padding: "14px 18px", fontWeight: 700, fontSize: 16, display: "flex", justifyContent: "space-between" }}>
           <span>باقات: {game.name}</span>
           <button onClick={onClose} style={{ background: "transparent", border: 0, color: "#94a3b8", fontSize: 18, cursor: "pointer" }}>✕</button>
         </div>
-        <div style={{ padding: 18 }}>
+        <div style={{ padding: 18, display: "flex", flexDirection: "column", minHeight: 0, flex: 1 }}>
+          <div style={{ overflowY: "auto", minHeight: 0, flex: 1, border: "1px solid #eef1f2", borderRadius: 6 }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
             <thead>
-              <tr>{["الباقة", "التكلفة", "السعر المقترح", "رقم الربط", ""].map((h) => <th key={h} style={{ ...th, background: "#e2e8f0", color: "#475569" }}>{h}</th>)}</tr>
+              <tr>{["الباقة", "التكلفة", "السعر المقترح", "رقم الربط", ""].map((h) => <th key={h} style={{ ...th, background: "#e2e8f0", color: "#475569", position: "sticky", top: 0, zIndex: 1 }}>{h}</th>)}</tr>
             </thead>
             <tbody>
               {rows.length === 0 ? (
@@ -451,6 +454,7 @@ function ManagePackages({ game, onClose }: { game: LibGame; onClose: () => void 
               ))}
             </tbody>
           </table>
+          </div>
           <form onSubmit={add} style={{ display: "flex", gap: 8, marginTop: 14, alignItems: "end", flexWrap: "wrap" }}>
             <Field label="النوع">
               <select style={{ ...inp, width: 110 }} value={f.sale_type} disabled={!!editId}

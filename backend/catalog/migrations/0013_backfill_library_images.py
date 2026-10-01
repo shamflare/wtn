@@ -7,8 +7,7 @@ def backfill(apps, schema_editor):
     n = 0
     for lib in LibraryGame.objects.exclude(image_url=""):
         n += Game.objects.filter(master_library_uuid=lib.uuid, image_url="").update(image_url=lib.image_url)
-    print(f"
-  صور المكتبة: أُكملت {n} لعبة مستوردة")
+    print(f"  library images backfilled: {n} game(s)")
 
 
 class Migration(migrations.Migration):

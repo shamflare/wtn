@@ -27,6 +27,7 @@ export default function GameDetail() {
   const [libGames, setLibGames] = useState<{ id: number; name: string; packages: number }[]>([]);
   const [linkTo, setLinkTo] = useState("");
   const [addErr, setAddErr] = useState("");
+  const [q, setQ] = useState("");
   // نافذة تعديل الباقة: "edit" بيانات المنتج · "routing" المزوّدون + رقم الربط
   const [editing, setEditing] = useState<{ product: Product; mode: "edit" | "routing" } | null>(null);
 
@@ -137,6 +138,14 @@ export default function GameDetail() {
     load();
   }
 
+
+  // البحث السريع: كل كلمة يجب أن توجد في الاسم أو رقم الربط أو اسم المزوّد
+  const words = q.trim().toLowerCase().split(/s+/).filter(Boolean);
+  const shown = words.length === 0 ? game.products : game.products.filter((p) => {
+    const hay = [p.name, p.kupur, providers.find((v) => v.id === p.provider)?.name]
+      .filter(Boolean).join(" ").toLowerCase();
+    return words.every((w) => hay.includes(w));
+  });
 
   return (
     <div style={{ padding: 16 }}>
@@ -263,6 +272,23 @@ export default function GameDetail() {
           )}
           {addErr && <div style={{ color: "var(--debt)", fontSize: 13, marginBottom: 10 }}>{addErr}</div>}
 
+          {/* بحث سريع — بالاسم أو رقم الربط أو المزوّد */}
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+            <div style={{ position: "relative" }}>
+              <Icon name="search" size={16} style={{ position: "absolute", insetInlineStart: 10, top: "50%", transform: "translateY(-50%)", color: "var(--muted)" }} />
+              <input placeholder="بحث سريع: اسم الباقة أو رقم الربط أو المزوّد…" value={q}
+                onChange={(e) => setQ(e.target.value)}
+                style={{ width: 340, height: 36, borderRadius: 8, paddingInlineStart: 34 }} />
+            </div>
+            {q.trim() && (
+              <span style={{ color: "var(--muted)", fontSize: 13 }}>
+                {shown.length} من {game.products.length}
+                <button type="button" className="btn" style={{ height: 28, marginInlineStart: 8, background: "#8a999e" }}
+                  onClick={() => setQ("")}>مسح</button>
+              </span>
+            )}
+          </div>
+
           {/* جدول المنتجات */}
           <table style={table}>
             <thead>
@@ -276,8 +302,10 @@ export default function GameDetail() {
             <tbody>
               {game.products.length === 0 ? (
                 <tr><td colSpan={10} style={{ ...td, padding: 24 }}>لا توجد منتجات — أضف أول منتج بالأعلى</td></tr>
+              ) : shown.length === 0 ? (
+                <tr><td colSpan={10} style={{ ...td, padding: 24 }}>لا باقة تطابق «{q.trim()}»</td></tr>
               ) : (
-                game.products.map((p: Product, i) => (
+                shown.map((p: Product, i) => (
                   <tr key={p.id} style={{ background: i % 2 ? "var(--row-alt)" : "#fff" }}>
                     <td style={{ ...td, textAlign: "right", paddingInlineStart: 12, fontWeight: 600 }}>
                       <CellEdit value={p.name} width={140} align="right"

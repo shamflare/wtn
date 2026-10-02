@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { api } from "../api";
 import Icon from "../components/Icon";
 import PublicShell, { useStorefront } from "../components/PublicShell";
+import { labelOf, symbolOf } from "../currency";
 
 /**
  * طلب فتح حساب وكيل — يُراجعه صاحب المتجر قبل أن يدخل صاحبه.
@@ -82,7 +83,7 @@ function RegisterForm() {
   const store = useStorefront();
   const [f, setF] = useState({
     name: "", login_id: "", password: "", password2: "", country: "", province: "",
-    whatsapp: "", id_image: "", shop_image: "",
+    whatsapp: "", display_currency: "", id_image: "", shop_image: "",
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [msg, setMsg] = useState("");
@@ -99,6 +100,7 @@ function RegisterForm() {
     if (f.password2 !== f.password) e.password2 = "كلمتا السر غير متطابقتين";
     if (!f.country) e.country = "اختر الدولة";
     if (f.province.trim().length < 2) e.province = "اكتب المدينة / المحافظة";
+    if (!f.display_currency) e.display_currency = "اختر العملة التي تتعامل بها";
     if (!/^\+?\d[\d\s-]{7,}$/.test(f.whatsapp.trim())) e.whatsapp = "اكتب الرقم مع رمز الدولة، مثل ‎+905551234567";
     if (!f.id_image) e.id_image = "صورة الهوية مطلوبة";
     return e;
@@ -202,6 +204,18 @@ function RegisterForm() {
           {err("province")}
         </div>
       </div>
+
+      <label className="ag-label">العملة التي تتعامل بها *</label>
+      <div className="ag-cur-pick">
+        {(store?.currencies || []).map((c) => (
+          <button type="button" key={c} className={`ag-chip${f.display_currency === c ? " on" : ""}`}
+            onClick={() => set("display_currency", c)}>
+            <b style={{ fontSize: 15 }}>{symbolOf(c)}</b> {labelOf(c)}
+          </button>
+        ))}
+      </div>
+      <div className="ag-field-hint">بها ترى رصيدك وأسعار الباقات، وبها تشحن محفظتك.</div>
+      {err("display_currency")}
 
       <PhotoField label="صورة الهوية" hint="الوجه الأمامي واضحاً — تراها الإدارة وحدها" required
         value={f.id_image} onChange={(v) => set("id_image", v)} error={errors.id_image} />

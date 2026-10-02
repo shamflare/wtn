@@ -139,6 +139,10 @@ def storefront_view(request):
             "social_links": store.social_links or {},
             # ألوان واجهة الوكلاء — الباب العام (الواجهة والدخول والتسجيل) يلبسها هو أيضاً
             "agent_theme": store.agent_theme or {},
+            # العملات التي يختار منها من يسجّل نفسه: عملة الموقع + ما له سعر صرف مضبوط
+            "currencies": [currency.base_currency(store)] + sorted(
+                c for c, v in (store.exchange_rates or {}).items()
+                if c != currency.base_currency(store) and currency.rate_of(store, c) > 0),
         }
     })
 

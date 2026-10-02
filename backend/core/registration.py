@@ -89,6 +89,7 @@ def register_view(request):
     login_id = clean_login_id(d.get("login_id"))
     password = str(d.get("password") or "")
     country = str(d.get("country") or "").strip().upper()[:5]
+    cur = str(d.get("display_currency") or "").strip().upper()
     province = str(d.get("province") or "").strip()[:80]
     raw_wa = str(d.get("whatsapp") or "").strip()
 
@@ -105,6 +106,12 @@ def register_view(request):
         errors["country"] = "اختر الدولة"
     if len(province) < 2:
         errors["province"] = "اكتب المدينة / المحافظة"
+    # العملة يختارها الوكيل نفسه — هو أعرف بما يتعامل به. عملة الموقع أو ما له سعر صرف
+    base = currency.base_currency(tenant)
+    if not cur:
+        errors["display_currency"] = "اختر العملة التي تتعامل بها"
+    elif cur != base and not currency.rate_of(tenant, cur):
+        errors["display_currency"] = "عملةٌ غير متاحة في هذا المتجر"
     wa = normalize(raw_wa, country) if raw_wa else ""
     if not raw_wa:
         errors["whatsapp"] = "رقم واتساب مطلوب"
@@ -127,6 +134,7 @@ def register_view(request):
             dealer_no=_next_dealer_no(tenant), status=User.Status.PENDING,
             country=country if country != "OTHER" else "", province=province,
             whatsapp=wa, phone=wa, id_image=id_image, shop_image=shop_image,
+            display_currency="" if cur == base else cur,
             modules={"oyun": True, "shopping": True, "group": "", "self_registered": True},
         )
         u.set_password(password)
@@ -143,6 +151,8 @@ def pending_row(u) -> dict:
         "id": u.id, "login_id": u.login_id, "name": u.name, "country": u.country,
         "province": u.province, "whatsapp": f"+{u.whatsapp}" if u.whatsapp else "",
         "id_image": u.id_image, "shop_image": u.shop_image,
+        # ما اختاره الوكيل في التسجيل — يظهر محدَّداً في المعاينة، ولصاحب المتجر تغييره
+        "display_currency": u.display_currency or "",
         "created_at": u.created_at.strftime("%Y-%m-%d %H:%M") if u.created_at else "",
     }
 

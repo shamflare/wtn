@@ -45,6 +45,8 @@ export interface Storefront {
   login_footer?: string;
   social_links?: Record<string, string>;
   ui_scale?: number;
+  /** عملات التسجيل: عملة الموقع أوّلاً ثم ما له سعر صرف */
+  currencies?: string[];
 }
 export interface User {
   id: number;

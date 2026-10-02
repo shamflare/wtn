@@ -903,7 +903,7 @@ class SelfRegistrationTest(APITestCase):
     def _form(self, **over):
         return {"name": "محمد الكدرو", "login_id": "5459453007", "password": "secret1",
                 "country": "TR", "province": "إسطنبول", "whatsapp": "+905459453007",
-                "id_image": self.IMG, **over}
+                "display_currency": "TRY", "id_image": self.IMG, **over}
 
     def test_public_games_show_no_prices(self):
         from catalog.models import Game, Product
@@ -916,7 +916,8 @@ class SelfRegistrationTest(APITestCase):
         self.assertNotIn("price", str(body))
 
     def test_every_field_is_required(self):
-        for field in ("name", "login_id", "password", "country", "province", "whatsapp", "id_image"):
+        for field in ("name", "login_id", "password", "country", "province", "whatsapp",
+                      "display_currency", "id_image"):
             r = self.client.post("/api/storefront/register/", self._form(**{field: ""}), format="json")
             self.assertEqual(r.status_code, 400, field)
             self.assertIn(field, r.json()["errors"])
@@ -964,3 +965,13 @@ class SelfRegistrationTest(APITestCase):
             self.client.post("/api/storefront/register/", self._form(login_id=f"54594530{10 + i}"), format="json")
         r = self.client.post("/api/storefront/register/", self._form(login_id="5459453099"), format="json")
         self.assertEqual(r.status_code, 429)
+
+
+    def test_the_dealer_picks_his_currency(self):
+        r = self.client.post("/api/storefront/register/", self._form(display_currency="EUR"), format="json")
+        self.assertIn("display_currency", r.json()["errors"])     # لا سعر صرف لليورو هنا
+        self.client.post("/api/storefront/register/", self._form(), format="json")
+        self.assertEqual(User.objects.get(login_id="5459453007").display_currency, "TRY")
+        self.assertEqual(self.client.get("/api/storefront/").json()["store"]["currencies"], ["USD", "TRY"])
+        self.client.force_authenticate(self.admin)
+        self.assertEqual(self.client.get("/api/dealers/").json()["pending"][0]["display_currency"], "TRY")

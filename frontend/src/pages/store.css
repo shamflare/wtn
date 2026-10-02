@@ -844,3 +844,7 @@ button.ag-stat:active { transform: scale(.98); }
   font-size: 11.5px; font-weight: 800; padding: 4px 9px; border-radius: 999px;
   background: color-mix(in srgb, var(--primary) 14%, transparent); color: var(--primary);
 }
+
+/* اختيار العملة في التسجيل — شرائح لا قائمة منسدلة: يرى الخيارات كلّها دفعةً */
+.ag-cur-pick { display: flex; flex-wrap: wrap; gap: 8px; }
+.ag-cur-pick .ag-chip { height: 42px; padding: 0 16px; gap: 6px; }

@@ -12,6 +12,8 @@ import { labelOf, symbolOf } from "../currency";
 export interface PendingReg {
   id: number; login_id: string; name: string; country: string; province: string;
   whatsapp: string; id_image: string; shop_image: string; created_at: string;
+  /** ما اختاره الوكيل نفسه في التسجيل — فارغ = عملة الموقع */
+  display_currency?: string;
 }
 
 export default function RegistrationReviewModal({ reg, onClose, onDecided }: {
@@ -20,7 +22,8 @@ export default function RegistrationReviewModal({ reg, onClose, onDecided }: {
   const [base, setBase] = useState("USD");
   const [rated, setRated] = useState<string[]>([]);
   const [groups, setGroups] = useState<{ id: number; name: string }[]>([]);
-  const [cur, setCur] = useState("");
+  // ما اختاره الوكيل محدَّدٌ مسبقاً — ولصاحب المتجر تغييره قبل القبول
+  const [cur, setCur] = useState(reg.display_currency || "");
   const [limit, setLimit] = useState("0");
   const [group, setGroup] = useState("");
   const [busy, setBusy] = useState<"" | "approve" | "reject">("");
@@ -78,7 +81,7 @@ export default function RegistrationReviewModal({ reg, onClose, onDecided }: {
 
           <div style={section}>عند القبول — تستطيع تعديلها لاحقاً من ⚙ إعداداته</div>
           <div style={grid3}>
-            <label style={lbl}>عملة الوكيل
+            <label style={lbl}>عملة الوكيل {reg.display_currency && <span style={{ color: "#b45309" }}>(اختارها هو)</span>}
               <select value={cur} onChange={(e) => setCur(e.target.value)} style={inp}>
                 <option value="">{symbolOf(base)} عملة الموقع ({base})</option>
                 {rated.filter((c) => c !== base).map((c) => (

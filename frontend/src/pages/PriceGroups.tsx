@@ -3,6 +3,8 @@ import { editValue, isAmountP, showPrice, toBlock } from "../unitPrice";
 import { api, type Provider } from "../api";
 import Icon from "../components/Icon";
 import ProductPicker, { type PickerProduct } from "../components/ProductPicker";
+import ScrollTop from "../components/ScrollTop";
+import { matches } from "../search";
 
 /** قاعدة تسعير مرتبطة بالتكلفة — فارغة تعني سعراً يدوياً جامداً. */
 interface Margin { mode: "percent" | "fixed"; value: string }
@@ -48,6 +50,7 @@ export default function PriceGroups() {
   const [draft, setDraft] = useState("");
   const [dialog, setDialog] = useState<"bulk" | "costs" | "delete" | null>(null);
   const [toast, setToast] = useState("");
+  const [q, setQ] = useState("");
 
   function load() {
     setLoading(true);
@@ -154,6 +157,15 @@ export default function PriceGroups() {
     );
   }
 
+  // البحث السريع: اللعبة كلّها إن طابق اسمها، وإلا باقاتها المطابقة وحدها
+  const shownGames = q.trim()
+    ? games
+      .map((g) => matches(q, g.game_name)
+        ? g
+        : { ...g, products: g.products.filter((p) => matches(q, p.name, p.id)) })
+      .filter((g) => g.products.length > 0)
+    : games;
+
   if (loading) return <div style={{ padding: 30 }}>جارٍ التحميل...</div>;
 
   return (
@@ -169,6 +181,8 @@ export default function PriceGroups() {
         <button className="btn" onClick={() => setDialog("bulk")}><Icon name="chart" size={15} style={ib} />تسعير جماعي</button>
         <button className="btn" onClick={() => setDialog("costs")}><Icon name="refresh" size={15} style={ib} />تحديث التكاليف</button>
         <button className="btn r" onClick={() => setDialog("delete")}><Icon name="trash" size={15} style={ib} />حذف مجموعة</button>
+        <input placeholder="بحث سريع: لعبة أو باقة أو Id..." value={q} onChange={(e) => setQ(e.target.value)}
+          style={{ width: 260, marginInlineStart: "auto" }} />
       </div>
       <div style={note}>
         اضغط على أي خلية سعر لتعديلها. الخلية <b style={{ color: "var(--primary-dark)" }}>الملوّنة</b> = سعر
@@ -196,7 +210,10 @@ export default function PriceGroups() {
             </tr>
           </thead>
           <tbody>
-            {games.map((game) => (
+            {q.trim() && shownGames.length === 0 && (
+              <tr><td colSpan={4 + groups.length} style={{ ...td, padding: 24 }}>لا شيء يطابق «{q.trim()}»</td></tr>
+            )}
+            {shownGames.map((game) => (
               <Fragment key={game.game_id}>
                 <tr><td colSpan={4 + groups.length} style={groupHead}>{game.game_name}</td></tr>
                 {game.products.map((p, i) => (
@@ -262,6 +279,7 @@ export default function PriceGroups() {
       )}
 
       {toast && <div style={toastBox}>{toast}</div>}
+      <ScrollTop />
     </div>
   );
 }

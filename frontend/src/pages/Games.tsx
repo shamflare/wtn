@@ -2,11 +2,13 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, type Game } from "../api";
 import Icon from "../components/Icon";
+import { matches } from "../search";
 
 export default function Games() {
   const [games, setGames] = useState<Game[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<number | null>(null);
+  const [q, setQ] = useState("");
   const nav = useNavigate();
 
   /** حذف اللعبة مع باقاتها. لها طلبات سابقة ⇐ يؤرشفها الخادم فيبقى سجلّها سليماً. */
@@ -29,12 +31,16 @@ export default function Games() {
 
   if (loading) return <div style={{ padding: 30 }}>جارٍ التحميل...</div>;
 
+  const shown = games.filter((g) => matches(q, g.name));
+
   return (
     <div style={{ padding: 16 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
         <h2 style={{ fontSize: 20, color: "var(--primary-dark)" }}>قائمة الألعاب</h2>
         <button className="btn g"><Icon name="plus" size={15} style={{ marginInlineEnd: 5 }} />إضافة لعبة</button>
         <span style={{ color: "var(--muted)", fontSize: 14 }}>({games.length} لعبة)</span>
+        <input placeholder="بحث سريع عن لعبة..." value={q} onChange={(e) => setQ(e.target.value)}
+          style={{ width: 260, marginInlineStart: "auto" }} />
       </div>
       <div style={hint}>
         ** يمكنك سحب الألعاب وإفلاتها لترتيب طريقة ظهورها لوكلائك.
@@ -42,7 +48,12 @@ export default function Games() {
 
       {/* شبكة بطاقات الألعاب — الضغط ينقل لصفحة التفاصيل */}
       <div style={grid}>
-        {games.map((g) => (
+        {shown.length === 0 && (
+          <div style={{ gridColumn: "1 / -1", padding: 24, textAlign: "center", color: "var(--muted)" }}>
+            لا لعبة تطابق «{q.trim()}»
+          </div>
+        )}
+        {shown.map((g) => (
           <div key={g.id} style={card}>
             <div style={thumb} onClick={() => nav(`/oyunpin/${g.id}`)}>
               {g.image_url

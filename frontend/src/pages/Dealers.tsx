@@ -9,6 +9,7 @@ import BulkWhatsAppModal from "../components/BulkWhatsAppModal";
 import { downloadCsv } from "../csv";
 import Icon from "../components/Icon";
 import { symbolOf, useBaseCurrency, useBaseSymbol } from "../currency";
+import ScrollTop from "../components/ScrollTop";
 
 type Filter = "all" | "neg";
 
@@ -435,6 +436,7 @@ export default function Dealers() {
           background: toast.ok ? "var(--ok)" : "var(--danger)", color: "#fff",
         }}>{toast.text}</div>
       )}
+      <ScrollTop />
     </div>
   );
 }

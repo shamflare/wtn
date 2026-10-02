@@ -3,6 +3,7 @@ import { editValue, fmtPrecise, showPrice, toBlock } from "../unitPrice";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, type GameDetail as GameDetailType, type Product, type Provider } from "../api";
 import Icon from "../components/Icon";
+import { matches } from "../search";
 
 /** باقة في المكتبة العالمية لم تُضَف بعد إلى هذه اللعبة. */
 type LibPkg = {
@@ -139,13 +140,9 @@ export default function GameDetail() {
   }
 
 
-  // البحث السريع: كل كلمة يجب أن توجد في الاسم أو رقم الربط أو اسم المزوّد
-  const words = q.trim().toLowerCase().split(/s+/).filter(Boolean);
-  const shown = words.length === 0 ? game.products : game.products.filter((p) => {
-    const hay = [p.name, p.kupur, providers.find((v) => v.id === p.provider)?.name]
-      .filter(Boolean).join(" ").toLowerCase();
-    return words.every((w) => hay.includes(w));
-  });
+  // البحث السريع: بالاسم أو رقم الربط أو اسم المزوّد
+  const shown = game.products.filter((p) =>
+    matches(q, p.name, p.kupur, providers.find((v) => v.id === p.provider)?.name));
 
   return (
     <div style={{ padding: 16 }}>

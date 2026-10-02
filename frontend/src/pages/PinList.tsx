@@ -2,6 +2,8 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import { api, type Product, type Provider } from "../api";
 import AutoRouteModal from "../components/AutoRouteModal";
 import Icon from "../components/Icon";
+import ScrollTop from "../components/ScrollTop";
+import { matches } from "../search";
 
 /** ربط باقة بمزوّد: رقمها لديه + سعرها عنده (يُحفظ في extra.price). */
 interface Link {
@@ -50,9 +52,8 @@ export default function PinList() {
 
   // تصفية ثم تجميع حسب اللعبة (رؤوس صفراء)
   const grouped = useMemo(() => {
-    const q = f.q.trim();
     const shown = products.filter((p) => {
-      if (q && !p.name.includes(q) && !p.game_name.includes(q)) return false;
+      if (!matches(f.q, p.name, p.game_name, p.kupur)) return false;
       if (f.game && p.game_name !== f.game) return false;
       const manual = p.execution_type === "manual" || !p.provider;
       if (f.route === "manual" && !manual) return false;
@@ -268,6 +269,7 @@ export default function PinList() {
         «قيد الانتظار» في متابعة الطلبات، فتشحنه بيدك وتقبله أو ترفضه، أو توجّهه
         إلى مزوّد وقتها من شريط الإجراءات.
       </div>
+      <ScrollTop />
     </div>
   );
 }

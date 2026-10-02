@@ -4,6 +4,8 @@ import Icon from "../components/Icon";
 import AutoLinkModal from "../components/AutoLinkModal";
 import { useBaseSymbol } from "../currency";
 import { showPrice } from "../unitPrice";
+import ScrollTop from "../components/ScrollTop";
+import { matches } from "../search";
 
 /** باقة لدى المزوّد كما يعيدها الكتالوج. */
 type ProviderPackage = {
@@ -86,10 +88,7 @@ export default function PackageLinks() {
   );
 
   const grouped = useMemo(() => {
-    const term = q.trim();
-    const rows = term
-      ? products.filter((p) => p.name.includes(term) || p.game_name.includes(term))
-      : products;
+    const rows = products.filter((p) => matches(q, p.name, p.game_name, p.kupur));
     const map = new Map<string, Product[]>();
     for (const p of rows) {
       if (!map.has(p.game_name)) map.set(p.game_name, []);
@@ -191,7 +190,7 @@ export default function PackageLinks() {
             <span style={{ fontSize: 12.5, color: linked === needed ? "var(--ok)" : "var(--debt)" }}>
               مربوط {linked} من {needed}
             </span>
-            <input placeholder="بحث عن باقة..." value={q} onChange={(e) => setQ(e.target.value)}
+            <input placeholder="بحث: باقة، لعبة، أو رقم ربط..." value={q} onChange={(e) => setQ(e.target.value)}
               style={{ width: 200 }} />
           </div>
         </div>
@@ -309,6 +308,7 @@ export default function PackageLinks() {
 
       {toast && <div style={toastBox}>{toast}</div>}
       {autoModal}
+      <ScrollTop />
     </div>
   );
 }

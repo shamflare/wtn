@@ -87,7 +87,7 @@ export default function BulkWhatsAppModal({
                         {d.name} <span style={{ color: "var(--faint)", fontSize: 11.5 }}>{d.login_id}</span>
                       </td>
                       <td className="num" style={{ color: "var(--debt)", fontWeight: 700 }}>
-                        {money(d.balance_own ?? d.balance)} <span style={{ fontSize: 11 }}>{symbolOf(d.own_currency || d.currency)}</span>
+                        {money(d.balance)} <span style={{ fontSize: 11 }}>{symbolOf(d.currency)}</span>
                       </td>
                       <td style={{ direction: "ltr", fontSize: 12.5, color: d.whatsapp ? "var(--muted)" : "var(--danger)" }}>
                         {d.whatsapp || "— غير مضبوط —"}

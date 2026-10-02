@@ -28,6 +28,17 @@ const STATUS_TONE: Record<string, { bg: string; fg: string }> = {
   rejected: { bg: "color-mix(in srgb, var(--danger) 14%, transparent)", fg: "var(--danger)" },
 };
 
+/** المبلغ كما يُكتب: أرقام عربية أو لاتينية، والفاصلة نقطة، ونقطة عشرية واحدة. */
+function cleanAmount(v: string): string {
+  const latin = v
+    .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660))
+    .replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06f0))
+    .replace(/[,٫]/g, ".")
+    .replace(/[^0-9.]/g, "");
+  const dot = latin.indexOf(".");
+  return dot < 0 ? latin : latin.slice(0, dot + 1) + latin.slice(dot + 1).replace(/\./g, "");
+}
+
 /* ═════════ القسم: شبكة الطرق · نموذج الطريقة · سجلّ الطلبات ═════════ */
 export default function TopUp({ onDone }: { onDone: () => void }) {
   const [methods, setMethods] = useState<Method[]>([]);
@@ -256,7 +267,9 @@ function MethodForm({
             )}
           </div>
           <div style={{ position: "relative" }}>
-            <input type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)}
+            {/* نصّي لا رقمي: بلا سهمَي زيادة ونقص، ودولاب الماوس لا يغيّر المبلغ خِفيةً */}
+            <input type="text" inputMode="decimal" value={amount}
+              onChange={(e) => setAmount(cleanAmount(e.target.value))}
               style={{ ...darkInp, paddingInlineEnd: 44 }} placeholder="0" />
             <span style={inpSymbol}>{sym}</span>
           </div>

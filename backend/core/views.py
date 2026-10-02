@@ -273,6 +273,14 @@ def _create_dealer(request):
     country = (data.get("country") or "SY").strip()[:2] or "SY"
     group = (data.get("group") or "").strip()
 
+    # عملة الوكيل: يرى بها لوحته، ويكتب صاحب المتجر أرقامه بها (الحد الائتماني هنا)
+    cur = str(data.get("display_currency") or "").strip().upper()
+    if cur == currency.base_currency(tenant):
+        cur = ""
+    if cur and not currency.rate_of(tenant, cur):
+        return Response({"detail": f"لا سعر صرف مضبوط للعملة {cur} — اضبطه في «أسعار الصرف» أولاً"},
+                        status=400)
+
     # وكيل كبير أم وكيل عادي؟ والعادي قد يتبع وكيلاً كبيراً
     role = data.get("role") or User.Role.BAYI
     if role not in (User.Role.BAYI, User.Role.ANA_BAYI):
@@ -299,11 +307,14 @@ def _create_dealer(request):
             country=country,
             status=User.Status.ACTIVE,
             modules={"oyun": True, "shopping": True, "group": group},
+            display_currency=cur,
         )
         u.set_password(password)
         u.save()
+        # الحد مكتوبٌ بعملة الوكيل ⇐ يُحفظ بعملة الدفتر كبقيّة الأرقام
         Wallet.objects.create(
-            tenant=tenant, user=u, balance=Decimal("0"), credit_limit=credit_limit
+            tenant=tenant, user=u, balance=Decimal("0"),
+            credit_limit=currency.from_display(u, credit_limit),
         )
 
     return Response(
@@ -342,6 +353,10 @@ def dealers_view(request):
             "credit_limit": str(wallet.credit_limit) if wallet else "0.00",
             # الرصيد بعملة دفتر المتجر — لا بحقل المحفظة القديم
             "currency": currency.base_currency(u.tenant),
+            # وبعملة الوكيل نفسه (ما يراه في لوحته، وما يكتبه صاحب المتجر له)
+            "own_currency": currency.display_currency(u),
+            "balance_own": str(currency.to_display(u, wallet.balance)) if wallet else "0.00",
+            "credit_limit_own": str(currency.to_display(u, wallet.credit_limit)) if wallet else "0.00",
             # عملة عرض الوكيل — فارغة تعني عملة الموقع
             "display_currency": u.display_currency or "",
             "status": u.status,
@@ -427,8 +442,10 @@ def _dealer_settings_row(u):
         ],
         # التبويب الأول
         "display_currency": u.display_currency or "",
-        "credit_limit": str(wallet.credit_limit) if wallet else "0.00",
-        "balance": str(wallet.balance) if wallet else "0.00",
+        # بعملة الوكيل — وتُحوَّل عند الحفظ إلى عملة الدفتر
+        "credit_limit": str(currency.to_display(u, wallet.credit_limit)) if wallet else "0.00",
+        "balance": str(currency.to_display(u, wallet.balance)) if wallet else "0.00",
+        "own_currency": currency.display_currency(u),
         "status": u.status,
         # التبويب الثاني
         "phone": u.phone,
@@ -449,6 +466,8 @@ def _dealer_settings_row(u):
         "available_currencies": sorted(
             c for c, v in (tenant.exchange_rates or {}).items() if str(v).strip()
         ),
+        # لتحويل الحد في النافذة لحظة تبديل العملة — قبل الحفظ
+        "rates": {c: str(v) for c, v in (tenant.exchange_rates or {}).items() if str(v).strip()},
     }
 
 
@@ -627,7 +646,8 @@ def dealer_settings_view(request, dealer_id):
                 {"detail": "الحد الائتماني أقصى دَين مسموح — اكتبه صفراً أو رقماً سالباً"},
                 status=400,
             )
-        wallet.credit_limit = limit
+        # مكتوبٌ بعملة الوكيل (المحدَّثة أعلاه إن تبدّلت) ⇐ يُحفظ بعملة الدفتر
+        wallet.credit_limit = currency.from_display(u, limit)
         wallet.save(update_fields=["credit_limit"])
 
     u.refresh_from_db()
@@ -653,14 +673,23 @@ def wallet_operation_view(request, dealer_id, action):
         return Response({"detail": "مبلغ غير صحيح"}, status=400)
 
     note = request.data.get("note", "")
+    # المبلغ بعملة الوكيل: صاحب المتجر يقبض منه ليراتٍ فيكتب ليرات — يُحفظ بعملة الدفتر.
+    # ويُذكر المكتوب في الملاحظة: الدفتر بالدولار، ولا يُنسى أنه كان «1000 ل.ت».
+    dealer = wallet.user
+    own = currency.display_currency(dealer)
+    base_amount = currency.from_display(dealer, amount)
+    if own != currency.base_currency(dealer.tenant):
+        note = (f"{amount:,.2f} {own}" + (f" — {note}" if note else ""))[:255]
     fn = services.topup if action == "topup" else services.deduct
     try:
-        txn = fn(wallet.id, amount, created_by=request.user, note=note)
+        txn = fn(wallet.id, base_amount, created_by=request.user, note=note)
     except services.WalletError as e:
         return Response({"detail": str(e)}, status=400)
 
     wallet.refresh_from_db()
     return Response({
+        "balance_own": str(currency.to_display(dealer, wallet.balance)),
+        "own_currency": own,
         "balance": str(wallet.balance),
         "transaction": {
             "id": txn.id, "type": txn.type, "amount": str(txn.amount),

@@ -162,6 +162,10 @@ export interface Dealer {
   currency: string;
   /** عملة عرض الوكيل — فارغة تعني عملة الموقع */
   display_currency: string;
+  /** عملة الوكيل الفعلية، ورصيده وحدّه بها — ما يُعرض ويُكتب له في لوحة الإدارة */
+  own_currency?: string;
+  balance_own?: string;
+  credit_limit_own?: string;
   status: string;
   country: string;
   group: string;

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import { labelOf, symbolOf } from "../currency";
 
 interface Props {
   onClose: () => void;
@@ -26,6 +27,18 @@ export default function DealerCreateModal({ onClose, onDone }: Props) {
   const [bigAgents, setBigAgents] = useState<{ id: number; name: string }[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  // عملة الوكيل — يرى بها لوحته، وتُكتب بها أرقامه (الحد الائتماني هنا). فارغ = عملة الموقع
+  const [cur, setCur] = useState("");
+  const [base, setBase] = useState("USD");
+  const [rated, setRated] = useState<string[]>([]);
+  useEffect(() => {
+    api.get("/settings/exchange/").then((r) => {
+      setBase(r.data.base_currency || "USD");
+      setRated(Object.entries(r.data.exchange_rates || {})
+        .filter(([, v]) => String(v).trim() && Number(v) > 0).map(([c]) => c).sort());
+    }).catch(() => {});
+  }, []);
+  const own = cur || base;
 
   // الوكلاء الكبار المتاحون ليتبعهم الوكيل الجديد
   useEffect(() => {
@@ -44,6 +57,7 @@ export default function DealerCreateModal({ onClose, onDone }: Props) {
         name: name.trim(),
         password,
         credit_limit: creditLimit || "0",
+        display_currency: cur,
         country,
         group: group.trim(),
         role,
@@ -88,14 +102,26 @@ export default function DealerCreateModal({ onClose, onDone }: Props) {
             placeholder="كلمة السر"
           />
 
+          <label style={lbl}>عملة الوكيل</label>
+          <select style={inp} value={cur} onChange={(e) => setCur(e.target.value)}>
+            <option value="">{symbolOf(base)} عملة الموقع ({base})</option>
+            {rated.filter((c) => c !== base).map((c) => (
+              <option key={c} value={c}>{symbolOf(c)} {labelOf(c)} ({c})</option>
+            ))}
+          </select>
+          <div style={{ fontSize: 11.5, color: "var(--muted)", margin: "-6px 0 10px" }}>
+            يرى بها رصيده وأسعاره، وتكتب له بها الحد الائتماني والشحن — ودفترك يبقى بـ{base}.
+          </div>
+
           <div style={{ display: "flex", gap: 12 }}>
             <div style={{ flex: 1 }}>
-              <label style={lbl}>الحد الائتماني</label>
+              <label style={lbl}>الحد الائتماني ({symbolOf(own)} {own}) — صفر أو سالب</label>
               <input
                 style={inp}
                 type="number"
                 step="0.01"
                 value={creditLimit}
+                max="0"
                 onChange={(e) => setCreditLimit(e.target.value)}
                 placeholder="0.00"
               />

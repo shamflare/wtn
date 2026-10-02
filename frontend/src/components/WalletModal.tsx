@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { api, type Dealer } from "../api";
+import { labelOf, symbolOf } from "../currency";
 
 interface Props {
   dealer: Dealer;
   action: "topup" | "deduct";
   onClose: () => void;
-  onDone: (newBalance: string) => void;
+  onDone: (r: { balance: string; balance_own?: string }) => void;
 }
 
 export default function WalletModal({ dealer, action, onClose, onDone }: Props) {
@@ -15,6 +16,7 @@ export default function WalletModal({ dealer, action, onClose, onDone }: Props) 
   const [busy, setBusy] = useState(false);
 
   const isTopup = action === "topup";
+  const own = dealer.own_currency || dealer.currency;
   const title = isTopup ? "شحن رصيد" : "خصم رصيد";
   const color = isTopup ? "var(--ok)" : "var(--danger)";
 
@@ -24,7 +26,7 @@ export default function WalletModal({ dealer, action, onClose, onDone }: Props) 
     setBusy(true);
     try {
       const r = await api.post(`/dealers/${dealer.id}/${action}/`, { amount, note });
-      onDone(r.data.balance);
+      onDone(r.data);
     } catch (e: any) {
       setError(e?.response?.data?.detail || "فشلت العملية");
     } finally {
@@ -41,13 +43,14 @@ export default function WalletModal({ dealer, action, onClose, onDone }: Props) 
         <div style={{ padding: 20 }}>
           <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 14 }}>
             الرصيد الحالي:{" "}
-            <b style={{ color: Number(dealer.balance) < 0 ? "var(--danger)" : "var(--text)" }}>
-              {Number(dealer.balance).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+            <b style={{ color: Number(dealer.balance_own ?? dealer.balance) < 0 ? "var(--danger)" : "var(--text)" }}>
+              {Number(dealer.balance_own ?? dealer.balance).toLocaleString("en-US", { minimumFractionDigits: 2 })}
             </b>{" "}
-            {dealer.currency}
+            {symbolOf(own)} <span style={{ fontSize: 11.5 }}>({own})</span>
           </div>
 
-          <label style={lbl}>المبلغ</label>
+          {/* بعملة الوكيل: يقبض صاحب المتجر منه ليراتٍ فيكتب ليرات — والدفتر يُحوَّل وحده */}
+          <label style={lbl}>المبلغ بـ{labelOf(own)} ({symbolOf(own)})</label>
           <input
             style={{ width: "100%", height: 38 }}
             type="number"

@@ -14,6 +14,8 @@ interface Settings {
   api_access_allowed: boolean;
   is_locked: boolean; locked_at: string; failed_login_count: number;
   base_currency: string; available_currencies: string[];
+  /** عملة الوكيل الفعلية — بها يأتي credit_limit وbalance ويُحفظان */
+  own_currency?: string; rates?: Record<string, string>;
   // انتقلا إلى هنا بعد حذف صفحة «أسعار الوكلاء»
   oyun_load_limit: string; price_group: number | null;
   price_groups: { id: number; name: string }[];
@@ -81,6 +83,22 @@ export default function DealerSettingsModal({
   }, [dealerId]);
 
   const set = (k: keyof Settings, v: any) => setF((o) => (o ? { ...o, [k]: v } : o));
+
+  /**
+   * تبديل العملة يحوّل الحد والرصيد المعروضَين إليها فوراً — الحد يُكتب بعملة الوكيل،
+   * وبقاء الرقم كما هو مع عملةٍ جديدة يجعل «‎-5,000 ليرة» «‎-5,000 دولار» بلا أن يُرى.
+   */
+  function switchCurrency(next: string) {
+    setF((o) => {
+      if (!o) return o;
+      const rate = (c: string) => (!c || c === o.base_currency ? 1 : Number(o.rates?.[c] || 0) || 1);
+      const from = o.display_currency || o.base_currency;
+      const to = next || o.base_currency;
+      const conv = (v: string) => (Math.round(Number(v || 0) / rate(from) * rate(to) * 100) / 100).toFixed(2);
+      return { ...o, display_currency: next, credit_limit: conv(o.credit_limit), balance: conv(o.balance) };
+    });
+  }
+  const ownCur = f ? (f.display_currency || f.base_currency) : "";
 
   async function save() {
     if (!f) return;
@@ -150,7 +168,7 @@ export default function DealerSettingsModal({
               <div style={{ display: "grid", gap: 14 }}>
                 <div style={grid2}>
                   <Fld label="عملة الوكيل (ما يراه في لوحته)">
-                    <select value={f.display_currency} onChange={(e) => set("display_currency", e.target.value)} style={inp}>
+                    <select value={f.display_currency} onChange={(e) => switchCurrency(e.target.value)} style={inp}>
                       <option value="">{symbolOf(f.base_currency)} عملة الموقع ({f.base_currency})</option>
                       {f.available_currencies.map((c) => (
                         <option key={c} value={c}>{symbolOf(c)} {labelOf(c)} ({c})</option>
@@ -164,19 +182,19 @@ export default function DealerSettingsModal({
                       <option value="blacklisted">قائمة سوداء</option>
                     </select>
                   </Fld>
-                  <Fld label={`الحد الائتماني (${f.base_currency}) — صفر أو رقم سالب`}>
+                  <Fld label={`الحد الائتماني (${symbolOf(ownCur)} ${ownCur}) — صفر أو رقم سالب`}>
                     <input type="number" step="0.01" max="0" value={f.credit_limit}
                       onChange={(e) => set("credit_limit", e.target.value)} style={inp} />
                   </Fld>
                   <Fld label="الرصيد الحالي">
                     <div style={{ ...inp, display: "flex", alignItems: "center", background: "var(--surface-2)", fontWeight: 700 }}>
-                      {Number(f.balance).toLocaleString("en-US", { minimumFractionDigits: 2 })} {symbolOf(f.base_currency)}
+                      {Number(f.balance).toLocaleString("en-US", { minimumFractionDigits: 2 })} {symbolOf(ownCur)}
                     </div>
                   </Fld>
                 </div>
                 <div style={hint}>
-                  الحد الائتماني أقصى دَين تسمح به: <b>-500</b> يعني أن رصيده يهبط
-                  إلى −500 ثم يتوقّف شراؤه.
+                  الحد الائتماني أقصى دَين تسمح به <b>بعملة الوكيل</b>: <b>-500</b> يعني أن رصيده يهبط
+                  إلى −500 {symbolOf(ownCur)} ثم يتوقّف شراؤه. ويُحفظ في دفترك بـ{f.base_currency} بسعر الصرف الحالي.
                 </div>
 
                 <div style={{ borderTop: "1px solid var(--border)", paddingTop: 14 }}>

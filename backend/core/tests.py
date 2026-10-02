@@ -828,3 +828,57 @@ class DealerRowCurrencyTest(APITestCase):
         row = next(r for r in rows if r["id"] == d.id)
         self.assertEqual(row["currency"], "USD")
         self.assertEqual(row["group"], "vip1")
+
+
+
+class DealerOwnCurrencyTest(APITestCase):
+    """
+    دفترٌ بالدولار ووكيلٌ بالليرة (49 ل.ت/$): كل ما يكتبه صاحب المتجر لهذا الوكيل
+    بالليرة — الحد الائتماني والشحن — ويُحفظ دولاراً؛ والجدول يعرضه بالليرة.
+    """
+
+    def setUp(self):
+        self.t = Tenant.objects.create(subdomain="oc", name="متجر", base_currency="USD",
+                                       exchange_rates={"TRY": "49"})
+        self.admin = User.objects.create(login_id="oc-a", name="م", tenant=self.t,
+                                         role=User.Role.TENANT_ADMIN, status=User.Status.ACTIVE)
+        self.client.force_authenticate(self.admin)
+
+    def _create(self, **extra):
+        r = self.client.post("/api/dealers/", {"login_id": "5550001", "name": "محمد", "password": "pw12345",
+                                              **extra}, format="json")
+        self.assertEqual(r.status_code, 201, r.content)
+        return User.objects.get(pk=r.json()["id"])
+
+    def test_create_with_currency_and_credit_in_that_currency(self):
+        d = self._create(display_currency="TRY", credit_limit="-4900")
+        self.assertEqual(d.display_currency, "TRY")
+        self.assertEqual(d.wallet.credit_limit, Decimal("-100.00"))      # 4900 ل.ت = 100$
+        rows = self.client.get("/api/dealers/").json()
+        rows = rows.get("results", rows) if isinstance(rows, dict) else rows
+        row = next(r for r in rows if r["id"] == d.id)
+        self.assertEqual((row["own_currency"], row["credit_limit_own"]), ("TRY", "-4900.00"))
+
+    def test_topup_is_written_in_the_dealers_currency(self):
+        d = self._create(display_currency="TRY")
+        r = self.client.post(f"/api/dealers/{d.id}/topup/", {"amount": "980"}, format="json").json()
+        d.wallet.refresh_from_db()
+        self.assertEqual(d.wallet.balance, Decimal("20.00"))             # 980 ل.ت = 20$
+        self.assertEqual((r["balance_own"], r["own_currency"]), ("980.00", "TRY"))
+        self.assertIn("980.00 TRY", d.wallet.transactions.first().note)
+
+    def test_settings_credit_limit_follows_the_new_currency(self):
+        d = self._create()
+        self.client.post(f"/api/dealers/{d.id}/settings/",
+                         {"display_currency": "TRY", "credit_limit": "-2450"}, format="json")
+        d.wallet.refresh_from_db()
+        self.assertEqual(d.wallet.credit_limit, Decimal("-50.00"))
+        row = self.client.get(f"/api/dealers/{d.id}/settings/").json()
+        self.assertEqual((row["credit_limit"], row["own_currency"]), ("-2450.00", "TRY"))
+
+    def test_a_base_currency_dealer_is_unchanged(self):
+        d = self._create(credit_limit="-500")
+        self.assertEqual(d.wallet.credit_limit, Decimal("-500"))
+        self.client.post(f"/api/dealers/{d.id}/topup/", {"amount": "10"}, format="json")
+        d.wallet.refresh_from_db()
+        self.assertEqual(d.wallet.balance, Decimal("10"))

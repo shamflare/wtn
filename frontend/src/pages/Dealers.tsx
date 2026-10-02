@@ -84,8 +84,9 @@ export default function Dealers() {
   }
   useEffect(() => load(), []);
 
-  function updateBalance(dealerId: number, balance: string) {
-    setDealers((ds) => ds.map((d) => (d.id === dealerId ? { ...d, balance } : d)));
+  function updateBalance(dealerId: number, r: { balance: string; balance_own?: string }) {
+    setDealers((ds) => ds.map((d) => (d.id === dealerId
+      ? { ...d, balance: r.balance, balance_own: r.balance_own ?? d.balance_own } : d)));
     setModal(null);
   }
 
@@ -249,15 +250,12 @@ export default function Dealers() {
                         </div>
                       )}
                     </td>
-                    <td>
-                      <span className={`num ${balCls(bal)}`} style={{ fontSize: 14.5 }}>{money(bal)}</span>
-                      <span style={{ fontSize: 11, color: "var(--faint)", marginInlineStart: 3 }}>{symbolOf(d.currency)}</span>
-                    </td>
+                    <td><OwnMoney d={d} field="balance" base={base} big /></td>
                     <td style={{ fontWeight: 800, fontSize: 15 }}
                       title={d.display_currency || base}>
                       {symbolOf(d.display_currency || base)}
                     </td>
-                    <td className="num" style={{ color: "var(--muted)" }}>{money(d.credit_limit)}</td>
+                    <td><OwnMoney d={d} field="credit_limit" base={base} muted /></td>
                     <td>
                       <button type="button" onClick={() => toggleActive(d)}
                         disabled={togglingId === d.id}
@@ -301,7 +299,9 @@ export default function Dealers() {
                             <span style={{ color: GOLD }}>★</span> دكاكين {d.name}
                             <span style={{ color: "var(--muted)", fontWeight: 400 }}>
                               {" "}· رصيد الوكيل الكبير{" "}
-                              <b className={`num ${balCls(bal)}`}>{money(bal)} {symbolOf(d.currency)}</b>
+                              <b className={`num ${balCls(bal)}`}>
+                                {money(d.balance_own ?? bal)} {symbolOf(d.own_currency || d.currency)}
+                              </b>
                             </span>
                           </div>
                           {(d.children || []).length === 0 ? (
@@ -326,15 +326,8 @@ export default function Dealers() {
                                     <td className="num" style={{ color: "var(--faint)", fontSize: 12.5 }}
                                       title={`رقم الدخول: ${c.login_id}`}>{c.dealer_no ?? "—"}</td>
                                     <td className="cell-start" style={{ fontWeight: 700 }}>{c.name}</td>
-                                    <td>
-                                      <span className={`num ${balCls(Number(c.balance))}`} style={{ fontSize: 14 }}>
-                                        {money(c.balance)}
-                                      </span>
-                                      <span style={{ fontSize: 11, color: "var(--faint)", marginInlineStart: 3 }}>
-                                        {symbolOf(c.currency)}
-                                      </span>
-                                    </td>
-                                    <td className="num" style={{ color: "var(--muted)" }}>{money(c.credit_limit)}</td>
+                                    <td><OwnMoney d={c} field="balance" base={base} /></td>
+                                    <td><OwnMoney d={c} field="credit_limit" base={base} muted /></td>
                                     <td>
                                       <button type="button" onClick={() => toggleActive(c)}
                                         disabled={togglingId === c.id}
@@ -374,7 +367,7 @@ export default function Dealers() {
       {modal && (
         <WalletModal dealer={modal.dealer} action={modal.action}
           onClose={() => setModal(null)}
-          onDone={(balance) => updateBalance(modal.dealer.id, balance)} />
+          onDone={(r) => updateBalance(modal.dealer.id, r)} />
       )}
 
       {createOpen && (
@@ -463,3 +456,28 @@ const goldHead: React.CSSProperties = {
   background: "rgba(224,168,0,.12)", borderBottom: `1px solid ${GOLD}`,
   padding: "8px 12px", fontSize: 13, fontWeight: 800, color: GOLD_INK,
 };
+
+/**
+ * رصيد الوكيل أو حدّه **بعملته** (ما يراه هو وما تكتبه له)، وتحته ما يعادله
+ * بعملة الدفتر إن اختلفتا — فلا يُقرأ «‎-5,000» بلا عملة ولا يُظنّ دولاراً وهو ليرة.
+ */
+function OwnMoney({ d, field, base, big, muted }: {
+  d: Dealer; field: "balance" | "credit_limit"; base: string; big?: boolean; muted?: boolean;
+}) {
+  const own = d.own_currency || d.currency || base;
+  const ownVal = Number((field === "balance" ? d.balance_own : d.credit_limit_own) ?? d[field]);
+  const baseVal = Number(d[field]);
+  const fmt = (v: number) => v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const cls = field === "balance" ? (ownVal < 0 ? "bal-neg" : ownVal > 0 ? "bal-pos" : "") : "";
+  return (
+    <div style={{ lineHeight: 1.35 }}>
+      <span className={`num ${cls}`} style={{ fontSize: big ? 14.5 : 14, color: muted ? "var(--muted)" : undefined }}>
+        {fmt(ownVal)}
+      </span>
+      <span style={{ fontSize: 11.5, color: "var(--faint)", marginInlineStart: 3, fontWeight: 700 }}>{symbolOf(own)}</span>
+      {own !== base && (
+        <div style={{ fontSize: 10.5, color: "var(--faint)" }} dir="rtl">≈ {fmt(baseVal)} {symbolOf(base)}</div>
+      )}
+    </div>
+  );
+}

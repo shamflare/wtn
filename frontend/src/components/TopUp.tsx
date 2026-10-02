@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import Icon from "../components/Icon";
 import { uploadImage } from "../components/ImageUpload";
-import { money, symbolOf } from "../currency";
+import { ANY_CURRENCY, labelOf, money, symbolOf } from "../currency";
 
 interface MField {
   id: number; label: string; kind: string; options: string;
@@ -13,6 +13,8 @@ interface Method {
   currency: string; instructions: string; account_box: string; warning: string;
   min_amount: string; max_amount: string; commission_percent: string;
   rate: string; fields_list: MField[];
+  /** حين تكون العملة «يحددها العميل»: سعر كل عملة مسعَّرة إلى عملة العرض */
+  rates?: Record<string, string>;
 }
 interface Deposit {
   id: number; method_name: string; amount: string; currency: string;
@@ -136,15 +138,18 @@ function MethodForm({
   method, walletCurrency, onBack, onSent,
 }: { method: Method; walletCurrency: string; onBack: () => void; onSent: () => void }) {
   const [amount, setAmount] = useState("");
+  const anyCurrency = method.currency === ANY_CURRENCY;
+  const [chosen, setChosen] = useState("");
   const [vals, setVals] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const rate = Number(method.rate || 1);
+  const curCode = anyCurrency ? chosen : method.currency;
+  const rate = anyCurrency ? Number(method.rates?.[chosen] || 0) : Number(method.rate || 1);
   const commission = Number(method.commission_percent || 0);
   const credit = (Number(amount || 0) * rate * (100 - commission)) / 100;
-  const sym = symbolOf(method.currency);
+  const sym = curCode ? symbolOf(curCode) : "";
 
   function copyAccount() {
     navigator.clipboard?.writeText(method.account_box).then(() => {
@@ -158,6 +163,7 @@ function MethodForm({
     try {
       await api.post("/payments/store/deposits/create/", {
         method: method.id, amount, values: vals,
+        ...(anyCurrency ? { currency: chosen } : {}),
       });
       onSent();
     } catch (e: any) {
@@ -228,11 +234,24 @@ function MethodForm({
           </div>
         ))}
 
+        {/* العملة — حين يتركها صاحب المتجر للوكيل */}
+        {anyCurrency && (
+          <div style={{ marginBottom: 12 }}>
+            <div style={fieldLabel}>العملة التي أرسلت بها<span style={{ color: "var(--danger)" }}> *</span></div>
+            <select value={chosen} onChange={(e) => setChosen(e.target.value)} style={darkInp}>
+              <option value="">— اختر العملة —</option>
+              {Object.keys(method.rates || {}).map((code) => (
+                <option key={code} value={code}>{symbolOf(code)} {labelOf(code)} ({code})</option>
+              ))}
+            </select>
+          </div>
+        )}
+
         {/* المبلغ */}
         <div style={{ marginBottom: 12 }}>
           <div style={fieldLabel}>
             القيمة
-            {Number(method.min_amount) > 0 && (
+            {!anyCurrency && Number(method.min_amount) > 0 && (
               <span style={{ color: "var(--muted)", fontWeight: 400 }}> — الحد الأدنى {money(method.min_amount)} {sym}</span>
             )}
           </div>
@@ -258,7 +277,7 @@ function MethodForm({
 
         {msg && <div style={{ ...warnBox, background: "color-mix(in srgb, var(--danger) 14%, transparent)", color: "var(--danger)" }}>{msg.text}</div>}
 
-        <button onClick={submit} disabled={busy || !amount} style={submitBtn}>
+        <button onClick={submit} disabled={busy || !amount || (anyCurrency && !chosen)} style={submitBtn}>
           {busy ? "جارٍ الإرسال..." : "طلب"}
         </button>
       </div>

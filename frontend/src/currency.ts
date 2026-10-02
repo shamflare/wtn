@@ -11,6 +11,9 @@ export const CURRENCIES: { code: string; label: string; symbol: string }[] = [
   { code: "EGP", label: "جنيه مصري", symbol: "ج.م" },
 ];
 
+/** عملة طريقة دفع متروكة للوكيل: يختار عند الإيداع العملة التي أرسل بها. */
+export const ANY_CURRENCY = "ANY";
+
 export const symbolOf = (code: string) =>
   CURRENCIES.find((c) => c.code === code)?.symbol || code;
 

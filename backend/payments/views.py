@@ -11,7 +11,9 @@ from rest_framework.response import Response
 from core import currency
 from core import services as wallet_services
 from core.models import User, WalletTransaction
-from .models import PaymentMethod, PaymentNotification, ReceivingAccount
+from .models import (
+    ANY_CURRENCY, CURRENCIES, PaymentMethod, PaymentNotification, ReceivingAccount,
+)
 from .serializers import (
     PaymentMethodSerializer, PaymentNotificationSerializer, ReceivingAccountSerializer,
 )
@@ -87,13 +89,20 @@ def store_methods_view(request):
     # المعامل المعروض للوكيل: من عملة الطريقة إلى **عملة عرضه** مباشرةً، لا إلى
     # عملة الدفتر — فالرقم الذي يراه يجب أن يطابق ما سيظهر في رصيده.
     show_rate = currency.display_rate(request.user)
+    def shown(code):
+        m_rate = currency.rate_of(tenant, code)
+        return str((show_rate / m_rate).quantize(Decimal("0.000001"))) if m_rate else "0"
+
+    # العملات التي لها سعر صرف — منها يختار الوكيل في الطرق التي تترك له العملة
+    priced = [code for code, _ in CURRENCIES if currency.rate_of(tenant, code)]
     data = []
     for m in methods:
         row = PaymentMethodSerializer(m).data
-        m_rate = currency.rate_of(tenant, m.currency)
-        row["rate"] = (
-            str((show_rate / m_rate).quantize(Decimal("0.000001"))) if m_rate else "0"
-        )
+        if m.currency == ANY_CURRENCY:
+            row["rate"] = "0"
+            row["rates"] = {code: shown(code) for code in priced}
+        else:
+            row["rate"] = shown(m.currency)
         data.append(row)
     return Response({
         "base_currency": tenant.base_currency or "TRY",
@@ -136,10 +145,18 @@ def store_deposit_create_view(request):
         return Response({"detail": "مبلغ غير صحيح"}, status=400)
     if amount <= 0:
         return Response({"detail": "المبلغ يجب أن يكون أكبر من صفر"}, status=400)
-    if method.min_amount and amount < method.min_amount:
-        return Response({"detail": f"الحد الأدنى للإيداع {method.min_amount} {method.currency}"}, status=400)
-    if method.max_amount and amount > method.max_amount:
-        return Response({"detail": f"الحد الأعلى للإيداع {method.max_amount} {method.currency}"}, status=400)
+
+    if method.currency == ANY_CURRENCY:
+        # الوكيل يحدّد العملة التي أرسل بها — والحدود لا تنطبق (هي بعملة واحدة)
+        dep_currency = str(request.data.get("currency") or "").strip().upper()
+        if dep_currency not in {code for code, _ in CURRENCIES}:
+            return Response({"detail": "اختر العملة التي أرسلت بها"}, status=400)
+    else:
+        dep_currency = method.currency
+        if method.min_amount and amount < method.min_amount:
+            return Response({"detail": f"الحد الأدنى للإيداع {method.min_amount} {method.currency}"}, status=400)
+        if method.max_amount and amount > method.max_amount:
+            return Response({"detail": f"الحد الأعلى للإيداع {method.max_amount} {method.currency}"}, status=400)
 
     # قيم الحقول المبنيّة — مع التحقّق من الإلزامي منها
     sent = request.data.get("values") or {}
@@ -152,16 +169,16 @@ def store_deposit_create_view(request):
             values[f.label] = val
 
     # طريقة بعملة بلا سعر صرف = مبلغ لا يُحسب — تُرفض بدل قيد خاطئ في الدفتر
-    rate = currency.rate_of(tenant, method.currency)
+    rate = currency.rate_of(tenant, dep_currency)
     if not rate:
         return Response(
-            {"detail": f"لا سعر صرف مضبوط للعملة {method.currency} — راجع صاحب المتجر"},
+            {"detail": f"لا سعر صرف مضبوط للعملة {dep_currency} — راجع صاحب المتجر"},
             status=400,
         )
 
     notif = PaymentNotification.objects.create(
         tenant=tenant, dealer=request.user, method=method, account=method.account,
-        amount=amount, currency=method.currency, rate=rate,
+        amount=amount, currency=dep_currency, rate=rate,
         commission_percent=method.commission_percent,
         credit_amount=credit_for(method, amount, rate),
         values=values, note=str(request.data.get("note") or "")[:255],

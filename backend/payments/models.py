@@ -20,6 +20,10 @@ CURRENCIES = [
     ("EGP", "جنيه مصري"),
 ]
 
+# عملة طريقة الدفع قد تُترك للوكيل: يختار عند الإيداع العملة التي أرسل بها فعلاً
+ANY_CURRENCY = "ANY"
+METHOD_CURRENCIES = CURRENCIES + [(ANY_CURRENCY, "يحددها العميل")]
+
 
 class ReceivingAccount(models.Model):
     """حساب استلام أموال (Hesaplarım) — بنك أو محفظة إلكترونية."""
@@ -69,7 +73,7 @@ class PaymentMethod(models.Model):
     logo_url = models.CharField(max_length=500, blank=True, default="")  # صورة البطاقة
     color = models.CharField(max_length=9, blank=True, default="")       # لون البطاقة البديل
 
-    currency = models.CharField(max_length=8, choices=CURRENCIES, default="TRY")
+    currency = models.CharField(max_length=8, choices=METHOD_CURRENCIES, default="TRY")
     instructions = models.TextField(blank=True, default="")       # الشرح (سطر لكل بند)
     account_box = models.TextField(blank=True, default="")        # الصندوق الأسود المنسوخ
     warning = models.CharField(max_length=300, blank=True, default="")  # تنبيه فوق النموذج

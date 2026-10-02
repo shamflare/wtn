@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { api } from "../api";
 import Icon from "../components/Icon";
 import ImageUpload from "../components/ImageUpload";
-import { CURRENCIES, money, symbolOf } from "../currency";
+import { ANY_CURRENCY, CURRENCIES, money, symbolOf } from "../currency";
 
 /* ═════════ الأنواع ═════════ */
 interface MField {
@@ -125,7 +125,7 @@ export default function PaymentMethods() {
                     <b>{m.name}</b>
                     {m.subtitle && <div style={{ fontSize: 11.5, color: "var(--muted)" }}>{m.subtitle}</div>}
                   </td>
-                  <td>{symbolOf(m.currency)} {m.currency}</td>
+                  <td>{m.currency === ANY_CURRENCY ? "يحددها العميل" : <>{symbolOf(m.currency)} {m.currency}</>}</td>
                   <td className="num">{Number(m.min_amount) ? money(m.min_amount) : "—"}</td>
                   <td className="num">{Number(m.max_amount) ? money(m.max_amount) : "بلا حد"}</td>
                   <td className="num">{money(m.commission_percent)}%</td>
@@ -184,6 +184,7 @@ function MethodEditor({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const isNew = !f.id;
+  const anyCurrency = f.currency === ANY_CURRENCY;
   const set = (k: keyof Method, v: any) => setF((o) => ({ ...o, [k]: v }));
 
   /* ── الحقول المبنيّة ── */
@@ -265,10 +266,11 @@ function MethodEditor({
               <Fld label="عملة الإيداع">
                 <select value={f.currency} onChange={(e) => set("currency", e.target.value)} style={inp}>
                   {CURRENCIES.map((c) => <option key={c.code} value={c.code}>{c.symbol} {c.label} ({c.code})</option>)}
+                  <option value={ANY_CURRENCY}>يحددها العميل — يختار العملة التي أرسل بها</option>
                 </select>
               </Fld>
-              <Fld label="الحد الأدنى (0 = بلا حد)"><input type="number" step="0.01" value={f.min_amount} onChange={(e) => set("min_amount", e.target.value)} style={inp} /></Fld>
-              <Fld label="الحد الأعلى (0 = بلا حد)"><input type="number" step="0.01" value={f.max_amount} onChange={(e) => set("max_amount", e.target.value)} style={inp} /></Fld>
+              <Fld label="الحد الأدنى (0 = بلا حد)"><input type="number" step="0.01" value={f.min_amount} onChange={(e) => set("min_amount", e.target.value)} style={inp} disabled={anyCurrency} /></Fld>
+              <Fld label="الحد الأعلى (0 = بلا حد)"><input type="number" step="0.01" value={f.max_amount} onChange={(e) => set("max_amount", e.target.value)} style={inp} disabled={anyCurrency} /></Fld>
               <Fld label="العمولة %"><input type="number" step="0.01" value={f.commission_percent} onChange={(e) => set("commission_percent", e.target.value)} style={inp} /></Fld>
               <Fld label="حساب الاستلام (اختياري)">
                 <select value={f.account ?? ""} onChange={(e) => set("account", e.target.value ? Number(e.target.value) : null)} style={inp}>
@@ -277,12 +279,20 @@ function MethodEditor({
                 </select>
               </Fld>
             </div>
+            {anyCurrency ? (
+            <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 8 }}>
+              يختار الوكيل عند طلب الإيداع العملة التي أرسل بها ويكتب المبلغ، فيُحوَّل إلى عملة
+              الدفتر بـ<b>سعر صرف</b> تلك العملة المضبوط في «أسعار الصرف»، ثم تُخصم العمولة.
+              تظهر له فقط العملات التي لها سعر صرف، ولا تنطبق الحدود الدنيا والعليا.
+            </div>
+            ) : (
             <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 8 }}>
               المبلغ يُحوَّل من {f.currency} إلى عملة الدفتر بـ<b>سعر الصرف</b> المضبوط في
               «أسعار الصرف»، ثم تُخصم العمولة. مثال: 100 {f.currency} وعمولة{" "}
               {money(f.commission_percent || 0)}% → يصل الوكيلَ ما يعادل{" "}
               {money(100 * (100 - Number(f.commission_percent || 0)) / 100)} {f.currency}.
             </div>
+            )}
           </Section>
 
           {/* ── الشرح ── */}

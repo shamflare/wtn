@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api";
 import Icon from "../components/Icon";
+import ImageUpload from "../components/ImageUpload";
 import { CURRENCIES, money, symbolOf } from "../currency";
 
 /* ═════════ الأنواع ═════════ */
@@ -24,7 +25,7 @@ const KINDS = [
   { key: "number", label: "رقم" },
   { key: "textarea", label: "نص طويل" },
   { key: "select", label: "قائمة اختيار" },
-  { key: "image", label: "رابط صورة" },
+  { key: "image", label: "صورة (يرفعها الوكيل من جهازه)" },
 ];
 
 const BLANK = (): Method => ({
@@ -243,8 +244,8 @@ function MethodEditor({
               <Fld label="الاسم *"><input value={f.name} onChange={(e) => set("name", e.target.value)} style={inp} placeholder="شركة تواصل دولار" /></Fld>
               <Fld label="سطر فرعي"><input value={f.subtitle} onChange={(e) => set("subtitle", e.target.value)} style={inp} placeholder="أوتوماتيكي 24 ساعة" /></Fld>
               <Fld label="ترتيب الظهور"><input type="number" value={f.sort_order} onChange={(e) => set("sort_order", e.target.value)} style={inp} /></Fld>
-              <Fld label="رابط صورة البطاقة">
-                <input value={f.logo_url} onChange={(e) => set("logo_url", e.target.value)} style={{ ...inp, direction: "ltr", textAlign: "left" }} placeholder="https://…" />
+              <Fld label="صورة البطاقة">
+                <ImageUpload value={f.logo_url} onChange={(v) => set("logo_url", v)} size={64} />
               </Fld>
               <Fld label="لون البطاقة (حين لا صورة)">
                 <input type="color" value={f.color || "#2f6f8f"} onChange={(e) => set("color", e.target.value)} style={{ ...inp, padding: 2 }} />

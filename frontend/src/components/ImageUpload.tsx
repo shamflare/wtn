@@ -35,6 +35,20 @@ async function shrink(file: File): Promise<Blob> {
   }
 }
 
+/** يصغّر الصورة ويرفعها ⇐ رابطها القصير الثابت. يرمي رسالة الخادم إن رُفضت. */
+export async function uploadImage(file: File): Promise<string> {
+  if (!file.type.startsWith("image/")) throw new Error("الملف المختار ليس صورة");
+  const blob = await shrink(file);
+  const fd = new FormData();
+  fd.append("file", blob, file.name);
+  try {
+    const r = await api.post("/catalog/images/", fd);
+    return r.data.url;
+  } catch (e: any) {
+    throw new Error(e?.response?.data?.detail || "تعذّر رفع الصورة");
+  }
+}
+
 export default function ImageUpload({ value, onChange, size = 88 }: {
   value: string; onChange: (url: string) => void; size?: number;
 }) {

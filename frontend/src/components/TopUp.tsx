@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import Icon from "../components/Icon";
+import { uploadImage } from "../components/ImageUpload";
 import { money, symbolOf } from "../currency";
 
 interface MField {
@@ -215,11 +216,14 @@ function MethodForm({
                   <option key={o} value={o}>{o}</option>
                 ))}
               </select>
+            ) : f.kind === "image" ? (
+              <ImagePick value={vals[f.id] || ""} hint={f.placeholder}
+                onChange={(v) => setVals((o) => ({ ...o, [f.id]: v }))} />
             ) : (
               <input type={f.kind === "number" ? "number" : "text"} value={vals[f.id] || ""}
-                placeholder={f.placeholder || (f.kind === "image" ? "https://… رابط صورة الإشعار" : "")}
+                placeholder={f.placeholder}
                 onChange={(e) => setVals((o) => ({ ...o, [f.id]: e.target.value }))}
-                style={{ ...darkInp, ...(f.kind === "image" ? { direction: "ltr", textAlign: "left" } : {}) }} />
+                style={darkInp} />
             )}
           </div>
         ))}
@@ -298,3 +302,38 @@ const submitBtn: React.CSSProperties = {
   background: "var(--primary)", color: "var(--on-primary)", fontSize: 16, fontWeight: 800,
   boxShadow: "0 10px 26px color-mix(in srgb, var(--primary) 25%, transparent)",
 };
+
+/** صورة الإيصال من الجوال — تُصغَّر وتُرفع، ويُرسَل رابطها مع الطلب */
+function ImagePick({ value, hint, onChange }: { value: string; hint?: string; onChange: (v: string) => void }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  async function pick(file?: File) {
+    if (!file) return;
+    setBusy(true); setErr("");
+    try { onChange(await uploadImage(file)); }
+    catch (e: any) { setErr(e?.message || "تعذّر رفع الصورة"); }
+    finally { setBusy(false); }
+  }
+  return (
+    <label style={{
+      display: "grid", placeItems: "center", minHeight: value ? 0 : 96, borderRadius: 14, cursor: "pointer",
+      border: `2px ${value ? "solid" : "dashed"} var(--border-strong)`, background: "var(--surface-2)",
+      overflow: "hidden", color: "var(--muted)", textAlign: "center", padding: value ? 0 : 12,
+    }}>
+      {value ? (
+        <img src={value} alt="" style={{ width: "100%", maxHeight: 220, objectFit: "contain", display: "block" }} />
+      ) : (
+        <span>
+          <Icon name="download" size={22} style={{ transform: "rotate(180deg)" }} />
+          <div style={{ fontWeight: 800, color: "var(--text)", marginTop: 4 }}>
+            {busy ? "جارٍ الرفع..." : "📷 اختر صورة من جهازك"}
+          </div>
+          {hint && <div style={{ fontSize: 12 }}>{hint}</div>}
+        </span>
+      )}
+      {value && <span style={{ fontSize: 12, padding: 6, color: "var(--primary)", fontWeight: 700 }}>{busy ? "جارٍ الرفع..." : "تغيير الصورة"}</span>}
+      {err && <span style={{ color: "var(--danger)", fontSize: 12, padding: 6 }}>{err}</span>}
+      <input type="file" accept="image/*" hidden onChange={(e) => pick(e.target.files?.[0])} />
+    </label>
+  );
+}

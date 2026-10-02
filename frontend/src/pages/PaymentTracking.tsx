@@ -274,7 +274,13 @@ export default function PaymentTracking() {
                         ) : (
                           Object.entries(r.values).map(([k, v]) => (
                             <span key={k} style={{ marginInlineEnd: 14 }}>
-                              <span style={{ color: "var(--muted)" }}>{k}:</span> <b>{v}</b>
+                              <span style={{ color: "var(--muted)" }}>{k}:</span>{" "}
+                              {isImageValue(v) ? (
+                                <a href={v} target="_blank" rel="noreferrer" title="فتح الصورة بحجمها">
+                                  <img src={v} alt={k} style={{ height: 64, maxWidth: 120, objectFit: "cover",
+                                    borderRadius: 6, border: "1px solid var(--border)", verticalAlign: "middle" }} />
+                                </a>
+                              ) : <b>{v}</b>}
                             </span>
                           ))
                         )}
@@ -332,3 +338,9 @@ const fcount: React.CSSProperties = {
   background: "var(--primary)", color: "#fff", borderRadius: 9, fontSize: 10,
   fontWeight: 800, padding: "1px 6px", marginInlineStart: 5,
 };
+
+/** قيمةٌ أرسلها الوكيل وهي صورة (رفعٌ من جهازه، أو رابط صورةٍ قديم) */
+function isImageValue(v: string) {
+  return /^\/api\/catalog\/img\//.test(v) || /^data:image\//.test(v)
+    || /^https?:\/\/\S+\.(png|jpe?g|webp|gif)(\?.*)?$/i.test(v);
+}

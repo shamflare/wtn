@@ -860,8 +860,10 @@ def image_upload_view(request):
     """رفع صورة (multipart، الحقل `file`) ⇐ {"url": "/api/catalog/img/<key>/"}."""
     from .models import ImageAsset
 
-    if request.user.role not in (User.Role.PLATFORM_OWNER, User.Role.TENANT_ADMIN):
-        return Response({"detail": "رفع الصور لمالك المنصّة وأصحاب المتاجر"}, status=403)
+    # والوكلاء أيضاً: صورة إيصال التحويل في نموذج «شحن رصيد» تُرفع من الجوال لا رابطاً
+    if request.user.role not in (User.Role.PLATFORM_OWNER, User.Role.TENANT_ADMIN,
+                                 User.Role.BAYI, User.Role.ANA_BAYI):
+        return Response({"detail": "رفع الصور للحسابات المسجّلة"}, status=403)
     f = request.FILES.get("file")
     if f is None:
         return Response({"detail": "لم يصل ملف"}, status=400)

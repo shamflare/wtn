@@ -104,7 +104,7 @@ class PaymentMethodField(models.Model):
         NUMBER = "number", "رقم"
         TEXTAREA = "textarea", "نص طويل"
         SELECT = "select", "قائمة اختيار"
-        IMAGE = "image", "رابط صورة"
+        IMAGE = "image", "صورة (رفع من الجهاز)"
 
     method = models.ForeignKey(PaymentMethod, on_delete=models.CASCADE, related_name="fields")
     label = models.CharField(max_length=160)                       # كتابة اسم المُستلم منك المبلغ

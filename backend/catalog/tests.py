@@ -656,9 +656,12 @@ class ImageUploadTest(APITestCase):
         r = self._upload(b"<html><script>alert(1)</script></html>")
         self.assertEqual(r.status_code, 400)
 
-    def test_an_agent_cannot_upload(self):
+    def test_an_agent_uploads_a_receipt_but_a_visitor_cannot(self):
+        """الوكيل يرفع صورة إيصال الإيداع من جواله — والزائر بلا حساب لا يرفع شيئاً."""
         self.client.force_authenticate(self.agent)
-        self.assertEqual(self._upload(self.PNG).status_code, 403)
+        self.assertEqual(self._upload(self.PNG).status_code, 201)
+        self.client.force_authenticate(None)
+        self.assertIn(self._upload(self.PNG).status_code, (401, 403))
 
     def test_library_game_keeps_the_uploaded_url_and_can_be_edited(self):
         self.client.force_authenticate(self.owner)

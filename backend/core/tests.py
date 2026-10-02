@@ -882,3 +882,85 @@ class DealerOwnCurrencyTest(APITestCase):
         self.client.post(f"/api/dealers/{d.id}/topup/", {"amount": "10"}, format="json")
         d.wallet.refresh_from_db()
         self.assertEqual(d.wallet.balance, Decimal("10"))
+
+
+class SelfRegistrationTest(APITestCase):
+    """
+    التسجيل الذاتي: الحقول إجبارية (ومنها صورة الهوية وواتساب برمز الدولة)، والحساب
+    «بانتظار الموافقة» لا يدخل؛ يظهر أعلى قائمة الوكلاء، ويُقبل بعملته وحدّه أو يُرفض.
+    """
+
+    IMG = "data:image/png;base64,iVBORw0KGgo="
+
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
+        self.t = Tenant.objects.create(subdomain="rg", name="أهلا كارد", base_currency="USD",
+                                       exchange_rates={"TRY": "49"})
+        self.admin = User.objects.create(login_id="rg-admin", name="م", tenant=self.t,
+                                         role=User.Role.TENANT_ADMIN, status=User.Status.ACTIVE)
+
+    def _form(self, **over):
+        return {"name": "محمد الكدرو", "login_id": "5459453007", "password": "secret1",
+                "country": "TR", "province": "إسطنبول", "whatsapp": "+905459453007",
+                "id_image": self.IMG, **over}
+
+    def test_public_games_show_no_prices(self):
+        from catalog.models import Game, Product
+        g = Game.objects.create(tenant=self.t, name="PUBG", image_url="/x.png")
+        Product.objects.create(tenant=self.t, game=g, name="60 UC", cost_price=Decimal("1"),
+                               recommended_price=Decimal("2"))
+        Game.objects.create(tenant=self.t, name="فارغة")   # بلا باقات ⇐ لا تُعرض
+        body = self.client.get("/api/storefront/games/").json()
+        self.assertEqual([x["name"] for x in body["games"]], ["PUBG"])
+        self.assertNotIn("price", str(body))
+
+    def test_every_field_is_required(self):
+        for field in ("name", "login_id", "password", "country", "province", "whatsapp", "id_image"):
+            r = self.client.post("/api/storefront/register/", self._form(**{field: ""}), format="json")
+            self.assertEqual(r.status_code, 400, field)
+            self.assertIn(field, r.json()["errors"])
+        self.assertFalse(User.objects.filter(login_id="5459453007").exists())
+
+    def test_whatsapp_needs_country_code_and_image_must_be_an_image(self):
+        r = self.client.post("/api/storefront/register/", self._form(whatsapp="abc"), format="json")
+        self.assertIn("whatsapp", r.json()["errors"])
+        r = self.client.post("/api/storefront/register/", self._form(id_image="hello"), format="json")
+        self.assertIn("id_image", r.json()["errors"])
+
+    def test_pending_cannot_log_in_until_approved(self):
+        self.assertEqual(self.client.post("/api/storefront/register/", self._form(), format="json").status_code, 201)
+        r = self.client.post("/api/auth/login/", {"login_id": "5459453007", "password": "secret1"}, format="json")
+        self.assertEqual(r.status_code, 403)
+        self.assertIn("قيد المراجعة", r.json()["detail"])
+
+        self.client.force_authenticate(self.admin)
+        listing = self.client.get("/api/dealers/").json()
+        self.assertEqual([p["name"] for p in listing["pending"]], ["محمد الكدرو"])
+        self.assertNotIn("محمد الكدرو", [r["name"] for r in listing["results"]])
+        self.assertEqual(self.client.get("/api/alerts/").json()["registrations"], 1)
+
+        pid = listing["pending"][0]["id"]
+        r = self.client.post(f"/api/dealers/{pid}/registration/", {
+            "action": "approve", "display_currency": "TRY", "credit_limit": "-4900"}, format="json")
+        self.assertEqual(r.status_code, 200, r.content)
+        u = User.objects.get(pk=pid)
+        self.assertEqual((u.status, u.display_currency), ("active", "TRY"))
+        self.assertEqual(u.wallet.credit_limit, Decimal("-100.00"))
+        self.client.force_authenticate(None)
+        r = self.client.post("/api/auth/login/", {"login_id": "5459453007", "password": "secret1"}, format="json")
+        self.assertEqual(r.status_code, 200)
+
+    def test_reject_removes_the_request(self):
+        self.client.post("/api/storefront/register/", self._form(), format="json")
+        pid = User.objects.get(login_id="5459453007").id
+        self.client.force_authenticate(self.admin)
+        r = self.client.post(f"/api/dealers/{pid}/registration/", {"action": "reject"}, format="json")
+        self.assertEqual(r.json()["rejected"], True)
+        self.assertFalse(User.objects.filter(pk=pid).exists())
+
+    def test_flooding_is_throttled(self):
+        for i in range(5):
+            self.client.post("/api/storefront/register/", self._form(login_id=f"54594530{10 + i}"), format="json")
+        r = self.client.post("/api/storefront/register/", self._form(login_id="5459453099"), format="json")
+        self.assertEqual(r.status_code, 429)

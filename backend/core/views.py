@@ -79,6 +79,11 @@ def login_view(request):
             status=status.HTTP_401_UNAUTHORIZED,
         )
 
+    if user.status == User.Status.PENDING:
+        return Response(
+            {"detail": "طلب تسجيلك قيد المراجعة لدى إدارة المتجر — تستطيع الدخول فور قبوله"},
+            status=status.HTTP_403_FORBIDDEN,
+        )
     if user.status != User.Status.ACTIVE:
         return Response({"detail": "الحساب معطّل"}, status=status.HTTP_403_FORBIDDEN)
 
@@ -132,6 +137,8 @@ def storefront_view(request):
             "tagline": store.tagline,
             "login_footer": store.login_footer,
             "social_links": store.social_links or {},
+            # ألوان واجهة الوكلاء — الباب العام (الواجهة والدخول والتسجيل) يلبسها هو أيضاً
+            "agent_theme": store.agent_theme or {},
         }
     })
 
@@ -385,8 +392,14 @@ def dealers_view(request):
         if u.parent_id in big_ids:
             children_of.setdefault(u.parent_id, []).append(u)
 
+    # طلبات التسجيل الذاتي: لا تُعدّ وكلاء بعد — تُعرض أعلى القائمة للمعاينة
+    from .registration import pending_row
+    pending = [pending_row(u) for u in everyone if u.status == User.Status.PENDING]
+
     rows = []
     for u in everyone:
+        if u.status == User.Status.PENDING:
+            continue
         if u.parent_id in big_ids:
             continue
         if search and search not in u.name and search not in u.login_id:
@@ -397,7 +410,7 @@ def dealers_view(request):
         r["children_count"] = len(kids)
         rows.append(r)
 
-    return Response({"count": len(rows), "results": rows})
+    return Response({"count": len(rows), "results": rows, "pending": pending})
 
 
 def _get_dealer_wallet(request, dealer_id):

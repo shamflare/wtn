@@ -154,6 +154,8 @@ class User(AbstractBaseUser, PermissionsMixin):
         ACTIVE = "active", "نشط"
         PASSIVE = "passive", "معطّل"
         BLACKLISTED = "blacklisted", "قائمة سوداء"
+        # سجّل نفسه من الباب العام وينتظر قبول صاحب المتجر — لا يدخل ولا يشتري قبله
+        PENDING = "pending", "بانتظار الموافقة"
 
     tenant = models.ForeignKey(
         Tenant, null=True, blank=True, on_delete=models.CASCADE, related_name="users"

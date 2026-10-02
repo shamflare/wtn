@@ -2,6 +2,8 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider, useAuth, roleHome } from "./auth";
 import AdminLayout from "./layout/AdminLayout";
 import Login from "./pages/Login";
+import PublicHome from "./pages/PublicHome";
+import Register from "./pages/Register";
 import Dealers from "./pages/Dealers";
 import Exchange from "./pages/Exchange";
 import Games from "./pages/Games";
@@ -53,7 +55,8 @@ const Agent = (el: React.ReactNode) => <Guard roles={["ana_bayi"]}>{el}</Guard>;
 function RoleHomeRedirect() {
   const { user, loading } = useAuth();
   if (loading) return null;
-  return <Navigate to={user ? roleHome(user.role) : "/login"} replace />;
+  // الزائر يرى واجهة المتجر (الألعاب بلا أسعار)، والمسجَّل يذهب إلى لوحته
+  return user ? <Navigate to={roleHome(user.role)} replace /> : <PublicHome />;
 }
 
 export default function App() {
@@ -62,6 +65,7 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
 
           {/* لوحات مستقلة (بحسب الدور) */}
           <Route path="/platform" element={<Guard roles={["platform_owner"]} bare><Platform /></Guard>} />

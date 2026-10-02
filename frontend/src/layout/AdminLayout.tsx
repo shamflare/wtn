@@ -30,6 +30,7 @@ const ALERTS: { key: string; icon: string; to: string; label: string; hot?: bool
   { key: "orders_stuck", icon: "warning", to: "/oyunpin/providers", label: "طلبات عالقة — راجع المزوّدين", hot: true },
   { key: "deposits_pending", icon: "card", to: "/ayarlar/payments", label: "إيداعات تنتظر قرارك" },
   { key: "dealers_negative", icon: "user", to: "/dealers", label: "وكلاء برصيد سالب" },
+  { key: "registrations", icon: "users", to: "/dealers", label: "طلبات تسجيل وكلاء جدد", hot: true },
   { key: "providers", icon: "api", to: "/oyunpin/providers", label: "مزوّدون معطّلون أو رصيدهم منخفض" },
 ];
 

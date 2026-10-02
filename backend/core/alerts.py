@@ -60,6 +60,10 @@ def alerts_view(request):
             user__role__in=[User.Role.BAYI, User.Role.ANA_BAYI],
         ).count(),
 
+        # وكلاء سجّلوا أنفسهم من الباب العام وينتظرون قبولك
+        "registrations": User.objects.filter(
+            tenant=tenant, status=User.Status.PENDING).count(),
+
         # طلبات إيداع تنتظر قبولك أو رفضك
         "deposits_pending": PaymentNotification.objects.filter(
             tenant=tenant, status=PaymentNotification.Status.PENDING).count(),

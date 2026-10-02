@@ -774,3 +774,73 @@ button.ag-stat:active { transform: scale(.98); }
 .ag-qty-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .ag-qty-chips .ag-chip { height: 32px; padding: 0 12px; font-size: 12.5px; direction: ltr; }
 .ag-qty-x { color: var(--violet); font-weight: 800; white-space: nowrap; direction: ltr; unicode-bidi: isolate; }
+
+/* ══════════ الباب العام: الواجهة · الدخول · التسجيل ══════════ */
+.ag-public .ag-main { padding-bottom: 30px; }
+.ag-pub-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.ag-pub-btn {
+  height: 38px; padding: 0 14px; border-radius: 999px; display: inline-flex; align-items: center;
+  background: var(--primary); color: var(--on-primary); font-weight: 800; font-size: 13.5px;
+  text-decoration: none; white-space: nowrap;
+}
+.ag-pub-btn.ghost { background: var(--surface-2); color: var(--text); border: 1px solid var(--border-strong); }
+@media (max-width: 380px) { .ag-pub-btn { padding: 0 10px; font-size: 12.5px; } .ag-brand-sub { display: none; } }
+
+.ag-pub-hero {
+  border-radius: 24px; padding: 26px 20px; margin-bottom: 6px; text-align: center;
+  color: var(--hero-ink);
+  background:
+    radial-gradient(420px 220px at 100% 0%, color-mix(in srgb, var(--hero-glow) 35%, transparent), transparent 60%),
+    radial-gradient(360px 240px at 0% 100%, color-mix(in srgb, var(--hero-glow-2) 22%, transparent), transparent 60%),
+    linear-gradient(135deg, var(--hero-from), var(--hero-to));
+  border: 1px solid var(--border-strong);
+}
+.ag-pub-hero h1 { font-size: 24px; font-weight: 800; margin: 0 0 6px; }
+.ag-pub-hero p { margin: 0 auto; max-width: 520px; opacity: .85; font-size: 14px; line-height: 1.9; }
+.ag-pub-hero-actions { display: flex; gap: 10px; justify-content: center; margin-top: 16px; flex-wrap: wrap; }
+.ag-pub-hero-actions .btn { height: 46px; padding: 0 22px; font-size: 14.5px; }
+
+.ag-pub-foot { text-align: center; color: var(--muted); font-size: 12.5px; padding: 10px 16px 28px; }
+.ag-pub-socials { display: flex; gap: 12px; justify-content: center; margin-bottom: 10px; }
+
+.ag-auth { margin-top: 10px; }
+.ag-auth-head { text-align: center; margin-bottom: 6px; }
+.ag-auth-head h1 { font-size: 21px; font-weight: 800; margin: 10px 0 2px; }
+.ag-auth-head p { color: var(--muted); font-size: 13.5px; margin: 0; }
+.ag-auth-ico {
+  width: 54px; height: 54px; border-radius: 18px; display: inline-grid; place-items: center;
+  background: color-mix(in srgb, var(--primary) 14%, transparent); color: var(--primary);
+}
+.ag-auth-ico.ok { background: color-mix(in srgb, var(--ok) 16%, transparent); color: var(--ok); }
+.ag-pw-eye {
+  position: absolute; inset-inline-end: 6px; top: 50%; transform: translateY(-50%);
+  width: 40px; height: 36px; border-radius: 10px; border: 0; background: var(--surface-3);
+  color: var(--muted); display: grid; place-items: center;
+}
+.ag-auth-alt { text-align: center; margin-top: 14px; font-size: 13.5px; color: var(--muted); }
+.ag-auth-alt a { color: var(--primary); font-weight: 800; text-decoration: none; }
+.ag-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 420px) { .ag-row2 { grid-template-columns: 1fr; gap: 0; } }
+.ag-field-err { color: var(--danger); font-size: 12px; margin-top: 4px; }
+.ag-field-hint { color: var(--muted); font-size: 11.5px; margin-top: 5px; line-height: 1.8; }
+.ag-field-hint b { color: var(--text); }
+.ag-photo {
+  width: 100%; min-height: 120px; border-radius: 16px; border: 2px dashed var(--border-strong);
+  background: var(--surface-2); color: var(--muted); display: grid; place-items: center;
+  padding: 10px; overflow: hidden; font-family: inherit;
+}
+.ag-photo span { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.ag-photo b { color: var(--text); font-size: 13.5px; }
+.ag-photo small { font-size: 11.5px; }
+.ag-photo.has { border-style: solid; padding: 0; }
+.ag-photo.has img { width: 100%; max-height: 220px; object-fit: contain; display: block; }
+.ag-photo.bad { border-color: var(--danger); }
+.ag-photo-redo { margin-top: 6px; background: none; border: 0; color: var(--primary); font-weight: 700; font-size: 12.5px; font-family: inherit; }
+/* وسمٌ داخل الحقل عند حافته اليمنى (رقم واتساب «مع رمز الدولة») */
+.ag-adorn { position: relative; }
+.ag-adorn input { padding-right: 118px !important; text-align: left; }
+.ag-adorn-tag {
+  position: absolute; right: 8px; top: 50%; transform: translateY(-50%); z-index: 1; pointer-events: none;
+  font-size: 11.5px; font-weight: 800; padding: 4px 9px; border-radius: 999px;
+  background: color-mix(in srgb, var(--primary) 14%, transparent); color: var(--primary);
+}

@@ -223,7 +223,7 @@ class LibraryProductViewSet(viewsets.ModelViewSet):
 
 def _tenant_row(t):
     from django.utils import timezone
-    dealers = User.objects.filter(tenant=t, role=User.Role.BAYI).count()
+    dealers = User.objects.filter(tenant=t, role=User.Role.BAYI).exclude(status=User.Status.PENDING).count()
     today = timezone.localdate()
     days_left = (t.sub_expires_at - today).days if t.sub_expires_at else None
     return {

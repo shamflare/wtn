@@ -3,6 +3,7 @@ import { api, type Dealer } from "../api";
 import WalletModal from "../components/WalletModal";
 import DealerCreateModal from "../components/DealerCreateModal";
 import DealerSettingsModal from "../components/DealerSettingsModal";
+import RegistrationReviewModal, { type PendingReg } from "../components/RegistrationReviewModal";
 import StatementModal from "../components/StatementModal";
 import BulkWhatsAppModal from "../components/BulkWhatsAppModal";
 import { downloadCsv } from "../csv";
@@ -15,6 +16,9 @@ export default function Dealers() {
   const cur = useBaseSymbol();
   const base = useBaseCurrency();
   const [dealers, setDealers] = useState<Dealer[]>([]);
+  // طلبات التسجيل الذاتي — أول صفوف القائمة، وتُراجَع من «معاينة»
+  const [pending, setPending] = useState<PendingReg[]>([]);
+  const [reviewing, setReviewing] = useState<PendingReg | null>(null);
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
   const [loading, setLoading] = useState(true);
@@ -79,7 +83,7 @@ export default function Dealers() {
   function load(search = "") {
     setLoading(true);
     api.get("/dealers/", { params: { q: search } })
-      .then((r) => setDealers(r.data.results))
+      .then((r) => { setDealers(r.data.results); setPending(r.data.pending || []); })
       .finally(() => setLoading(false));
   }
   useEffect(() => load(), []);
@@ -212,6 +216,28 @@ export default function Dealers() {
               </tr>
             </thead>
             <tbody>
+              {!showDisabled && pending.map((p) => (
+                <tr key={`reg-${p.id}`} style={{ background: "#fff7ed" }}>
+                  <td><span title="طلب تسجيل" style={{ fontSize: 16 }}>🆕</span></td>
+                  <td className="num" style={{ color: "var(--faint)", fontSize: 12.5 }}>—</td>
+                  <td className="cell-start" style={{ fontWeight: 700 }}>
+                    {p.name}
+                    <div style={{ fontSize: 11.5, color: "#b45309", fontWeight: 700 }}>
+                      طلب تسجيل جديد · {p.created_at}
+                    </div>
+                  </td>
+                  <td colSpan={5} style={{ color: "var(--muted)", fontSize: 12.5 }}>
+                    <span dir="ltr">{p.login_id}</span> · <span dir="ltr">{p.whatsapp}</span>
+                    {p.province && <> · {p.province}</>}
+                  </td>
+                  <td>
+                    <button type="button" className="btn" onClick={() => setReviewing(p)}
+                      style={{ height: 30, background: "#b45309", color: "#fff" }}>
+                      👁 معاينة
+                    </button>
+                  </td>
+                </tr>
+              ))}
               {loading ? (
                 <tr><td colSpan={9} style={{ padding: 30, color: "var(--muted)" }}>جارٍ التحميل...</td></tr>
               ) : shown.length === 0 ? (
@@ -374,6 +400,11 @@ export default function Dealers() {
         <DealerCreateModal
           onClose={() => setCreateOpen(false)}
           onDone={() => { setCreateOpen(false); load(q); }} />
+      )}
+
+      {reviewing && (
+        <RegistrationReviewModal reg={reviewing} onClose={() => setReviewing(null)}
+          onDecided={(text) => { setReviewing(null); load(q); setToast({ ok: true, text }); }} />
       )}
 
       {settingsFor !== null && (

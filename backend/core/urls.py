@@ -1,11 +1,13 @@
 """روابط الـ API للقلب."""
 from django.urls import path
 
-from . import alerts, cards, tickets, views
+from . import registration, alerts, cards, tickets, views
 
 urlpatterns = [
     # هويّة متجر هذا العنوان — مفتوحةٌ بلا توكن، تقرأها صفحة الدخول
     path("storefront/", views.storefront_view, name="storefront"),
+    path("storefront/games/", registration.public_games_view, name="storefront-games"),
+    path("storefront/register/", registration.register_view, name="storefront-register"),
     path("auth/login/", views.login_view, name="login"),
     path("auth/me/", views.me_view, name="me"),
     path("settings/site/", views.site_settings_view, name="site-settings"),
@@ -18,6 +20,8 @@ urlpatterns = [
     path("dealers/<int:dealer_id>/transactions/", views.wallet_transactions_view, name="wallet-txns"),
     # قبل مسار <str:action> وإلا ابتلعه
     path("dealers/<int:dealer_id>/settings/", views.dealer_settings_view, name="dealer-settings"),
+    path("dealers/<int:dealer_id>/registration/", registration.registration_review_view,
+         name="dealer-registration"),
     path("dealers/<int:dealer_id>/<str:action>/", views.wallet_operation_view, name="wallet-op"),
     # التذاكر / الرسائل
     path("tickets/", tickets.tickets_view, name="tickets"),

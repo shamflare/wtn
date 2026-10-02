@@ -135,7 +135,9 @@ def logout_view(request):
 
 def _dealers(tenant):
     return (
+        # طلب تسجيلٍ لم يُقبل بعد ليس وكيلاً: لا تُرسَل إليه رسائل تحصيلٍ ولا إعلانات
         User.objects.filter(tenant=tenant, role=User.Role.BAYI)
+        .exclude(status=User.Status.PENDING)
         .select_related("wallet", "tenant")
         .order_by("name")
     )

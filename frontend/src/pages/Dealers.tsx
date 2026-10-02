@@ -379,7 +379,7 @@ export default function Dealers() {
       {settingsFor !== null && (
         <DealerSettingsModal dealerId={settingsFor}
           onClose={() => setSettingsFor(null)}
-          onSaved={() => load(q)} />
+          onSaved={(text) => { setSettingsFor(null); load(q); setToast({ ok: true, text }); }} />
       )}
 
       {statementFor && (

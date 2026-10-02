@@ -603,7 +603,7 @@ function BillingTab() {
 function SubscriptionModal({ tenant, onClose, onDone }: { tenant: Tenant; onClose: () => void; onDone: () => void }) {
   const [monthly, setMonthly] = useState(tenant.sub_monthly_price);
   const [yearly, setYearly] = useState(tenant.sub_yearly_price);
-  const [t, setT] = useState(tenant);
+  const t = tenant;
   const [busy, setBusy] = useState("");
   const [grace, setGrace] = useState(String(tenant.sub_grace_days ?? 3));
   const [enforce, setEnforce] = useState(tenant.sub_enforce !== false);
@@ -612,12 +612,10 @@ function SubscriptionModal({ tenant, onClose, onDone }: { tenant: Tenant; onClos
   async function call(body: any, tag: string) {
     setBusy(tag);
     try {
-      const r = await api.post(`/platform/tenants/${tenant.id}/subscription/`, body);
-      setT(r.data);
-      setGrace(String(r.data.sub_grace_days ?? 3));
-      setEnforce(r.data.sub_enforce !== false);
-      setExpires(r.data.sub_expires_at || "");
+      await api.post(`/platform/tenants/${tenant.id}/subscription/`, body);
+      onDone();   // الحفظ ينجح ⇐ تُغلق النافذة وتُحدَّث قائمة المتاجر
     }
+    catch (e: any) { alert(e?.response?.data?.detail || "تعذّر الحفظ"); }
     finally { setBusy(""); }
   }
 

@@ -78,7 +78,7 @@ export default function ThemeCustomizer({ config, onChange, onClose }: Props) {
 
   async function save() {
     setBusy(true);
-    try { await api.put("/settings/theme/", { config }); setSaved("ok"); }
+    try { await api.put("/settings/theme/", { config }); setSaved("ok"); onClose(); }
     catch { setSaved("err"); }
     finally { setBusy(false); }
   }

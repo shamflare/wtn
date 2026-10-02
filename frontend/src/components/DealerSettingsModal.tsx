@@ -68,7 +68,7 @@ function shrink(file: File): Promise<string> {
 
 export default function DealerSettingsModal({
   dealerId, onClose, onSaved,
-}: { dealerId: number; onClose: () => void; onSaved: () => void }) {
+}: { dealerId: number; onClose: () => void; onSaved: (message: string) => void }) {
   const [tab, setTab] = useState<"account" | "profile">("account");
   const [f, setF] = useState<Settings | null>(null);
   const [pw, setPw] = useState("");
@@ -127,14 +127,10 @@ export default function DealerSettingsModal({
         api_access_allowed: f.api_access_allowed,
         ...(pw ? { new_password: pw } : {}),
       });
-      setF(r.data); setPw(""); setPw2("");
-      setMsg({
-        ok: true,
-        text: r.data?.password_changed
-          ? `حُفظت الإعدادات — وكلمة السر الجديدة فعّالة الآن لرقم الدخول ${r.data.login_id}`
-          : "حُفظت الإعدادات (لم تتغيّر كلمة السر)",
-      });
-      onSaved();
+      // الحفظ ينجح ⇐ تُغلق النافذة، والتأكيد يظهر رسالةً في صفحة الوكلاء
+      onSaved(r.data?.password_changed
+        ? `✓ حُفظت إعدادات «${r.data.name}» — وكلمة السر الجديدة فعّالة لرقم الدخول ${r.data.login_id}`
+        : `✓ حُفظت إعدادات «${r.data.name}»`);
     } catch (e: any) {
       setMsg({ ok: false, text: e?.response?.data?.detail || "تعذّر الحفظ" });
     } finally { setBusy(false); }

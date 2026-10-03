@@ -192,6 +192,19 @@ GET {base}/servis/tl_kontrol.php?bayi_kodu=…&sifre=…&tekilnumara=<المعر
 3. **عروض المشترك الخاصة** (aboneye özel).
 ⇐ هذه الثلاثة هي ما نسأل عنه مبرمج ZNET (الأسئلة في 4-ب/و أعلاه، والبند 4 منها صار مُجاباً).
 
+### 🔎 خدمات غير موثّقة وُجدت بالفحص (2026-10-04، بعد تفعيل API للحساب)
+- الـ API يعمل من جهاز التطوير ومن الخادم 46.224.47.213 (`bakiye_kontrol` ⇐ `OK|2054.25|2100.00`).
+- ✅ **`servis/paket_listesi.php?bayi_kodu=…&sifre=…`** ⇐ **كل باقات كل الشركات** (388 باقة)،
+  نصّ مفصول: سطر لكل باقة بصيغة `المشغّل|النوع|معرّف الباقة|الكلفة|الاسم|^`، مثل
+  `Turkcell|Ses|476647|970.00|Fırsat 30GB İndirimli ⭕|^`
+  - المعرّفات والكلفة **تطابق اللوحة** (476647 ⇐ كلفة 970.00) ⇐ هي ما يُرسل في `kontor` إلى `tl_servis.php`.
+  - مع `kod` بدل `bayi_kodu` يردّ «Bağlantı Hatası». ومعامل `operator` لا يصفّي (يعيد الكل).
+  - التوزيع: Turkcell (Ses 72 · Yds 13 · 3gCep 11 · Tam 5 · 3gPc 3) · Vodafone (Ses 122 · 3gCep 3 · Tam 3) ·
+    Avea/Türk Telekom (Ses 86 · 3gCep 21 · Yds 10 · Sms 4 · Tam 3) ·
+    Callback دولي (BimCell 22 · Syriatel 5 · Mtn 5).
+  - لا يحوي تفاصيل (أيام/GB/دقائق) ولا سعر البيع — الكلفة فقط.
+- ❓ **`servis/operator_sorgu.php`**: بلا `msisdn` يردّ `N`، ومعه يردّ `T` لكل رقم (حتى `123`) ⇐ لا يكشف الشركة بالصيغ المجرّبة.
+
 ### إضافة: خدمة الفواتير (فرصة لاحقة)
 `kurum_listesi.php` (الجهات وكلفتها) · `fatura_ekle.php` (دفع فاتورة) · `fatura_kontrol.php` / `fatura_top_kontrol.php`.
 

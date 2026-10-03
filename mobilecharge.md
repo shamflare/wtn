@@ -118,7 +118,19 @@ POST /Kontor/bilgi_api.php?GSMNO=5442199992&operatoru=TURKCELL&kisitlama=&?rand=
   | `3gPc` | TURKCELL - WIFI PC | 3 |
 
 ### ج) عروض المشترك الخاصة (زر ABONEYE ÖZEL PAKETLERİ SORGULA)
-- (لم يُفحص بعد.)
+```
+POST /Kontor/bilgi_api_paketsor.php?GSMNO=5442199992&paketsorgula=true&operator=TURKCELL&znet_token=<رمز من الصفحة>&?rand=<عشوائي>
+```
+- `znet_token`: رمز تضعه صفحة Kontor (يُقرأ منها قبل الاستعلام) — إضافةً إلى كوكي الجلسة.
+- الرد ~42KB HTML بالبنية نفسها (`yukle_onay` + `data-gun/gb/dk`) تحت عنوان `ABONEYE ÖZEL PAKETLER`.
+- يعيد **الباقات المتاحة لهذا الرقم فقط**: 53 من أصل 104 (بلا فئتي `Tam` و`3gPc`).
+- **التمييز باللون في الـ HTML نفسه** (`style="background:…"` على عنصر الباقة):
+  - `#F2CCCC` وردي = **عرض خاص بهذا المشترك** — 9 في العيّنة، كلها «Fırsat … İndirimli» و«Mega Fırsat»:
+    `476647` 30GB · `475901` 40GB · `475988` 50GB · `475994` 80GB · `539037` 100GB ·
+    `478772` Mega 30GB/3 أشهر · `478717` Mega 60GB/6 أشهر · `476628` 20GB · `476634` 25GB
+  - `#F2F5A9` أصفر = باقة عامة متاحة له — 44.
+- لاحظ: «Fırsat 25GB ⭕» (بلا İndirimli) أصفر، ونظيرها «Fırsat 30GB İndirimli» وردي وأرخص
+  ⇐ العرض الخاص غالباً **نسخة مخفّضة** من باقة عامة.
 
 ### د) تنفيذ الشحن (`yukle_onay` ⇐ ؟)
 - (لم يُفحص بعد — انتباه: التأكيد ينفّذ شحناً حقيقياً ويخصم الرصيد.)

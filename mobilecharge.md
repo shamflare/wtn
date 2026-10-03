@@ -162,6 +162,39 @@ body (form): gsmno=5442199992&operator=Turkcell&tip=Ses&alternatif_id=&paket_adi
 > 4. Paket / TL yükleme ve işlem durumu sorgulama
 > Dokümanı paylaşabilir misiniz?
 
+## 4-ج. توثيق ZNET الرسمي (ZNET YAZILIM APİ DÖKÜMANI — نسخة المستخدم في d:\znet\znetapi.txt)
+
+شروط عامة: يجب منح الحساب **صلاحية API** من قائمة المستخدمين، و**IP ثابت** مسجَّل
+(وإلا يأتي الرد فارغاً بلا خطأ). كل المواقع بصيغة `bayi.<site>.com`.
+
+### ✅ إرسال الشحن — KONTOR GÖNDERİMİ
+```
+GET {base}/servis/tl_servis.php?bayi_kodu=<رقم الجوال>&sifre=<كلمة السر>
+    &operator=turkcell&tip=3gcep&kontor=<…>&gsmno=5458301526&tekilnumara=<معرّف فريد منّا>
+```
+- انتبه: اسم المعطى هنا `bayi_kodu` لا `kod` كما في بقية الخدمات.
+- المشغّلون في الوثيقة: Turkcell, Vodafone, Avea (= Türk Telekom اليوم).
+- الأنواع: `tam, 3gcep, 3g, ses, sms, bal` — تطابق رموز الفئات في اللوحة (`Tam, 3gCep, 3gPc, Ses, Yds…`).
+- `kontor`: في اللوحة يُرسَل فيه **معرّف الباقة** (`servis.php … &kontor=476647.00&tip=Ses`) ⇐ الغالب أنه نفسه هنا. يُتحقَّق بأول شحن.
+- الرد: `OK|<حالة>|<شرح>|<الكلفة>`
+  - `1` = قُبل للتنفيذ · `3` = **مرفوض** (مثل: نفس الرقم ونفس المبلغ خلال 10 دقائق، أو بيانات دخول خاطئة) · `8` = **يحتاج تحقّقاً** (أُرسل سابقاً).
+- لا شحن جزئي.
+
+### ✅ متابعة الشحن — KONTOR KONTROLÜ
+```
+GET {base}/servis/tl_kontrol.php?bayi_kodu=…&sifre=…&tekilnumara=<المعرّف نفسه>
+```
+- `1:olumlu_islem:5.50` = نجح · `2:islemde:5.50` = قيد التنفيذ · `3:<سبب الإلغاء>` = أُلغي.
+
+### ❌ غير موجود في الوثيقة
+1. **كشف الشركة** (operatör sorgulama).
+2. **قائمة الباقات** ومعرّفاتها وأسعارها (للألعاب يوجد `pin_listesi.php`، وللخطوط لا مقابل).
+3. **عروض المشترك الخاصة** (aboneye özel).
+⇐ هذه الثلاثة هي ما نسأل عنه مبرمج ZNET (الأسئلة في 4-ب/و أعلاه، والبند 4 منها صار مُجاباً).
+
+### إضافة: خدمة الفواتير (فرصة لاحقة)
+`kurum_listesi.php` (الجهات وكلفتها) · `fatura_ekle.php` (دفع فاتورة) · `fatura_kontrol.php` / `fatura_top_kontrol.php`.
+
 ## 5. القرارات المتخذة
 
 - (لا شيء بعد.)

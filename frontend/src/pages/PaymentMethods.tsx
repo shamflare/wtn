@@ -305,7 +305,7 @@ function MethodEditor({
               </Fld>
               <Fld label="صندوق الحساب (يظهر بخلفية داكنة ويُنسخ بضغطة)">
                 <textarea value={f.account_box} onChange={(e) => set("account_box", e.target.value)}
-                  rows={2} style={{ ...inp, height: "auto" }} placeholder="( 286 ) رويـال كـاش" />
+                  rows={2} style={{ ...inp, height: "auto" }} />
               </Fld>
               <Fld label="تنبيه فوق النموذج (اختياري)">
                 <input value={f.warning} onChange={(e) => set("warning", e.target.value)} style={inp}

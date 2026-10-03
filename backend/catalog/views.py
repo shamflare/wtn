@@ -14,7 +14,7 @@ from .models import Game, LibraryGame, PriceGroup, Product, ProductLink, Product
 from .serializers import (
     GameDetailSerializer, GameSerializer, PriceGroupSerializer, ProductSerializer,
 )
-from .services import catalog_index, catalog_match, price_from_margin, rank_providers
+from .services import catalog_index, catalog_match, price_from_margin, rank_providers, rounds
 
 
 class GameViewSet(viewsets.ModelViewSet):
@@ -85,7 +85,8 @@ def price_matrix_view(request):
                 # القاعدة المرتبطة — الجدول يعرضها ليعرف المالك أي خلية تتبع
                 # التكلفة وأيّها رقمٌ يدويّ جامد
                 "margin": (
-                    {"mode": row.margin_mode, "value": str(row.margin_value)}
+                    {"mode": row.margin_mode, "value": str(row.margin_value),
+                     "round": row.margin_round}
                     if row is not None and row.linked else None
                 ),
             }
@@ -123,7 +124,7 @@ def set_price_view(request):
     # رقماً بيده، فلا يجوز أن يمحوه أوّلُ تغيير في التكلفة.
     pp, _ = ProductPrice.objects.update_or_create(
         tenant=tenant, product=product, price_group=group,
-        defaults={"price": price, "margin_mode": "", "margin_value": None},
+        defaults={"price": price, "margin_mode": "", "margin_value": None, "margin_round": False},
     )
     return Response({"product": product.id, "price_group": group.id, "price": str(pp.price)})
 
@@ -132,17 +133,25 @@ def set_price_view(request):
 @permission_classes([IsAuthenticated])
 def bulk_price_view(request):
     """
-    تسعير جماعي: سعر مجموعة أسعار بعينها = **تكلفة** كل منتج + هامش.
+    تسعير جماعي: سعر مجموعة أسعار بعينها — أو **السعر الموصى** — = **تكلفة**
+    كل منتج + هامش، مقرّباً لأعلى إلى رقم صحيح إن طُلب.
 
     الأساس هو التكلفة لا السعر الحالي، فتكرار العملية بالقيمة نفسها يعطي
     النتيجة نفسها — لو كان الأساس السعر الحالي لضاعف كلُّ ضغطة الزيادةَ.
 
-    {price_group, products: [ids] | فارغ = الكل, mode: "percent"|"fixed", value}
+    {price_group: id | "recommended", products: [ids] | فارغ = الكل,
+     mode: "percent"|"fixed", value, round: bool}
     """
     tenant = request.user.tenant
-    group = PriceGroup.objects.filter(pk=request.data.get("price_group"), tenant=tenant).first()
-    if group is None:
-        return Response({"detail": "مجموعة الأسعار غير موجودة"}, status=404)
+    # السعر الموصى يُكتب مرّة واحدة في الباقة نفسها ولا يرتبط بالتكلفة: هو
+    # رقم المالك المرجعي، وأسعار المجموعات غير المخصّصة تتبعه.
+    to_recommended = request.data.get("price_group") == "recommended"
+    group = None
+    if not to_recommended:
+        group = PriceGroup.objects.filter(pk=request.data.get("price_group"), tenant=tenant).first()
+        if group is None:
+            return Response({"detail": "مجموعة الأسعار غير موجودة"}, status=404)
+    round_up = request.data.get("round") is True
 
     mode = request.data.get("mode")
     if mode not in ("percent", "fixed"):
@@ -167,7 +176,7 @@ def bulk_price_view(request):
         if p.cost_price <= 0:
             zero_cost.append(p.name)
             continue
-        price = price_from_margin(p.cost_price, mode, value)
+        price = price_from_margin(p.cost_price, mode, value, rounds(p, round_up))
         if price is None:
             negative.append(p.name)
             continue
@@ -187,15 +196,22 @@ def bulk_price_view(request):
     # فتتبعها كلّما تغيّرت، حتى يفكّها تسعيرٌ جماعي جديد أو تعديل يدويّ.
     with transaction.atomic():
         for p, price in priced:
+            if to_recommended:
+                p.recommended_price = price
+                p.save(update_fields=["recommended_price"])
+                continue
             ProductPrice.objects.update_or_create(
                 tenant=tenant, product=p, price_group=group,
-                defaults={"price": price, "margin_mode": mode, "margin_value": value},
+                defaults={"price": price, "margin_mode": mode, "margin_value": value,
+                          "margin_round": round_up},
             )
 
     return Response({
         "updated": len(priced),
-        "group": group.name,
+        "group": "recommended" if to_recommended else group.name,
         "skipped_zero_cost": zero_cost,
+        # باقات «بالكمية» لا تُقرَّب — تُذكر ليعرف المالك لماذا بقيت كسوراً
+        "not_rounded": [p.name for p, _ in priced if round_up and p.is_amount],
     })
 
 

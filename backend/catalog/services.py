@@ -8,19 +8,22 @@
 ولأن الطرق كثيرة وستزيد، إعادة الحساب معلّقة على **حفظ الباقة نفسها**
 (إشارة `post_save`) لا على كل نقطة استدعاء — فلا تفلت واحدة منها.
 """
-from decimal import Decimal
+from decimal import ROUND_CEILING, Decimal
 
 from core.currency import CENT
 
 HUNDRED = Decimal("100")
 
 
-def price_from_margin(cost: Decimal, mode: str, value: Decimal):
+def price_from_margin(cost: Decimal, mode: str, value: Decimal, round_up: bool = False):
     """
     السعر الناتج عن قاعدة، أو None إن تعذّر.
 
     تكلفة صفر لا تُسعَّر: النسبة عليها تعطي صفراً — أي بيعاً مجّانياً بلا أن
     ينتبه أحد. وسعرٌ سالب يُرفض كذلك.
+
+    `round_up` يرفع الناتج إلى أقرب رقم صحيح **فوقه** (0.94 ⇐ 1، 1.30 ⇐ 2).
+    لأعلى لا للأقرب: التقريب للأقرب ينزل بـ 1.30 إلى 1 — أي تحت التكلفة.
     """
     if cost is None or cost <= 0 or value is None:
         return None
@@ -28,7 +31,17 @@ def price_from_margin(cost: Decimal, mode: str, value: Decimal):
         cost * (Decimal("1") + Decimal(value) / HUNDRED) if mode == "percent"
         else cost + Decimal(value)
     ).quantize(CENT)
+    if round_up:
+        price = price.to_integral_value(rounding=ROUND_CEILING).quantize(CENT)
     return price if price >= 0 else None
+
+
+def rounds(product, round_up: bool) -> bool:
+    """
+    التقريب لا يمسّ باقات «بالكمية»: سعرها مخزّن لكتلة (مثلاً 2.00 لكل 1000)،
+    ورفعه إلى رقم صحيح يغيّر سعر الوحدة بنسبة كبيرة بلا أن يظهر ذلك.
+    """
+    return round_up and not product.is_amount
 
 
 def catalog_index(packages) -> dict:
@@ -132,7 +145,8 @@ def apply_margin_rules(product) -> int:
     rows = ProductPrice.objects.filter(product=product).exclude(margin_mode="")
     changed = 0
     for row in rows:
-        price = price_from_margin(product.cost_price, row.margin_mode, row.margin_value)
+        price = price_from_margin(product.cost_price, row.margin_mode, row.margin_value,
+                                  rounds(product, row.margin_round))
         if price is None or price == row.price:
             continue
         row.price = price

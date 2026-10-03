@@ -257,6 +257,8 @@ class ProductPrice(models.Model):
         max_length=8, choices=Margin.choices, blank=True, default=""
     )
     margin_value = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
+    # تقريب الناتج لأعلى إلى رقم صحيح (0.94 ⇐ 1) — جزء من القاعدة فيبقى عند كل إعادة حساب
+    margin_round = models.BooleanField(default=False)
 
     class Meta:
         db_table = "product_prices"

@@ -7,14 +7,14 @@ import ScrollTop from "../components/ScrollTop";
 import { matches } from "../search";
 
 /** قاعدة تسعير مرتبطة بالتكلفة — فارغة تعني سعراً يدوياً جامداً. */
-interface Margin { mode: "percent" | "fixed"; value: string }
+interface Margin { mode: "percent" | "fixed"; value: string; round?: boolean }
 interface Cell { price: string; custom: boolean; margin: Margin | null }
 
-/** وسم القاعدة كما يُقرأ: «3%» أو «+0.20». */
+/** وسم القاعدة كما يُقرأ: «3%» أو «+0.20» — و«↑» إن كانت تقرّب لأعلى. */
 function marginLabel(m: Margin): string {
   const v = Number(m.value);
   const n = Number.isInteger(v) ? String(v) : String(Number(v.toFixed(4)));
-  return m.mode === "percent" ? `${n}%` : `+${n}`;
+  return (m.mode === "percent" ? `${n}%` : `+${n}`) + (m.round ? "↑" : "");
 }
 interface MatrixProduct {
   id: number; name: string; cost_price: string; recommended_price: string;
@@ -48,7 +48,7 @@ export default function PriceGroups() {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<{ p: number; g: Col } | null>(null);
   const [draft, setDraft] = useState("");
-  const [dialog, setDialog] = useState<"bulk" | "costs" | "delete" | null>(null);
+  const [dialog, setDialog] = useState<"bulk" | "rec" | "costs" | "delete" | null>(null);
   const [toast, setToast] = useState("");
   const [q, setQ] = useState("");
 
@@ -72,6 +72,11 @@ export default function PriceGroups() {
     for (const g of games) for (const p of g.products) m.set(p.id, p.cost_price);
     return m;
   }, [games]);
+  /** باقات «بالكمية» — لا يمسّها التقريب لأن سعرها لكتلة لا لوحدة */
+  const amountIds = useMemo(
+    () => new Set(games.flatMap((g) => g.products).filter(isAmountP).map((p) => p.id)),
+    [games],
+  );
 
   function done(message: string) {
     setDialog(null);
@@ -179,6 +184,7 @@ export default function PriceGroups() {
       <div style={toolbar}>
         <button className="btn g" onClick={createGroup}><Icon name="plus" size={15} style={ib} />إنشاء مجموعة أسعار</button>
         <button className="btn" onClick={() => setDialog("bulk")}><Icon name="chart" size={15} style={ib} />تسعير جماعي</button>
+        <button className="btn" onClick={() => setDialog("rec")}><Icon name="chart" size={15} style={ib} />تحديد السعر الموصى</button>
         <button className="btn" onClick={() => setDialog("costs")}><Icon name="refresh" size={15} style={ib} />تحديث التكاليف</button>
         <button className="btn r" onClick={() => setDialog("delete")}><Icon name="trash" size={15} style={ib} />حذف مجموعة</button>
         <input placeholder="بحث سريع: لعبة أو باقة أو Id..." value={q} onChange={(e) => setQ(e.target.value)}
@@ -267,8 +273,9 @@ export default function PriceGroups() {
         </table>
       </div>
 
-      {dialog === "bulk" && (
-        <BulkPriceModal groups={groups} products={allProducts} costOf={costOf}
+      {(dialog === "bulk" || dialog === "rec") && (
+        <BulkPriceModal groups={groups} products={allProducts} costOf={costOf} amountIds={amountIds}
+          initial={dialog === "rec" ? "recommended" : undefined}
           onClose={() => setDialog(null)} onDone={done} />
       )}
       {dialog === "costs" && (
@@ -324,22 +331,27 @@ function Field({ label, hint, children }: {
 }
 
 /**
- * تسعير جماعي — سعر مجموعة أسعار بعينها = تكلفة كل باقة + هامش.
+ * تسعير جماعي — سعر مجموعة أسعار بعينها، أو السعر الموصى، = تكلفة كل باقة + هامش،
+ * مقرّباً لأعلى إلى رقم صحيح إن اختار المالك ذلك.
  * الأساس التكلفة لا السعر الحالي، فتكرار التطبيق لا يضاعف الزيادة.
  */
-function BulkPriceModal({ groups, products, costOf, onClose, onDone }: {
+function BulkPriceModal({ groups, products, costOf, amountIds, initial, onClose, onDone }: {
   groups: Group[];
   products: PickerProduct[];
   costOf: Map<number, string>;
+  amountIds: Set<number>;
+  initial?: "recommended";
   onClose: () => void;
   onDone: (message: string) => void;
 }) {
-  const [group, setGroup] = useState<number | "">(groups[0]?.id ?? "");
+  const [group, setGroup] = useState<number | "recommended">(initial ?? groups[0]?.id ?? "recommended");
   const [picked, setPicked] = useState<number[]>([]);
   const [mode, setMode] = useState<"percent" | "fixed">("percent");
   const [value, setValue] = useState("");
+  const [round, setRound] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const toRec = group === "recommended";
 
   // معاينة على باقة حقيقية — الرقم المجرّد لا يُطمئن، والمثال يُطمئن
   const sample = useMemo(() => {
@@ -347,21 +359,26 @@ function BulkPriceModal({ groups, products, costOf, onClose, onDone }: {
     const cost = Number(costOf.get(id!) ?? 0);
     const v = Number(value);
     if (!id || !cost || !value || Number.isNaN(v)) return null;
-    const after = mode === "percent" ? cost * (1 + v / 100) : cost + v;
+    // التقريب إلى السنت أوّلاً كالخادم — وإلا رفع 1.0000001 إلى 2
+    let after = Math.round((mode === "percent" ? cost * (1 + v / 100) : cost + v) * 100) / 100;
+    if (round && !amountIds.has(id)) after = Math.ceil(after);
     return { name: products.find((p) => p.id === id)?.name ?? "", cost, after };
-  }, [picked, products, costOf, mode, value]);
+  }, [picked, products, costOf, amountIds, mode, value, round]);
 
   async function apply() {
     setErr("");
     setBusy(true);
     try {
       const r = await api.post("/catalog/bulk-price/", {
-        price_group: group, products: picked, mode, value,
+        price_group: group, products: picked, mode, value, round,
       });
       const skipped = (r.data.skipped_zero_cost || []) as string[];
+      const unrounded = (r.data.not_rounded || []) as string[];
+      const list = (xs: string[]) => `${xs.slice(0, 3).join("، ")}${xs.length > 3 ? "…" : ""}`;
       onDone(
-        `✅ سُعّرت ${r.data.updated} باقة في مجموعة ${r.data.group}` +
-        (skipped.length ? ` — وتُركت ${skipped.length} باقة تكلفتها صفر: ${skipped.slice(0, 3).join("، ")}${skipped.length > 3 ? "…" : ""}` : ""),
+        `✅ سُعّرت ${r.data.updated} باقة ${toRec ? "في السعر الموصى" : `في مجموعة ${r.data.group}`}` +
+        (skipped.length ? ` — وتُركت ${skipped.length} باقة تكلفتها صفر: ${list(skipped)}` : "") +
+        (unrounded.length ? ` — ولم تُقرَّب ${unrounded.length} باقة بالكمية: ${list(unrounded)}` : ""),
       );
     } catch (e: any) {
       setErr(e?.response?.data?.detail || "تعذّر التسعير");
@@ -371,22 +388,23 @@ function BulkPriceModal({ groups, products, costOf, onClose, onDone }: {
   }
 
   return (
-    <Modal title="تسعير جماعي" onClose={onClose} footer={
+    <Modal title={toRec ? "تحديد السعر الموصى" : "تسعير جماعي"} onClose={onClose} footer={
       <>
         {err && <span style={errText}>{err}</span>}
         <button className="btn" style={{ marginInlineStart: "auto" }} onClick={onClose}>إلغاء</button>
-        <button className="btn g" disabled={busy || !group || value === ""} onClick={apply}>
+        <button className="btn g" disabled={busy || value === ""} onClick={apply}>
           {busy ? "جارٍ التسعير..." : "تطبيق"}
         </button>
       </>
     }>
-      {groups.length === 0 ? (
-        <div style={{ color: "var(--muted)" }}>أنشئ مجموعة أسعار أولاً.</div>
-      ) : (
-        <>
-          <Field label="مجموعة الأسعار" hint="السعر يُكتب في عمود هذه المجموعة وحدها ويصير مخصّصاً.">
-            <select value={group} onChange={(e) => setGroup(Number(e.target.value))} style={input}>
+          <Field label="أين يُكتب السعر" hint={toRec
+            ? "يُكتب في عمود «الموصى» — وكل خلية مجموعة غير مخصّصة (رمادية) تتبعه."
+            : "السعر يُكتب في عمود هذه المجموعة وحدها ويصير مخصّصاً."}>
+            <select value={group}
+              onChange={(e) => setGroup(e.target.value === "recommended" ? "recommended" : Number(e.target.value))}
+              style={input}>
               {groups.map((g) => <option key={g.id} value={g.id}>مجموعة {g.name}</option>)}
+              <option value="recommended">السعر الموصى</option>
             </select>
           </Field>
 
@@ -414,6 +432,14 @@ function BulkPriceModal({ groups, products, costOf, onClose, onDone }: {
               placeholder={mode === "percent" ? "مثال: 25" : "مثال: 0.20"} />
           </Field>
 
+          <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14, cursor: "pointer" }}>
+            <input type="checkbox" checked={round} onChange={(e) => setRound(e.target.checked)} />
+            <span>
+              <b>تقريب لأعلى إلى رقم صحيح</b>{" "}
+              <span style={{ color: "var(--muted)" }}>— مثلاً 0.94 ⇐ 1 و 1.30 ⇐ 2. لا يمسّ باقات «بالكمية».</span>
+            </span>
+          </label>
+
           <div style={preview}>
             {sample && (
               <div style={{ marginBottom: 6 }}>
@@ -421,12 +447,19 @@ function BulkPriceModal({ groups, products, costOf, onClose, onDone }: {
                 <b style={{ color: "var(--primary-dark)" }}>{sample.after.toFixed(2)}</b>
               </div>
             )}
-            🔗 الباقات المختارة تبقى <b>مرتبطة</b> بهذه القاعدة: كلّما تغيّرت تكلفتها
-            أُعيد حساب سعرها في هذه المجموعة تلقائياً. ويُفكّ الارتباط بتسعير جماعي
-            جديد عليها، أو بتعديل سعرها يدوياً في الجدول.
+            {toRec ? (
+              <>
+                ✍️ السعر الموصى يُكتب <b>مرّة واحدة</b> ولا يرتبط بالتكلفة: إن تغيّرت
+                التكلفة لاحقاً بقي كما هو حتى تعيد تطبيق هذه النافذة أو تعدّله بيدك.
+              </>
+            ) : (
+              <>
+                🔗 الباقات المختارة تبقى <b>مرتبطة</b> بهذه القاعدة{round && " وتقريبها"}: كلّما
+                تغيّرت تكلفتها أُعيد حساب سعرها في هذه المجموعة تلقائياً. ويُفكّ الارتباط
+                بتسعير جماعي جديد عليها، أو بتعديل سعرها يدوياً في الجدول.
+              </>
+            )}
           </div>
-        </>
-      )}
     </Modal>
   );
 }

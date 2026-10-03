@@ -95,6 +95,72 @@ class CatalogToolsTest(APITestCase):
         self.assertEqual(r.status_code, 400)
         self.assertIsNone(self._price(self.p60))  # لم يُكتب شيء
 
+    # ── السعر الموصى والتقريب ──────────────────────────────────────
+    def test_bulk_sets_recommended_price(self):
+        """هدف «الموصى» يكتب في الباقة نفسها ولا ينشئ سعر مجموعة."""
+        r = self.client.post(
+            "/api/catalog/bulk-price/",
+            {"price_group": "recommended", "products": [], "mode": "percent", "value": "10"},
+            format="json",
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(r.json()["updated"], 2)
+        self.p60.refresh_from_db()
+        self.p325.refresh_from_db()
+        self.assertEqual(self.p60.recommended_price, Decimal("1.10"))
+        self.assertEqual(self.p325.recommended_price, Decimal("4.40"))
+        self.assertFalse(ProductPrice.objects.exists())
+
+    def test_round_up_to_whole_number(self):
+        """0.85 + 10% = 0.94 ⇐ 1 — ولأعلى دائماً: 4.40 ⇐ 5 لا 4."""
+        self.p60.cost_price = Decimal("0.85")
+        self.p60.save()
+        self.client.post(
+            "/api/catalog/bulk-price/",
+            {"price_group": "recommended", "products": [], "mode": "percent",
+             "value": "10", "round": True},
+            format="json",
+        )
+        self.p60.refresh_from_db()
+        self.p325.refresh_from_db()
+        self.assertEqual(self.p60.recommended_price, Decimal("1.00"))
+        self.assertEqual(self.p325.recommended_price, Decimal("5.00"))
+
+    def test_without_round_keeps_cents(self):
+        self.p60.cost_price = Decimal("0.85")
+        self.p60.save()
+        self._bulk("percent", "10")
+        self.assertEqual(self._price(self.p60), Decimal("0.94"))
+
+    def test_rounded_group_rule_stays_rounded_when_cost_changes(self):
+        """التقريب جزء من القاعدة المرتبطة — يبقى عند إعادة الحساب."""
+        self.client.post(
+            "/api/catalog/bulk-price/",
+            {"price_group": self.group.id, "products": [self.p60.id], "mode": "percent",
+             "value": "10", "round": True},
+            format="json",
+        )
+        self.assertEqual(self._price(self.p60), Decimal("2.00"))  # 1.10 ⇐ 2
+        self.p60.cost_price = Decimal("2.50")
+        self.p60.save()
+        self.assertEqual(self._price(self.p60), Decimal("3.00"))  # 2.75 ⇐ 3
+
+    def test_amount_package_is_not_rounded(self):
+        """سعر «بالكمية» لكتلة كاملة — تقريبه يقفز بسعر الوحدة، فيُترك ويُذكر."""
+        coins = Product.objects.create(
+            tenant=self.tenant, game=self.game, name="Coins", cost_price=Decimal("1.50"),
+            sale_type="amount", qty_min=1000, qty_max=100000, qty_unit=1000,
+        )
+        r = self.client.post(
+            "/api/catalog/bulk-price/",
+            {"price_group": "recommended", "products": [coins.id], "mode": "percent",
+             "value": "10", "round": True},
+            format="json",
+        )
+        coins.refresh_from_db()
+        self.assertEqual(coins.recommended_price, Decimal("1.65"))
+        self.assertEqual(r.json()["not_rounded"], ["Coins"])
+
     # ── ارتباط السعر بالتكلفة ──────────────────────────────────────
     def test_bulk_links_price_to_cost(self):
         """التسعير الجماعي يحفظ قاعدة لا رقماً — والسعر يتبع التكلفة بعدها."""

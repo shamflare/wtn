@@ -242,8 +242,8 @@ function MethodEditor({
           {/* ── الهوية ── */}
           <Section title="هوية البطاقة — ما يراه الوكيل في الشبكة">
             <div style={grid3}>
-              <Fld label="الاسم *"><input value={f.name} onChange={(e) => set("name", e.target.value)} style={inp} placeholder="شركة تواصل دولار" /></Fld>
-              <Fld label="سطر فرعي"><input value={f.subtitle} onChange={(e) => set("subtitle", e.target.value)} style={inp} placeholder="أوتوماتيكي 24 ساعة" /></Fld>
+              <Fld label="الاسم *"><input value={f.name} onChange={(e) => set("name", e.target.value)} style={inp} /></Fld>
+              <Fld label="سطر فرعي"><input value={f.subtitle} onChange={(e) => set("subtitle", e.target.value)} style={inp} /></Fld>
               <Fld label="ترتيب الظهور"><input type="number" value={f.sort_order} onChange={(e) => set("sort_order", e.target.value)} style={inp} /></Fld>
               <Fld label="صورة البطاقة">
                 <ImageUpload value={f.logo_url} onChange={(v) => set("logo_url", v)} size={64} />
@@ -300,8 +300,7 @@ function MethodEditor({
             <div style={{ display: "grid", gap: 10 }}>
               <Fld label="تفاصيل الإيداع (سطر لكل بند — تُعرض كما هي)">
                 <textarea value={f.instructions} onChange={(e) => set("instructions", e.target.value)}
-                  rows={6} style={{ ...inp, height: "auto", lineHeight: 1.7 }}
-                  placeholder={"📌 تفاصيل الإيداع:\n💰 التحويل إلى: تواصل / اعتماد مباشر\n▼ الحد الأدنى للإيداع: 200$\n💎 العمولة: 0% — بدون رسوم"} />
+                  rows={6} style={{ ...inp, height: "auto", lineHeight: 1.7 }} />
               </Fld>
               <Fld label="صندوق الحساب (يظهر بخلفية داكنة ويُنسخ بضغطة)">
                 <textarea value={f.account_box} onChange={(e) => set("account_box", e.target.value)}
@@ -311,8 +310,7 @@ function MethodEditor({
                 <ImageUpload value={f.qr_url || ""} onChange={(v) => set("qr_url", v)} size={96} sharp />
               </Fld>
               <Fld label="تنبيه فوق النموذج (اختياري)">
-                <input value={f.warning} onChange={(e) => set("warning", e.target.value)} style={inp}
-                  placeholder="يرجى رفع طلب كتابة اسم المُستلم منك المبلغ في قسم المُلاحظة" />
+                <input value={f.warning} onChange={(e) => set("warning", e.target.value)} style={inp} />
               </Fld>
             </div>
           </Section>
@@ -330,16 +328,16 @@ function MethodEditor({
                   <button type="button" onClick={() => moveField(i, 1)} style={arrowBtn} title="أسفل">▼</button>
                 </div>
                 <input value={x.label} onChange={(e) => setField(i, "label", e.target.value)}
-                  placeholder="عنوان الحقل — مثل: اسم المُستلم منك المبلغ" style={{ ...inp, flex: "2 1 220px" }} />
+                  style={{ ...inp, flex: "2 1 220px" }} />
                 <select value={x.kind} onChange={(e) => setField(i, "kind", e.target.value)} style={{ ...inp, width: 130 }}>
                   {KINDS.map((k) => <option key={k.key} value={k.key}>{k.label}</option>)}
                 </select>
                 {x.kind === "select" ? (
                   <input value={x.options} onChange={(e) => setField(i, "options", e.target.value)}
-                    placeholder="الخيارات مفصولة بـ |" style={{ ...inp, flex: "1 1 160px" }} />
+                    style={{ ...inp, flex: "1 1 160px" }} />
                 ) : (
                   <input value={x.placeholder} onChange={(e) => setField(i, "placeholder", e.target.value)}
-                    placeholder="نص إرشادي داخل الحقل" style={{ ...inp, flex: "1 1 160px" }} />
+                    style={{ ...inp, flex: "1 1 160px" }} />
                 )}
                 <label style={chk}>
                   <input type="checkbox" checked={x.required} onChange={(e) => setField(i, "required", e.target.checked)} />

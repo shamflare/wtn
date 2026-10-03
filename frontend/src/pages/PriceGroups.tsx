@@ -332,7 +332,7 @@ function Field({ label, hint, children }: {
 
 /**
  * تسعير جماعي — سعر مجموعة أسعار بعينها، أو السعر الموصى، = تكلفة كل باقة + هامش،
- * مقرّباً لأعلى إلى رقم صحيح إن اختار المالك ذلك.
+ * مقرّباً لأعلى إلى أقرب نصف (1.01 ⇐ 1.50) إن اختار المالك ذلك.
  * الأساس التكلفة لا السعر الحالي، فتكرار التطبيق لا يضاعف الزيادة.
  */
 function BulkPriceModal({ groups, products, costOf, amountIds, initial, onClose, onDone }: {
@@ -361,7 +361,7 @@ function BulkPriceModal({ groups, products, costOf, amountIds, initial, onClose,
     if (!id || !cost || !value || Number.isNaN(v)) return null;
     // التقريب إلى السنت أوّلاً كالخادم — وإلا رفع 1.0000001 إلى 2
     let after = Math.round((mode === "percent" ? cost * (1 + v / 100) : cost + v) * 100) / 100;
-    if (round && !amountIds.has(id)) after = Math.ceil(after);
+    if (round && !amountIds.has(id)) after = Math.ceil(after * 2) / 2;
     return { name: products.find((p) => p.id === id)?.name ?? "", cost, after };
   }, [picked, products, costOf, amountIds, mode, value, round]);
 
@@ -435,8 +435,8 @@ function BulkPriceModal({ groups, products, costOf, amountIds, initial, onClose,
           <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14, cursor: "pointer" }}>
             <input type="checkbox" checked={round} onChange={(e) => setRound(e.target.checked)} />
             <span>
-              <b>تقريب لأعلى إلى رقم صحيح</b>{" "}
-              <span style={{ color: "var(--muted)" }}>— مثلاً 0.94 ⇐ 1 و 1.30 ⇐ 2. لا يمسّ باقات «بالكمية».</span>
+              <b>تقريب لأعلى إلى أقرب نصف</b>{" "}
+              <span style={{ color: "var(--muted)" }}>— مثلاً 0.94 ⇐ 1 و 1.01 حتى 1.50 ⇐ 1.50 و 1.51 ⇐ 2. لا يمسّ باقات «بالكمية».</span>
             </span>
           </label>
 

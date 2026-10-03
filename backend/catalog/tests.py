@@ -111,8 +111,8 @@ class CatalogToolsTest(APITestCase):
         self.assertEqual(self.p325.recommended_price, Decimal("4.40"))
         self.assertFalse(ProductPrice.objects.exists())
 
-    def test_round_up_to_whole_number(self):
-        """0.85 + 10% = 0.94 ⇐ 1 — ولأعلى دائماً: 4.40 ⇐ 5 لا 4."""
+    def test_round_up_to_half(self):
+        """0.85 + 10% = 0.94 ⇐ 1 — و4.40 ⇐ 4.50: لأقرب نصف فوقه."""
         self.p60.cost_price = Decimal("0.85")
         self.p60.save()
         self.client.post(
@@ -124,7 +124,14 @@ class CatalogToolsTest(APITestCase):
         self.p60.refresh_from_db()
         self.p325.refresh_from_db()
         self.assertEqual(self.p60.recommended_price, Decimal("1.00"))
-        self.assertEqual(self.p325.recommended_price, Decimal("5.00"))
+        self.assertEqual(self.p325.recommended_price, Decimal("4.50"))
+
+    def test_half_steps(self):
+        from .services import price_from_margin
+        for cost, expected in [("1.00", "1.00"), ("1.01", "1.50"), ("1.499", "1.50"),
+                               ("1.50", "1.50"), ("1.51", "2.00"), ("0.10", "0.50")]:
+            self.assertEqual(price_from_margin(Decimal(cost), "fixed", Decimal("0"), True),
+                             Decimal(expected), cost)
 
     def test_without_round_keeps_cents(self):
         self.p60.cost_price = Decimal("0.85")
@@ -140,7 +147,7 @@ class CatalogToolsTest(APITestCase):
              "value": "10", "round": True},
             format="json",
         )
-        self.assertEqual(self._price(self.p60), Decimal("2.00"))  # 1.10 ⇐ 2
+        self.assertEqual(self._price(self.p60), Decimal("1.50"))  # 1.10 ⇐ 1.50
         self.p60.cost_price = Decimal("2.50")
         self.p60.save()
         self.assertEqual(self._price(self.p60), Decimal("3.00"))  # 2.75 ⇐ 3

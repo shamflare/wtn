@@ -22,8 +22,8 @@ def price_from_margin(cost: Decimal, mode: str, value: Decimal, round_up: bool =
     تكلفة صفر لا تُسعَّر: النسبة عليها تعطي صفراً — أي بيعاً مجّانياً بلا أن
     ينتبه أحد. وسعرٌ سالب يُرفض كذلك.
 
-    `round_up` يرفع الناتج إلى أقرب رقم صحيح **فوقه** (0.94 ⇐ 1، 1.30 ⇐ 2).
-    لأعلى لا للأقرب: التقريب للأقرب ينزل بـ 1.30 إلى 1 — أي تحت التكلفة.
+    `round_up` يرفع الناتج إلى أقرب **نصف** فوقه: 0.94 ⇐ 1، 1.01…1.50 ⇐ 1.50،
+    1.51…2.00 ⇐ 2. لأعلى لا للأقرب: التقريب للأقرب ينزل بالسعر أحياناً تحت التكلفة.
     """
     if cost is None or cost <= 0 or value is None:
         return None
@@ -32,14 +32,14 @@ def price_from_margin(cost: Decimal, mode: str, value: Decimal, round_up: bool =
         else cost + Decimal(value)
     ).quantize(CENT)
     if round_up:
-        price = price.to_integral_value(rounding=ROUND_CEILING).quantize(CENT)
+        price = ((price * 2).to_integral_value(rounding=ROUND_CEILING) / 2).quantize(CENT)
     return price if price >= 0 else None
 
 
 def rounds(product, round_up: bool) -> bool:
     """
     التقريب لا يمسّ باقات «بالكمية»: سعرها مخزّن لكتلة (مثلاً 2.00 لكل 1000)،
-    ورفعه إلى رقم صحيح يغيّر سعر الوحدة بنسبة كبيرة بلا أن يظهر ذلك.
+    وتقريبه إلى نصف يغيّر سعر الوحدة بنسبة كبيرة بلا أن يظهر ذلك.
     """
     return round_up and not product.is_amount
 

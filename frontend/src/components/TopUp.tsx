@@ -10,7 +10,7 @@ interface MField {
 }
 interface Method {
   id: number; name: string; subtitle: string; logo_url: string; color: string;
-  currency: string; instructions: string; account_box: string; warning: string;
+  currency: string; instructions: string; account_box: string; qr_url?: string; warning: string;
   min_amount: string; max_amount: string; commission_percent: string;
   rate: string; fields_list: MField[];
   /** حين تكون العملة «يحددها العميل»: سعر كل عملة مسعَّرة إلى عملة العرض */
@@ -215,6 +215,19 @@ function MethodForm({
           </button>
         )}
 
+        {/* باركود الدفع — يُمسح من جوال آخر، أو يُحفظ ويُفتح من تطبيق الدفع */}
+        {method.qr_url && (
+          <div style={{ textAlign: "center", marginBottom: 14 }}>
+            <a href={method.qr_url} target="_blank" rel="noreferrer" title="فتح بالحجم الكامل">
+              <img src={method.qr_url} alt="باركود الدفع" style={qrImg} />
+            </a>
+            <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 6 }}>
+              امسح الباركود للدفع ·{" "}
+              <a href={method.qr_url} download={`qr-${method.id}`} style={{ color: "var(--primary)" }}>حفظ الصورة</a>
+            </div>
+          </div>
+        )}
+
         {method.warning && <div style={warnBox}>{method.warning}</div>}
 
         {/* الحقول التي بناها صاحب المتجر */}
@@ -314,6 +327,10 @@ const accountBox: React.CSSProperties = {
 const copyHint: React.CSSProperties = {
   position: "absolute", insetInlineEnd: 10, top: "50%", transform: "translateY(-50%)",
   fontSize: 10.5, color: "var(--primary)", border: "1px solid color-mix(in srgb, var(--primary) 35%, transparent)", borderRadius: 5, padding: "2px 7px",
+};
+const qrImg: React.CSSProperties = {
+  width: 220, maxWidth: "100%", background: "#fff", padding: 10, borderRadius: 10,
+  border: "1px solid var(--border-strong)", display: "inline-block",
 };
 const warnBox: React.CSSProperties = {
   background: "color-mix(in srgb, var(--gold) 12%, transparent)", color: "var(--gold)", borderRadius: 8,

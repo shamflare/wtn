@@ -12,7 +12,7 @@ interface MField {
 }
 interface Method {
   id: number; name: string; subtitle: string; logo_url: string; color: string;
-  currency: string; instructions: string; account_box: string; warning: string;
+  currency: string; instructions: string; account_box: string; qr_url: string; warning: string;
   min_amount: string; max_amount: string; commission_percent: string;
   account: number | null; account_title: string;
   status: string; status_label: string; sort_order: number;
@@ -30,7 +30,7 @@ const KINDS = [
 
 const BLANK = (): Method => ({
   id: 0, name: "", subtitle: "", logo_url: "", color: "#2f6f8f",
-  currency: "TRY", instructions: "", account_box: "", warning: "",
+  currency: "TRY", instructions: "", account_box: "", qr_url: "", warning: "",
   min_amount: "0", max_amount: "0", commission_percent: "0",
   account: null, account_title: "", status: "active", status_label: "",
   sort_order: 0, fields_list: [], request_count: 0,
@@ -215,7 +215,7 @@ function MethodEditor({
     setBusy(true); setErr("");
     const body = {
       name: f.name, subtitle: f.subtitle, logo_url: f.logo_url, color: f.color,
-      currency: f.currency, instructions: f.instructions, account_box: f.account_box,
+      currency: f.currency, instructions: f.instructions, account_box: f.account_box, qr_url: f.qr_url || "",
       warning: f.warning, min_amount: f.min_amount || "0", max_amount: f.max_amount || "0",
       commission_percent: f.commission_percent || "0", account: f.account || null,
       status: f.status, sort_order: Number(f.sort_order) || 0,
@@ -306,6 +306,9 @@ function MethodEditor({
               <Fld label="صندوق الحساب (يظهر بخلفية داكنة ويُنسخ بضغطة)">
                 <textarea value={f.account_box} onChange={(e) => set("account_box", e.target.value)}
                   rows={2} style={{ ...inp, height: "auto" }} />
+              </Fld>
+              <Fld label="صورة باركود الدفع (اختياري — كباركود شام كاش، يمسحه الوكيل ليدفع)">
+                <ImageUpload value={f.qr_url || ""} onChange={(v) => set("qr_url", v)} size={96} sharp />
               </Fld>
               <Fld label="تنبيه فوق النموذج (اختياري)">
                 <input value={f.warning} onChange={(e) => set("warning", e.target.value)} style={inp}

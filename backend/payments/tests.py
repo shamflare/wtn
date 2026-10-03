@@ -40,6 +40,14 @@ class CustomerChosenCurrencyTest(APITestCase):
         self.assertEqual(set(row["rates"]), {"USD", "TRY"})
         self.assertEqual(Decimal(row["rates"]["TRY"]), Decimal("0.025"))
 
+    def test_listing_carries_qr_image(self):
+        """صورة الباركود التي رفعها صاحب المتجر تصل إلى الوكيل مع الطريقة."""
+        self.method.qr_url = "/api/catalog/img/abc/"
+        self.method.save()
+        r = self.client.get("/api/payments/store/methods/")
+        row = next(m for m in r.json()["methods"] if m["id"] == self.method.id)
+        self.assertEqual(row["qr_url"], "/api/catalog/img/abc/")
+
     def test_deposit_in_chosen_currency(self):
         r = self._create(currency="TRY")
         self.assertEqual(r.status_code, 201, r.content)

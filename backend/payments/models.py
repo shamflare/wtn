@@ -76,6 +76,7 @@ class PaymentMethod(models.Model):
     currency = models.CharField(max_length=8, choices=METHOD_CURRENCIES, default="TRY")
     instructions = models.TextField(blank=True, default="")       # الشرح (سطر لكل بند)
     account_box = models.TextField(blank=True, default="")        # الصندوق الأسود المنسوخ
+    qr_url = models.CharField(max_length=500, blank=True, default="")  # صورة باركود الدفع (شام كاش…)
     warning = models.CharField(max_length=300, blank=True, default="")  # تنبيه فوق النموذج
 
     min_amount = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))

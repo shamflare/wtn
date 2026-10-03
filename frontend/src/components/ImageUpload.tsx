@@ -11,9 +11,14 @@ import { api } from "../api";
  */
 const MAX_SIDE = 640;
 
-async function shrink(file: File): Promise<Blob> {
+/**
+ * `sharp`: للباركود وما شابه — PNG بلا فقد وحتى 1024px، فضغط WEBP يطمس حوافّ
+ * المربعات وقد يعجز الماسح عن قراءتها.
+ */
+async function shrink(file: File, sharp = false): Promise<Blob> {
   // GIF المتحرّك يفقد حركته على اللوحة — يُرفع كما هو
   if (file.type === "image/gif") return file;
+  const maxSide = sharp ? 1024 : MAX_SIDE;
   const url = URL.createObjectURL(file);
   try {
     const img = await new Promise<HTMLImageElement>((ok, bad) => {
@@ -22,12 +27,15 @@ async function shrink(file: File): Promise<Blob> {
       i.onerror = () => bad(new Error("bad image"));
       i.src = url;
     });
-    const scale = Math.min(1, MAX_SIDE / Math.max(img.naturalWidth, img.naturalHeight));
+    const scale = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight));
     const canvas = document.createElement("canvas");
     canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
     canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
-    canvas.getContext("2d")!.drawImage(img, 0, 0, canvas.width, canvas.height);
-    const blob = await new Promise<Blob | null>((ok) => canvas.toBlob(ok, "image/webp", 0.86));
+    const ctx = canvas.getContext("2d")!;
+    if (sharp) ctx.imageSmoothingEnabled = scale === 1;
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise<Blob | null>((ok) =>
+      sharp ? canvas.toBlob(ok, "image/png") : canvas.toBlob(ok, "image/webp", 0.86));
     // متصفّحٌ لا يكتب WEBP يعيد PNG — وهذا مقبولٌ أيضاً
     return blob && blob.size < file.size ? blob : file;
   } finally {
@@ -49,8 +57,10 @@ export async function uploadImage(file: File): Promise<string> {
   }
 }
 
-export default function ImageUpload({ value, onChange, size = 88 }: {
+export default function ImageUpload({ value, onChange, size = 88, sharp = false }: {
   value: string; onChange: (url: string) => void; size?: number;
+  /** صورة باركود: بلا ضغط ولا قصّ في المعاينة */
+  sharp?: boolean;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -63,7 +73,7 @@ export default function ImageUpload({ value, onChange, size = 88 }: {
     if (!file.type.startsWith("image/")) { setErr("الملف المختار ليس صورة"); return; }
     setBusy(true);
     try {
-      const blob = await shrink(file);
+      const blob = await shrink(file, sharp);
       const fd = new FormData();
       fd.append("file", blob, file.name);
       const r = await api.post("/catalog/images/", fd);
@@ -90,7 +100,7 @@ export default function ImageUpload({ value, onChange, size = 88 }: {
             display: "grid", placeItems: "center", overflow: "hidden", color: "#94a3b8", fontSize: 12, textAlign: "center",
           }}>
           {busy ? "جارٍ الرفع..." : value
-            ? <img src={value} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+            ? <img src={value} alt="" style={{ width: "100%", height: "100%", objectFit: sharp ? "contain" : "cover", background: sharp ? "#fff" : undefined }} />
             : <span>📷<br />لا صورة</span>}
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-start" }}>

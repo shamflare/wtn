@@ -40,7 +40,7 @@ class PaymentMethodSerializer(serializers.ModelSerializer):
         model = PaymentMethod
         fields = [
             "id", "name", "subtitle", "logo_url", "color", "currency",
-            "instructions", "account_box", "warning",
+            "instructions", "account_box", "qr_url", "warning",
             "min_amount", "max_amount", "commission_percent",
             "account", "account_title", "status", "status_label", "sort_order",
             "fields_list", "request_count",

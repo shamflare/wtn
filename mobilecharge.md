@@ -132,8 +132,32 @@ POST /Kontor/bilgi_api_paketsor.php?GSMNO=5442199992&paketsorgula=true&operator=
 - لاحظ: «Fırsat 25GB ⭕» (بلا İndirimli) أصفر، ونظيرها «Fırsat 30GB İndirimli» وردي وأرخص
   ⇐ العرض الخاص غالباً **نسخة مخفّضة** من باقة عامة.
 
-### د) تنفيذ الشحن (`yukle_onay` ⇐ ؟)
-- (لم يُفحص بعد — انتباه: التأكيد ينفّذ شحناً حقيقياً ويخصم الرصيد.)
+### د) تنفيذ الشحن (من مصدر الصفحة — لم يُنفَّذ شحن فعلي)
+- الضغط على باقة ⇐ `yukle_onay(...)` يفتح نافذة التأكيد فقط (لا طلب للخادم)،
+  وفيها «`<tahsil>` TL Tahsil Ediniz» وزر `ONAYLA` (يُظهر الربح عند المرور عليه).
+- `ONAYLA` ⇐ `kontor_ajax('Kontor/servis.php', …)`:
+```
+POST /Kontor/servis.php?rand=<عشوائي>
+body (form): gsmno=5442199992&operator=Turkcell&tip=Ses&alternatif_id=&paket_adi=
+             &kontor=<معرّف الباقة، مثل 476647.00>&tokena=true&tokenb=true
+```
+- الرد HTML يُعرض في `#sonuc` (شكله لم يُرَ بعد — يُلتقط عند أول شحن حقيقي).
+- متابعة الطلبات: `Kontor/kontor_takip.php` (Transfer Takip)، وتحديث استعلام: `bilgi_api.php?SORGU_ID=…&sorgu_guncelle=true`.
+
+### هـ) عوائق الروبوت
+- `znet_token` في استعلام العروض الخاصة يُحسب بدالة `znet_token_ver(telno,telno)` **مُعمّاة عمداً**
+  (فيها MD5) ومعها فخّ `debugger` يجمّد أدوات المطوّر ⇐ ZNET يقصد منع الأتمتة على هذه النقطة.
+- لا API رسمي هنا: كوكي جلسة تنتهي، ونماذج فيها `token` مخفي، وردود HTML.
+- ⇐ القرار المقترح: **لا نبني على هذه النقاط الداخلية**؛ نستعملها مرجعاً لما نطلبه من ZNET رسمياً
+  (servis API بـ `kod/sifre` كما في الألعاب) حين يعود مبرمجهم.
+
+### و) أسئلة لمبرمج ZNET (جاهزة للإرسال)
+> Kontör / paket yükleme için `servis/` altında (kod/sifre ile) API var mı? İhtiyacımız olanlar:
+> 1. Operatör sorgulama (numara taşınmış olsa da doğru operatör)
+> 2. Operatöre göre paket listesi (kategori, paket ID, fiyat, gün/GB/dk)
+> 3. Aboneye özel paket sorgulama (numaraya özel indirimli paketler)
+> 4. Paket / TL yükleme ve işlem durumu sorgulama
+> Dokümanı paylaşabilir misiniz?
 
 ## 5. القرارات المتخذة
 

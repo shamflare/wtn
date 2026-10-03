@@ -203,7 +203,7 @@ GET {base}/servis/tl_kontrol.php?bayi_kodu=…&sifre=…&tekilnumara=<المعر
     Avea/Türk Telekom (Ses 86 · 3gCep 21 · Yds 10 · Sms 4 · Tam 3) ·
     Callback دولي (BimCell 22 · Syriatel 5 · Mtn 5).
   - لا يحوي تفاصيل (أيام/GB/دقائق) ولا سعر البيع — الكلفة فقط.
-- ❓ **`servis/operator_sorgu.php`**: بلا `msisdn` يردّ `N`، ومعه يردّ `T` لكل رقم (حتى `123`) ⇐ لا يكشف الشركة بالصيغ المجرّبة.
+- ❌ **`servis/operator_sorgu.php`**: بلا `msisdn` يردّ `N`، ومعه يردّ `T` لأي رقم — جُرّب بأرقام حقيقية من الشركات الثلاث (538 Turkcell · 501 Türk Telekom · 545 Vodafone)، وحتى بلا كلمة سر ⇐ **خدمة شكلية لا تكشف الشركة**. الكشف إذن من بادئة الرقم + تصحيح يدوي من الوكيل للأرقام المنقولة.
 
 ### إضافة: خدمة الفواتير (فرصة لاحقة)
 `kurum_listesi.php` (الجهات وكلفتها) · `fatura_ekle.php` (دفع فاتورة) · `fatura_kontrol.php` / `fatura_top_kontrol.php`.

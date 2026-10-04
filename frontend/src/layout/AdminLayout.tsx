@@ -10,6 +10,7 @@ import { applyThemeConfig, THEME_DEFAULTS, type ThemeConfig } from "../theme";
 const ADMIN_TABS = [
   { key: "home", label: "الرئيسية", icon: "home", to: "/home" },
   { key: "oyunpin", label: "الألعاب", icon: "games", to: "/oyunpin" },
+  { key: "kontor", label: "رصيد الموبايل", icon: "phone", to: "/kontor" },
   { key: "bayiler", label: "الوكلاء", icon: "users", to: "/dealers" },
   { key: "ayarlar", label: "الإعدادات", icon: "settings", to: "/settings/site" },
   { key: "raporlar", label: "التقارير", icon: "chart", to: "/reports" },
@@ -44,6 +45,10 @@ const SUBNAV_OYUNPIN = [
   { label: "مجموعات الأسعار", to: "/oyunpin/price-groups" },
   { label: "بنك الأكواد", to: "/oyunpin/pool" },
   { label: "مزوّدو API", to: "/oyunpin/providers" },
+];
+// قسم رصيد الموبايل — شحن الخطوط التركية (kontör)
+const SUBNAV_KONTOR = [
+  { label: "الباقات", to: "/kontor" },
 ];
 // قسم الوكلاء — كل ما يخصّ الوكيل وماله
 const SUBNAV_BAYILER = [
@@ -101,6 +106,7 @@ function agentSubnavFor(path: string) {
 function subnavFor(path: string) {
   if (path.startsWith("/home")) return [];   // الرئيسية بلا قائمة فرعية
   if (path.startsWith("/oyunpin")) return SUBNAV_OYUNPIN;
+  if (path.startsWith("/kontor")) return SUBNAV_KONTOR;
   if (path.startsWith("/reports")) return SUBNAV_RAPORLAR;
   if (path.startsWith("/settings")) return SUBNAV_AYARLAR;
   return SUBNAV_BAYILER; // /dealers + /ayarlar
@@ -215,6 +221,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
                 (t.key === "bayiler" && loc.pathname.startsWith("/bigagent/dealers"))
               : (t.key === "home" && loc.pathname.startsWith("/home")) ||
                 (t.key === "oyunpin" && loc.pathname.startsWith("/oyunpin")) ||
+                (t.key === "kontor" && loc.pathname.startsWith("/kontor")) ||
                 (t.key === "raporlar" && loc.pathname.startsWith("/reports")) ||
                 (t.key === "ayarlar" && loc.pathname.startsWith("/settings")) ||
                 (t.key === "bayiler" &&

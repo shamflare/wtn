@@ -1,10 +1,11 @@
 from decimal import Decimal
 
 from django.test import TestCase
+from rest_framework.test import APITestCase
 
-from core.models import Tenant
-from kontor.management.commands.import_kontor_packages import parse_feed
-from kontor.models import KontorCategory, KontorPackage, LineType, Operator
+from core.models import Tenant, User
+from kontor.models import KontorCategory, KontorPackage
+from kontor.services import parse_feed, upsert_packages
 
 # عيّنة مختصرة من رد paket_listesi.php الحقيقي
 FEED = (
@@ -27,8 +28,7 @@ class ParseFeedTest(TestCase):
                          {"Turkcell", "Vodafone", "Avea", "Callback"})
 
     def test_cost_and_fields(self):
-        rows = parse_feed(FEED)
-        first = next(r for r in rows if r["znet_id"] == "476647")
+        first = next(r for r in parse_feed(FEED) if r["znet_id"] == "476647")
         self.assertEqual(first["cost"], Decimal("970.00"))
         self.assertEqual(first["line_type"], "Ses")
         self.assertEqual(first["name"], "Fırsat 30GB İndirimli ⭕")
@@ -38,55 +38,78 @@ class ParseFeedTest(TestCase):
         self.assertEqual(parse_feed("|||^||"), [])
 
 
-class ImportCommandTest(TestCase):
+class UpsertTest(TestCase):
     def setUp(self):
         self.tenant = Tenant.objects.create(subdomain="kon", name="متجر", base_currency="TRY")
 
-    def _import(self, feed=FEED):
-        # نحاكي الشبكة: نستدعي منطق الأمر مباشرةً عبر parse_feed + الحفظ
-        from kontor.management.commands.import_kontor_packages import (
-            _OP_LABEL, _TYPE_LABEL, _looks_like_offer,
-        )
-        rows = parse_feed(feed)
-        for r in rows:
-            cat, _ = KontorCategory.objects.get_or_create(
-                tenant=self.tenant, operator=r["operator"], line_type=r["line_type"],
-                defaults={"name": f"{_OP_LABEL[r['operator']]} — {_TYPE_LABEL[r['line_type']]}"},
-            )
-            obj = KontorPackage.objects.filter(
-                tenant=self.tenant, operator=r["operator"], znet_id=r["znet_id"]).first()
-            if obj:
-                obj.name, obj.cost_price = r["name"], r["cost"]
-                obj.save()
-            else:
-                KontorPackage.objects.create(
-                    tenant=self.tenant, operator=r["operator"], category=cat,
-                    znet_id=r["znet_id"], name=r["name"], cost_price=r["cost"],
-                    kind=KontorPackage.Kind.OFFER if _looks_like_offer(r["name"]) else KontorPackage.Kind.GENERAL,
-                )
-
     def test_creates_categories_and_packages(self):
-        self._import()
+        res = upsert_packages(self.tenant, parse_feed(FEED))
+        self.assertEqual(res, {"received": 5, "created": 5, "updated": 0})
         self.assertEqual(KontorPackage.objects.count(), 5)
         self.assertEqual(KontorCategory.objects.count(), 5)
 
     def test_offer_detection_by_name(self):
-        self._import()
-        offer = KontorPackage.objects.get(znet_id="476647")
-        self.assertEqual(offer.kind, KontorPackage.Kind.OFFER)
-        general = KontorPackage.objects.get(znet_id="100")
-        self.assertEqual(general.kind, KontorPackage.Kind.GENERAL)
+        upsert_packages(self.tenant, parse_feed(FEED))
+        self.assertEqual(KontorPackage.objects.get(znet_id="476647").kind, KontorPackage.Kind.OFFER)
+        self.assertEqual(KontorPackage.objects.get(znet_id="100").kind, KontorPackage.Kind.GENERAL)
 
-    def test_reimport_updates_not_duplicates(self):
-        self._import()
-        changed = FEED.replace("970.00", "999.00")
-        self._import(changed)
-        self.assertEqual(KontorPackage.objects.count(), 5)  # لا تكرار
-        self.assertEqual(KontorPackage.objects.get(znet_id="476647").cost_price, Decimal("999.00"))
+    def test_reimport_updates_cost_keeps_edits(self):
+        upsert_packages(self.tenant, parse_feed(FEED))
+        p = KontorPackage.objects.get(znet_id="476647")
+        p.recommended_price = Decimal("1200"); p.kind = KontorPackage.Kind.GENERAL; p.save()
+        res = upsert_packages(self.tenant, parse_feed(FEED.replace("970.00", "999.00")))
+        self.assertEqual(res["updated"], 5)
+        p.refresh_from_db()
+        self.assertEqual(p.cost_price, Decimal("999.00"))       # الكلفة تُحدَّث
+        self.assertEqual(p.recommended_price, Decimal("1200"))   # تعديل المالك باقٍ
+        self.assertEqual(p.kind, KontorPackage.Kind.GENERAL)
+        self.assertEqual(KontorPackage.objects.count(), 5)       # لا تكرار
 
-    def test_unique_constraint(self):
-        self._import()
-        # باقة بالمعرّف نفسه لمشغّل مختلف مسموحة؛ لنفس المشغّل تُحدَّث لا تُكرَّر
-        self.assertEqual(
-            KontorPackage.objects.filter(tenant=self.tenant, operator="Turkcell", znet_id="476647").count(), 1
-        )
+    def test_dry_run_saves_nothing(self):
+        self.assertEqual(upsert_packages(self.tenant, parse_feed(FEED), dry_run=True)["created"], 0)
+        self.assertEqual(KontorPackage.objects.count(), 0)
+
+
+class ApiTest(APITestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(subdomain="kon", name="متجر", base_currency="TRY")
+        self.admin = User.objects.create(login_id="own", name="مالك", tenant=self.tenant,
+                                         role=User.Role.TENANT_ADMIN)
+        self.dealer = User.objects.create(login_id="bayi", name="وكيل", tenant=self.tenant,
+                                          role=User.Role.BAYI)
+        upsert_packages(self.tenant, parse_feed(FEED))
+
+    def test_dealer_forbidden(self):
+        self.client.force_authenticate(self.dealer)
+        self.assertEqual(self.client.get("/api/kontor/packages/").status_code, 403)
+
+    def test_admin_lists_and_filters(self):
+        self.client.force_authenticate(self.admin)
+        self.assertEqual(len(self.client.get("/api/kontor/packages/").json()), 5)
+        r = self.client.get("/api/kontor/packages/?operator=Turkcell")
+        self.assertEqual(len(r.json()), 2)
+        self.assertEqual(len(self.client.get("/api/kontor/categories/").json()), 5)
+
+    def test_admin_edits_package(self):
+        self.client.force_authenticate(self.admin)
+        pk = KontorPackage.objects.get(znet_id="100").pk
+        r = self.client.patch(f"/api/kontor/packages/{pk}/",
+                              {"recommended_price": "175.00", "kind": "offer"}, format="json")
+        self.assertEqual(r.status_code, 200, r.content)
+        obj = KontorPackage.objects.get(pk=pk)
+        self.assertEqual(obj.recommended_price, Decimal("175.00"))
+        self.assertEqual(obj.kind, "offer")
+
+    def test_znet_id_and_cost_are_read_only(self):
+        self.client.force_authenticate(self.admin)
+        p = KontorPackage.objects.get(znet_id="100")
+        self.client.patch(f"/api/kontor/packages/{p.pk}/",
+                          {"znet_id": "999", "cost_price": "1.00"}, format="json")
+        p.refresh_from_db()
+        self.assertEqual(p.znet_id, "100")
+        self.assertEqual(p.cost_price, Decimal("148.00"))
+
+    def test_import_without_provider(self):
+        self.client.force_authenticate(self.admin)
+        r = self.client.post("/api/kontor/import/")
+        self.assertEqual(r.status_code, 400)

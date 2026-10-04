@@ -15,6 +15,7 @@ import PackageLinks from "./pages/PackageLinks";
 import PinList from "./pages/PinList";
 import PriceGroups from "./pages/PriceGroups";
 import Providers from "./pages/Providers";
+import Kontor from "./pages/Kontor";
 import Orders from "./pages/Orders";
 import Pool from "./pages/Pool";
 import SiteSettings from "./pages/SiteSettings";
@@ -90,6 +91,9 @@ export default function App() {
           <Route path="/oyunpin/price-groups" element={Admin(<PriceGroups />)} />
           <Route path="/oyunpin/pool" element={Admin(<Pool />)} />
           <Route path="/oyunpin/providers" element={Admin(<Providers />)} />
+
+          {/* رصيد الموبايل (kontör) */}
+          <Route path="/kontor" element={Admin(<Kontor />)} />
           <Route path="/oyunpin/:id" element={Admin(<GameDetail />)} />
 
           {/* الوكلاء */}

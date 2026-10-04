@@ -530,6 +530,15 @@ class StoreDisplayTest(APITestCase):
         self.assertIn(("Ses", "Ses"), names)
         self.assertIn(("Tam", "Tam"), names)
 
+    def test_offer_chips_first_and_cheapest_first(self):
+        KontorPackage.objects.filter(znet_id="777").update(recommended_price=Decimal("900"))
+        upsert_packages(self.tenant, parse_feed("Turkcell|Ses|778|200.00|Normal 5GB|^"))
+        KontorPackage.objects.filter(znet_id="778").update(recommended_price=Decimal("300"))
+        d = self.client.get("/api/kontor/store/packages/?operator=Turkcell").json()
+        self.assertEqual(d["categories"][0]["name"], "Ses*")
+        ses = next(c for c in d["categories"] if c["name"] == "Ses")
+        self.assertEqual([p["znet_id"] for p in ses["packages"]], ["778", "777"])
+
     def test_offers_split_into_starred_chip(self):
         d = self.client.get("/api/kontor/store/packages/?operator=Turkcell").json()
         chips = {c["name"]: [p["znet_id"] for p in c["packages"]] for c in d["categories"]}

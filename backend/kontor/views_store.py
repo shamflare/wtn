@@ -1,5 +1,6 @@
 """نقاط الوكيل لشحن الخطوط: كشف الشركة · باقات الفئات · العروض الخاصة الحيّة."""
 import re
+from decimal import Decimal
 
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -76,18 +77,23 @@ def store_packages_view(request):
         by_cat.setdefault(p.category_id, []).append(p)
     # شعار الشركة: أول شعار رفعه المالك لأيّ فئة منها — يظهر على كراتها كلّها
     op_logo = next((c.logo_url for c in cats if c.logo_url), "")
-    result = []
+    # الباقات داخل كل كرة من الأرخص (بسعر هذا الوكيل)، وكرات العروض أوّلاً
+    price_of = {p.id: dealer_price(user, p) for p in pkgs}
+    by_price = lambda x: (price_of[x.id], x.sort_order, x.id)  # noqa: E731
+    offer_chips, general_chips = [], []
     for c in cats:
-        pkgs_c = sorted(by_cat.get(c.id, []), key=lambda x: (x.sort_order, x.id))
+        pkgs_c = by_cat.get(c.id, [])
         # العروض تنفصل في كرة بنجمة (Ses ⇐ Ses*) كما في ZNET
-        general = [p for p in pkgs_c if p.kind != KontorPackage.Kind.OFFER]
-        offers = [p for p in pkgs_c if p.kind == KontorPackage.Kind.OFFER]
-        for key, name, rows in ((str(c.id), c.name, general), (f"{c.id}*", f"{c.name}*", offers)):
+        general = sorted((p for p in pkgs_c if p.kind != KontorPackage.Kind.OFFER), key=by_price)
+        offers = sorted((p for p in pkgs_c if p.kind == KontorPackage.Kind.OFFER), key=by_price)
+        for key, name, rows, bucket in ((f"{c.id}*", f"{c.name}*", offers, offer_chips),
+                                        (str(c.id), c.name, general, general_chips)):
             if rows:
-                result.append({
+                bucket.append({
                     "id": key, "line_type": c.line_type, "name": name, "is_offer": key.endswith("*"),
                     "logo_url": c.logo_url or op_logo, "packages": [_pkg_row(user, p) for p in rows],
                 })
+    result = offer_chips + general_chips
     return Response({
         "operator": op, "operator_logo": op_logo,
         "currency": currency.display_currency(user),
@@ -130,6 +136,8 @@ def store_offers_view(request):
             "price": str(currency.to_display(user, dealer_price(user, p))),
             "recommended_price": str(currency.to_display(user, p.recommended_price)),
         })
+    # العروض الخاصة (الوردية) أوّلاً، وكلٌّ من المجموعتين من الأرخص
+    rows.sort(key=lambda r: (not r["is_offer"], Decimal(r["price"])))
     return Response({"gsm": gsm, "operator": op,
                      "currency": currency.display_currency(user), "offers": rows})
 

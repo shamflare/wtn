@@ -32,6 +32,14 @@ export default function KontorCategories() {
     } catch { say("تعذّر الحفظ"); }
   }
 
+  /** شعار واحد لكل فئات الشركة — يُغني عن رفعه لكل فئة على حدة. */
+  function setLogoAll(operator: string, logo: string) {
+    const ids = cats.filter((c) => c.operator === operator).map((c) => c.id);
+    setCats((l) => l.map((c) => (ids.includes(c.id) ? { ...c, logo_url: logo } : c)));
+    api.patch("/kontor/categories/", ids.map((id) => ({ id, logo_url: logo })))
+      .then(() => say("✅ حُفظ الشعار لكل الفئات")).catch(() => say("تعذّر الحفظ"));
+  }
+
   /** نقل الفئة خطوة داخل شركتها — يعيد ترقيم الشركة كلّها فلا تتساوى أرقام الترتيب. */
   function move(c: Category, dir: -1 | 1) {
     const list = cats.filter((x) => x.operator === c.operator).sort(bySort);
@@ -53,8 +61,9 @@ export default function KontorCategories() {
       <ScrollTop />
       <h2 style={pageTitle}><Icon name="grid" size={20} /> فئات الخطوط</h2>
       <div style={note}>
-        كل فئة هي <b>كرة</b> يراها الوكيل بجانب حقل الرقم بعد كشف الشركة. سمِّها كما تريد أن يقرأها وكلاؤك،
-        وأضف شعاراً، ورتّبها بالأسهم — بهذا الترتيب تظهر للوكيل. الفئة المخفيّة تختفي بكل باقاتها.
+        كل فئة مربّعٌ بلون الشركة يراه الوكيل بعد كشف الرقم. الأسماء قصيرة كما في ZNET (Ses · Tam · 3gCep · Wifi · Yds)
+        لأن <b>شعار الشركة</b> يدلّ عليها — ارفعه مرّة واحدة بجانب اسم الشركة فيظهر على كل فئاتها.
+        باقات العروض تنفصل تلقائياً في مربّع بنجمة (مثل <b>Ses*</b>). رتّبها بالأسهم، والمخفيّة تختفي بكل باقاتها.
       </div>
 
       {loading ? <div style={{ padding: 30 }}>جارٍ التحميل...</div>
@@ -64,6 +73,12 @@ export default function KontorCategories() {
             <div className="card-title">
               <OpBadge code={op.code} size={24} /> {op.label}
               <span style={{ color: "var(--muted)", fontWeight: 400, fontSize: 13 }}>· {list.length} فئة</span>
+              <span style={{ marginInlineStart: "auto", display: "inline-flex", alignItems: "center", gap: 8,
+                fontSize: 12, fontWeight: 600, color: "var(--muted)" }}>
+                شعار الشركة لكل فئاتها
+                <ImageUpload value={list.find((c) => c.logo_url)?.logo_url || ""} size={40}
+                  onChange={(v) => setLogoAll(op.code, v)} />
+              </span>
             </div>
             <div style={grid}>
               {list.map((c, i) => (

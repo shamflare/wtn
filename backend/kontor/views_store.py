@@ -53,6 +53,7 @@ def _pkg_row(user, p: KontorPackage) -> dict:
         "days": p.days, "gb": p.gb, "minutes": p.minutes,
         "kind": p.kind,
         "price": str(currency.to_display(user, dealer_price(user, p))),
+        "recommended_price": str(currency.to_display(user, p.recommended_price)),
     }
 
 
@@ -73,16 +74,22 @@ def store_packages_view(request):
     by_cat: dict[int, list] = {}
     for p in pkgs:
         by_cat.setdefault(p.category_id, []).append(p)
+    # شعار الشركة: أول شعار رفعه المالك لأيّ فئة منها — يظهر على كراتها كلّها
+    op_logo = next((c.logo_url for c in cats if c.logo_url), "")
     result = []
     for c in cats:
-        rows = [_pkg_row(user, p) for p in sorted(by_cat.get(c.id, []), key=lambda x: (x.sort_order, x.id))]
-        if rows:
-            result.append({
-                "id": c.id, "line_type": c.line_type, "name": c.name,
-                "logo_url": c.logo_url, "packages": rows,
-            })
+        pkgs_c = sorted(by_cat.get(c.id, []), key=lambda x: (x.sort_order, x.id))
+        # العروض تنفصل في كرة بنجمة (Ses ⇐ Ses*) كما في ZNET
+        general = [p for p in pkgs_c if p.kind != KontorPackage.Kind.OFFER]
+        offers = [p for p in pkgs_c if p.kind == KontorPackage.Kind.OFFER]
+        for key, name, rows in ((str(c.id), c.name, general), (f"{c.id}*", f"{c.name}*", offers)):
+            if rows:
+                result.append({
+                    "id": key, "line_type": c.line_type, "name": name, "is_offer": key.endswith("*"),
+                    "logo_url": c.logo_url or op_logo, "packages": [_pkg_row(user, p) for p in rows],
+                })
     return Response({
-        "operator": op,
+        "operator": op, "operator_logo": op_logo,
         "currency": currency.display_currency(user),
         "categories": result,
     })
@@ -121,6 +128,7 @@ def store_offers_view(request):
             "minutes": o.get("minutes") or p.minutes,
             "is_offer": o.get("is_offer", False),
             "price": str(currency.to_display(user, dealer_price(user, p))),
+            "recommended_price": str(currency.to_display(user, p.recommended_price)),
         })
     return Response({"gsm": gsm, "operator": op,
                      "currency": currency.display_currency(user), "offers": rows})
@@ -138,6 +146,8 @@ def _order_row(user, o: KontorOrder) -> dict:
         "id": o.id, "gsm": o.gsm, "operator": o.operator,
         "package_name": o.package.name, "znet_id": o.package.znet_id,
         "price": str(currency.to_display(user, o.sell_price)),
+        "dealer_sell_price": str(currency.to_display(user, o.dealer_sell_price)),
+        "dealer_profit": str(currency.to_display(user, o.dealer_profit)),
         "status": o.status, "status_label": o.get_status_display(),
         "note": o.provider_note, "created_at": o.created_at.strftime("%Y-%m-%d %H:%M"),
     }
@@ -154,8 +164,15 @@ def buy_view(request):
     pkg = KontorPackage.objects.filter(pk=request.data.get("package"), tenant=user.tenant).first()
     if not pkg:
         return Response({"detail": "الباقة غير موجودة"}, status=404)
+    # سعر بيع الوكيل لزبونه يكتبه بعملة عرضه — يُحفظ بعملة الدفتر
+    retail = request.data.get("dealer_sell_price")
+    if retail not in (None, ""):
+        try:
+            retail = currency.from_display(user, str(retail).replace(",", "."))
+        except Exception:  # noqa: BLE001
+            return Response({"detail": "سعر بيع غير صحيح"}, status=400)
     try:
-        order = _create_order(user, pkg, gsm)
+        order = _create_order(user, pkg, gsm, dealer_sell_price=retail)
     except KontorOrderError as e:
         return Response({"detail": str(e)}, status=400)
     _execute(order)

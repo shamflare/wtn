@@ -507,3 +507,44 @@ class CurrencyTest(APITestCase):
             create_order(self.dealer, p, "5442199992")
         self.wallet.refresh_from_db()
         self.assertEqual(self.wallet.balance, Decimal("100"))
+
+
+class StoreDisplayTest(APITestCase):
+    """أسماء الفئات القصيرة، كرة العروض بنجمة، وسعر بيع الوكيل لزبونه."""
+
+    def setUp(self):
+        from core.models import Wallet
+        from providers.models import Provider
+        self.tenant = Tenant.objects.create(subdomain="kon", name="متجر", base_currency="TRY")
+        self.dealer = User.objects.create(login_id="bayi", name="وكيل", tenant=self.tenant,
+                                          role=User.Role.BAYI)
+        self.wallet = Wallet.objects.create(tenant=self.tenant, user=self.dealer, balance=Decimal("5000"))
+        Provider.objects.create(tenant=self.tenant, name="ZNET", type=Provider.Type.SAME_SYSTEM,
+                                config={"code": "znet", "base_url": "http://z", "kod": "k", "sifre": "s"})
+        upsert_packages(self.tenant, parse_feed(FEED + "Turkcell|Ses|777|500.00|Normal 10GB|^"))
+        KontorPackage.objects.update(recommended_price=Decimal("1100"))
+        self.client.force_authenticate(self.dealer)
+
+    def test_short_category_names(self):
+        names = set(KontorCategory.objects.values_list("line_type", "name"))
+        self.assertIn(("Ses", "Ses"), names)
+        self.assertIn(("Tam", "Tam"), names)
+
+    def test_offers_split_into_starred_chip(self):
+        d = self.client.get("/api/kontor/store/packages/?operator=Turkcell").json()
+        chips = {c["name"]: [p["znet_id"] for p in c["packages"]] for c in d["categories"]}
+        self.assertEqual(chips["Ses"], ["777"])
+        self.assertEqual(chips["Ses*"], ["476647"])  # Fırsat ⇐ عرض
+        self.assertIn("recommended_price", d["categories"][0]["packages"][0])
+
+    def test_dealer_sell_price_custom_and_default(self):
+        from unittest.mock import MagicMock, patch
+        from kontor.models import KontorOrder
+        p = KontorPackage.objects.get(znet_id="777")
+        with patch("kontor.execution.requests.get", return_value=MagicMock(text="OK|1|ok|500")):
+            self.client.post("/api/kontor/store/buy/", {"package": p.id, "gsm": "5442199992",
+                                                        "dealer_sell_price": "1250"}, format="json")
+            self.client.post("/api/kontor/store/buy/", {"package": p.id, "gsm": "5442199992"}, format="json")
+        a, b = KontorOrder.objects.order_by("id")
+        self.assertEqual((a.dealer_sell_price, a.dealer_profit), (Decimal("1250.00"), Decimal("150.00")))
+        self.assertEqual((b.dealer_sell_price, b.dealer_profit), (Decimal("1100.00"), Decimal("0.00")))

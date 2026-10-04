@@ -233,6 +233,9 @@ class KontorOrder(models.Model):
     cost_price = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"))
     sell_price = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"))  # ما دفعه الوكيل
     profit = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"))
+    # ما باع به الوكيل لزبونه (يكتبه أو يُؤخذ المقترح) وربحه هو — كالألعاب
+    dealer_sell_price = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"))
+    dealer_profit = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"))
 
     status = models.CharField(max_length=12, choices=Status.choices, default=Status.PENDING)
     provider = models.ForeignKey(

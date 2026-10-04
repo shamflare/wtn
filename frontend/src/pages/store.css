@@ -849,19 +849,22 @@ button.ag-stat:active { transform: scale(.98); }
 .ag-cur-pick { display: flex; flex-wrap: wrap; gap: 8px; }
 .ag-cur-pick .ag-chip { height: 42px; padding: 0 16px; gap: 6px; }
 
-/* ═══ موبايل (شحن الخطوط) — بطاقة الرقم + بطاقات الباقات ═══
-   --opc لون الشركة المكتشفة (يُمرَّر من الصفحة)، وإلا لون المتجر الأساسي. */
+/* ═══ موبايل (شحن الخطوط) — بطاقة الرقم + فئات وبطاقات بألوان الشركة ═══
+   المتغيّرات تأتي من الصفحة بحسب الشركة المكتشفة:
+   --op1/--op2 تدرّج اللون · --opa لمسة العلامة · --opi لون النص. وبدونها لون المتجر. */
 .km-num {
   display: flex; align-items: center; gap: 10px; padding: 8px;
   background: var(--surface); border: 1.5px solid var(--border-strong); border-radius: 22px;
-  box-shadow: var(--shadow-soft); margin-bottom: 12px; transition: border-color .2s, box-shadow .2s;
+  box-shadow: var(--shadow-soft); margin-bottom: 14px; transition: border-color .2s, box-shadow .2s;
 }
 .km-num:focus-within { border-color: color-mix(in srgb, var(--primary) 60%, transparent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 12%, transparent), var(--shadow-soft); }
-.km-num.has-op { border-color: color-mix(in srgb, var(--opc) 70%, transparent); }
+.km-num.has-op { border-color: var(--op2); box-shadow: 0 0 0 4px color-mix(in srgb, var(--op2) 14%, transparent), var(--shadow-soft); }
 .km-num-ico {
-  width: 46px; height: 46px; border-radius: 16px; flex-shrink: 0; display: grid; place-items: center;
-  background: color-mix(in srgb, var(--opc, var(--primary)) 14%, transparent); color: var(--opc, var(--primary));
+  width: 46px; height: 46px; border-radius: 16px; flex-shrink: 0; display: grid; place-items: center; overflow: hidden;
+  background: color-mix(in srgb, var(--primary) 14%, transparent); color: var(--primary);
 }
+.km-num.has-op .km-num-ico { background: linear-gradient(145deg, var(--op1), var(--op2)); color: var(--opa); }
+.km-num-ico img { width: 80%; height: 80%; object-fit: contain; }
 .km-num-field { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; direction: ltr; }
 .km-cc { font-weight: 800; color: var(--muted); font-size: 16px; }
 .ag .km-num-field input {
@@ -873,12 +876,15 @@ button.ag-stat:active { transform: scale(.98); }
   width: 28px; height: 28px; border-radius: 50%; border: 0; flex-shrink: 0; cursor: pointer;
   background: var(--surface-3); color: var(--muted); display: grid; place-items: center;
 }
-.km-go {
-  height: 46px; padding: 0 18px; border: 0; border-radius: 16px; flex-shrink: 0; cursor: pointer;
-  background: var(--primary); color: var(--on-primary); font: inherit; font-weight: 800; font-size: 15px;
+.km-go, .km-offers {
+  height: 46px; padding: 0 16px; border: 0; border-radius: 16px; flex-shrink: 0; cursor: pointer;
+  font: inherit; font-weight: 800; font-size: 14.5px;
   display: inline-flex; align-items: center; gap: 6px; transition: transform .12s, opacity .15s;
 }
-.km-go:active { transform: scale(.96); }
+.km-go { background: var(--primary); color: var(--on-primary); }
+.km-offers { background: color-mix(in srgb, #ec4899 13%, var(--surface)); color: #db2777; border: 1px solid color-mix(in srgb, #ec4899 40%, transparent); }
+.km-offers.on { background: #ec4899; color: #fff; }
+.km-go:active, .km-offers:active { transform: scale(.96); }
 .km-go:disabled { opacity: .45; cursor: not-allowed; }
 .km-spin {
   width: 18px; height: 18px; border-radius: 50%; border: 2.5px solid currentColor; border-top-color: transparent;
@@ -886,73 +892,77 @@ button.ag-stat:active { transform: scale(.98); }
 }
 @keyframes kmSpin { to { transform: rotate(360deg); } }
 
-/* شريط الشركة بعد الكشف */
-.km-op {
-  display: flex; align-items: center; gap: 12px; padding: 12px 14px; margin-bottom: 12px;
-  border-radius: 20px; border: 1px solid color-mix(in srgb, var(--opc) 35%, transparent);
-  background: linear-gradient(110deg, color-mix(in srgb, var(--opc) 22%, var(--surface)), var(--surface) 75%);
-  animation: agPop .22s ease-out;
+/* ── الفئات: مربّعات بلون الشركة وشعارها (كما في ZNET) ── */
+.km-cats {
+  display: flex; gap: 10px; overflow-x: auto; scrollbar-width: none;
+  margin: 0 -16px 16px; padding: 4px 16px 8px;
 }
-.km-op-badge {
-  width: 44px; height: 44px; border-radius: 50%; flex-shrink: 0; display: grid; place-items: center;
-  background: var(--opc); color: var(--opi); font-weight: 900; font-size: 20px;
-  box-shadow: 0 6px 16px color-mix(in srgb, var(--opc) 40%, transparent), inset 0 -4px 8px rgba(0,0,0,.15);
+.km-cats::-webkit-scrollbar { display: none; }
+.km-cat {
+  position: relative; flex-shrink: 0; width: 96px; padding: 10px 6px 9px; cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  border: 2px solid transparent; border-radius: 16px; font: inherit;
+  background: linear-gradient(160deg, var(--op2, var(--primary)), var(--op1, var(--primary-soft)));
+  color: var(--opi, #fff); box-shadow: 0 6px 16px color-mix(in srgb, var(--op1, #000) 30%, transparent);
+  opacity: .78; transition: transform .15s, opacity .15s, border-color .15s;
 }
-.km-op-name { font-weight: 900; font-size: 16px; }
-.km-op-num { font-size: 13px; color: var(--muted); font-weight: 700; text-align: end; font-variant-numeric: tabular-nums; }
-.km-offers {
-  height: 38px; padding: 0 14px; border-radius: 999px; flex-shrink: 0; cursor: pointer;
-  border: 1px solid color-mix(in srgb, #ec4899 45%, transparent); font: inherit; font-weight: 800; font-size: 13px;
-  background: color-mix(in srgb, #ec4899 12%, var(--surface)); color: #db2777;
-  display: inline-flex; align-items: center; gap: 6px;
+.km-cat:hover { opacity: 1; }
+.km-cat.on { opacity: 1; border-color: var(--opa, #fff); transform: translateY(-2px);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--opa, #fff) 35%, transparent), 0 10px 22px color-mix(in srgb, var(--op1, #000) 40%, transparent); }
+.km-cat-logo {
+  width: 42px; height: 42px; display: grid; place-items: center; color: var(--opa, #fff);
 }
-.km-offers.on { background: #ec4899; color: #fff; }
-.km-chip-offer { color: #db2777 !important; }
-.km-chip-logo { width: 22px; height: 22px; border-radius: 50%; object-fit: cover; margin-inline-start: -6px; }
+.km-cat-logo img { width: 100%; height: 100%; object-fit: contain; }
+.km-cat-logo b { font-size: 26px; font-weight: 900; }
+.km-cat-name { font-size: 12.5px; font-weight: 800; white-space: nowrap; letter-spacing: .3px; }
+.km-cat-n {
+  position: absolute; top: 5px; inset-inline-start: 5px; min-width: 20px; height: 18px; padding: 0 5px;
+  border-radius: 999px; background: rgba(0,0,0,.28); color: #fff; font-size: 10.5px; font-weight: 800;
+  display: grid; place-items: center; font-variant-numeric: tabular-nums;
+}
+.km-cat.live { background: linear-gradient(160deg, #f472b6, #db2777); --opa: #fff; }
 
-/* شبكة الباقات: بطاقة واحدة في كل صف على الجوال، ثم 2 ثم 3 */
+/* ── شبكة الباقات: بطاقة واحدة في كل صف على الجوال، ثم 2 ثم 3 ── */
 .km-grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
 @media (min-width: 680px) { .km-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; } }
 @media (min-width: 1040px) { .km-grid { grid-template-columns: repeat(3, 1fr); } }
 
 .km-card {
   position: relative; overflow: hidden; width: 100%; display: flex; align-items: center; gap: 12px;
-  padding: 16px 18px; padding-inline-start: 20px; text-align: start; cursor: pointer;
-  font: inherit; color: var(--text);
-  background: var(--surface); border: 1px solid var(--border); border-radius: 20px;
-  box-shadow: var(--shadow-soft);
-  transition: transform .15s, border-color .15s, box-shadow .15s;
+  padding: 16px; text-align: start; cursor: pointer; font: inherit;
+  color: var(--opi, var(--text)); border: 0; border-radius: 20px;
+  background:
+    radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--opa, #fff) 16%, transparent), transparent 55%),
+    linear-gradient(135deg, var(--op1, var(--surface)), var(--op2, var(--surface-2)));
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--op1, #000) 28%, transparent);
+  transition: transform .15s, box-shadow .15s;
   animation: agPop .2s ease-out both;
 }
-.km-card::before {
-  content: ""; position: absolute; inset-block: 12px; inset-inline-start: 0; width: 4px;
-  border-radius: 0 4px 4px 0; background: var(--opc, var(--primary));
-}
-.km-card:hover {
-  transform: translateY(-2px); border-color: color-mix(in srgb, var(--primary) 45%, transparent);
-  box-shadow: 0 14px 32px color-mix(in srgb, var(--primary) 16%, transparent);
-}
+.km-card:hover { transform: translateY(-2px); box-shadow: 0 14px 30px color-mix(in srgb, var(--op1, #000) 38%, transparent); }
 .km-card:active { transform: scale(.98); }
-.km-card-body { flex: 1; min-width: 0; }
-.km-card-name { font-weight: 800; font-size: 15px; line-height: 1.45; }
-.km-card-det { font-size: 12px; color: var(--muted); margin-top: 4px; line-height: 1.5; }
+.km-card-mark {
+  position: absolute; inset-inline-end: 34%; top: 50%; width: 110px; height: 110px; transform: translateY(-50%);
+  object-fit: contain; opacity: .1; pointer-events: none; filter: saturate(0) brightness(3);
+}
+.km-card-body { flex: 1; min-width: 0; position: relative; }
+.km-card-name { font-weight: 900; font-size: 15.5px; line-height: 1.45; }
+.km-card-det { font-size: 12px; margin-top: 5px; line-height: 1.55; opacity: .82; }
+.km-card .km-specs span {
+  background: rgba(255,255,255,.16); border-color: rgba(255,255,255,.22); color: inherit;
+}
 .km-card-price {
-  flex-shrink: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
-  min-width: 82px; padding: 8px 12px; border-radius: 16px;
-  background: color-mix(in srgb, var(--primary) 12%, transparent);
+  position: relative; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: 3px;
+  min-width: 96px; padding: 10px 12px; border-radius: 16px;
+  background: #fff; color: var(--op1, var(--primary)); box-shadow: 0 4px 12px rgba(0,0,0,.18);
 }
-.km-card-price b { font-size: 19px; font-weight: 900; color: var(--primary); font-variant-numeric: tabular-nums; line-height: 1.2; }
-.km-card-price small { font-size: 11.5px; color: var(--muted); font-weight: 700; }
-.km-card.offer {
-  border-color: color-mix(in srgb, #ec4899 35%, transparent);
-  background: linear-gradient(120deg, color-mix(in srgb, #ec4899 9%, var(--surface)), var(--surface) 70%);
-}
-.km-card.offer::before { background: #ec4899; }
+.km-card-amt { font-size: 18px; font-weight: 900; font-variant-numeric: tabular-nums; white-space: nowrap; line-height: 1.2; }
+.km-card-rec { font-size: 10.5px; font-weight: 700; color: #6b7280; white-space: nowrap; }
+.km-card.offer { box-shadow: 0 0 0 2px #ec4899, 0 8px 22px color-mix(in srgb, #ec4899 30%, transparent); }
 .km-ribbon {
-  position: absolute; top: 0; inset-inline-end: 0; padding: 3px 12px 4px;
-  border-end-start-radius: 12px; background: #ec4899; color: #fff; font-size: 11px; font-weight: 800;
+  position: absolute; top: 0; inset-inline-start: 0; padding: 3px 12px 4px; z-index: 1;
+  border-end-end-radius: 12px; background: #ec4899; color: #fff; font-size: 11px; font-weight: 800;
 }
-.km-card.offer .km-card-body { padding-top: 4px; }
+.km-card.offer .km-card-body { padding-top: 10px; }
 
 .km-specs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
 .km-specs span {
@@ -970,10 +980,10 @@ button.ag-stat:active { transform: scale(.98); }
   background: var(--surface-2); color: var(--faint);
 }
 
-/* ورقة التأكيد */
+/* ── ورقة التأكيد ── */
 .km-confirm {
-  border: 1px solid var(--border); border-radius: 18px; padding: 6px 14px; margin-top: 4px;
-  background: var(--surface-2); border-inline-start: 4px solid var(--opc, var(--primary));
+  border-radius: 18px; padding: 6px 14px; margin-top: 4px; background: var(--surface-2);
+  border: 1px solid var(--border); border-inline-start: 5px solid var(--op2, var(--primary));
 }
 .km-confirm-row {
   display: flex; justify-content: space-between; gap: 12px; padding: 10px 0;
@@ -984,11 +994,17 @@ button.ag-stat:active { transform: scale(.98); }
 .km-confirm .km-specs { padding: 10px 0; margin: 0; border-bottom: 1px dashed var(--border); }
 .km-confirm-price { display: flex; justify-content: space-between; align-items: center; padding: 12px 0 8px; }
 .km-confirm-price span { color: var(--muted); font-weight: 700; }
-.km-confirm-price b { font-size: 26px; font-weight: 900; color: var(--primary); font-variant-numeric: tabular-nums; }
-.km-confirm-price small { font-size: 14px; color: var(--muted); }
+.km-confirm-price b { font-size: 24px; font-weight: 900; color: var(--primary); font-variant-numeric: tabular-nums; }
+.km-profit {
+  display: flex; justify-content: space-between; align-items: center; margin-top: 10px;
+  padding: 10px 14px; border-radius: 14px; background: var(--surface-2); font-size: 14px;
+}
+.km-profit span { color: var(--muted); font-weight: 700; }
+.km-profit b { font-size: 17px; font-weight: 900; font-variant-numeric: tabular-nums; }
 
 @media (max-width: 380px) {
   .km-num-ico { display: none; }
   .ag .km-num-field input { font-size: 19px; letter-spacing: .5px; }
-  .km-card { padding: 14px; padding-inline-start: 16px; }
+  .km-card { padding: 14px 12px; }
+  .km-card-price { min-width: 84px; padding: 8px; }
 }

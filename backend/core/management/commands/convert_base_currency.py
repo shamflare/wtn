@@ -43,7 +43,8 @@ TENANT_SCOPED = [
     # الخطوط: provider_cost يبقى بعملة ZNET ولا يُحوَّل
     (KontorPackage, ["cost_price", "recommended_price"]),
     (KontorPackagePrice, ["price"]),
-    (KontorOrder, ["cost_price", "sell_price", "profit", "balance_before", "balance_after"]),
+    (KontorOrder, ["cost_price", "sell_price", "profit", "dealer_sell_price", "dealer_profit",
+                   "balance_before", "balance_after"]),
 ]
 
 

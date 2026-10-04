@@ -6,7 +6,7 @@
 
 القرار المالي عند الإنشاء: يُخصم من الوكيل، فإن رفض ZNET فوراً يُعاد المبلغ.
 """
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 import requests
 from django.db import transaction
@@ -56,8 +56,11 @@ def _parse_place(text: str):
 
 
 @transaction.atomic
-def create_order(dealer, package: KontorPackage, gsm: str) -> KontorOrder:
-    """ينشئ الطلب ويخصم المحفظة (قيد الإرسال). لا ينفّذ بعد — يليه execute()."""
+def create_order(dealer, package: KontorPackage, gsm: str, dealer_sell_price=None) -> KontorOrder:
+    """
+    ينشئ الطلب ويخصم المحفظة (قيد الإرسال). لا ينفّذ بعد — يليه execute().
+    `dealer_sell_price` (بعملة الدفتر): ما باع به الوكيل لزبونه؛ فارغ ⇐ السعر المقترح.
+    """
     if package.tenant_id != dealer.tenant_id:
         raise KontorOrderError("الباقة والوكيل من متجرين مختلفين")
     if package.status != KontorPackage.Status.ACTIVE:
@@ -75,6 +78,16 @@ def create_order(dealer, package: KontorPackage, gsm: str) -> KontorOrder:
     if sell < cost:
         raise KontorOrderError("سعر الباقة أقل من كلفتها — أوقف البيع حمايةً من الخسارة")
 
+    if dealer_sell_price in (None, ""):
+        retail = (package.recommended_price or Decimal("0")).quantize(CENT)
+    else:
+        try:
+            retail = Decimal(str(dealer_sell_price).replace(",", ".")).quantize(CENT)
+        except (InvalidOperation, ValueError):
+            raise KontorOrderError("سعر البيع غير صالح")
+        if retail < 0:
+            raise KontorOrderError("سعر البيع لا يصحّ أن يكون سالباً")
+
     wallet = getattr(dealer, "wallet", None)
     if wallet is None:
         raise KontorOrderError("لا توجد محفظة للوكيل")
@@ -90,6 +103,7 @@ def create_order(dealer, package: KontorPackage, gsm: str) -> KontorOrder:
         tenant_id=dealer.tenant_id, dealer=dealer, package=package,
         operator=package.operator, gsm=gsm,
         cost_price=cost, sell_price=sell, profit=sell - cost,
+        dealer_sell_price=retail, dealer_profit=retail - sell,
         status=KontorOrder.Status.PENDING,
         balance_before=txn.balance_before, balance_after=txn.balance_after,
     )

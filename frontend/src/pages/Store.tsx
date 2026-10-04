@@ -1299,31 +1299,42 @@ function AccountPane() {
 /* ═════════════════════════ موبايل (شحن الخطوط) ═════════════════════════ */
 interface KPkg {
   id: number; znet_id: string; name: string; details: string;
-  days: number; gb: number; minutes: number; kind: string; price: string; is_offer?: boolean;
+  days: number; gb: number; minutes: number; kind: string;
+  price: string; recommended_price?: string; is_offer?: boolean;
 }
-interface KCat { id: number; line_type: string; name: string; logo_url?: string; packages: KPkg[] }
+interface KCat { id: string; line_type: string; name: string; logo_url?: string; is_offer?: boolean; packages: KPkg[] }
 
-// الشركات بألوان علاماتها — تلوّن شريط الشركة وحافّة البطاقات
-const OPS: Record<string, { label: string; color: string; ink: string }> = {
-  Turkcell: { label: "Turkcell", color: "#ffc900", ink: "#1f2f6b" },
-  Vodafone: { label: "Vodafone", color: "#e60000", ink: "#fff" },
-  Avea: { label: "Türk Telekom", color: "#1d6fd6", ink: "#fff" },
-  Callback: { label: "دولي", color: "#8b5cf6", ink: "#fff" },
+/**
+ * ألوان الشركات: c1→c2 تدرّج البطاقة، accent لمسة العلامة (أصفر Turkcell…)، ink لون النص.
+ * تُمرَّر متغيّراتٍ (--op1/--op2/--opa/--opi) فيلبس كل شيء لون الشركة المكتشفة.
+ */
+const OPS: Record<string, { label: string; c1: string; c2: string; accent: string; ink: string }> = {
+  Turkcell: { label: "Turkcell", c1: "#0b3a8c", c2: "#1d63d6", accent: "#ffc900", ink: "#fff" },
+  Vodafone: { label: "Vodafone", c1: "#b80000", c2: "#ff2a2a", accent: "#ffffff", ink: "#fff" },
+  Avea: { label: "Türk Telekom", c1: "#08245c", c2: "#0b74d1", accent: "#3ad0ff", ink: "#fff" },
+  Callback: { label: "دولي", c1: "#4c1d95", c2: "#8b5cf6", accent: "#fde68a", ink: "#fff" },
 };
 
 /** 5XXXXXXXXX ⇐ 5XX XXX XX XX للعرض */
 const fmtGsm = (d: string) => [d.slice(0, 3), d.slice(3, 6), d.slice(6, 8), d.slice(8, 10)].filter(Boolean).join(" ");
 
-/** متغيّر CSS للون الشركة على عنصر. */
-const opVars = (color?: string, ink?: string) =>
-  (color ? { "--opc": color, ...(ink ? { "--opi": ink } : {}) } : {}) as React.CSSProperties;
+const opVars = (code?: string) => {
+  const o = code ? OPS[code] : undefined;
+  return (o ? { "--op1": o.c1, "--op2": o.c2, "--opa": o.accent, "--opi": o.ink } : {}) as React.CSSProperties;
+};
+
+/** مبلغ مع رمز العملة بجانبه (20.69 $) — اتجاه LTR كي لا ينقلب الترتيب. */
+function Amt({ v, sym, className }: { v: string | number; sym: string; className?: string }) {
+  return <span className={className} dir="ltr">{money(v)}&nbsp;{sym}</span>;
+}
 
 function MobileTab() {
   const sym = useCur();
   const [gsm, setGsm] = useState("");
   const [operator, setOperator] = useState("");
+  const [opLogo, setOpLogo] = useState("");
   const [cats, setCats] = useState<KCat[]>([]);
-  const [activeCat, setActiveCat] = useState<number | "offers" | null>(null);
+  const [activeCat, setActiveCat] = useState<string | null>(null);
   const [offers, setOffers] = useState<KPkg[] | null>(null);
   const [busy, setBusy] = useState<"" | "detect" | "offers" | "buy">("");
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -1333,7 +1344,7 @@ function MobileTab() {
   const op = OPS[operator];
 
   function reset() {
-    setOperator(""); setCats([]); setActiveCat(null); setOffers(null); setMsg(null);
+    setOperator(""); setOpLogo(""); setCats([]); setActiveCat(null); setOffers(null); setMsg(null);
   }
 
   async function detect() {
@@ -1344,6 +1355,7 @@ function MobileTab() {
       setOperator(d.data.operator);
       const p = await api.get(`/kontor/store/packages/?operator=${d.data.operator}`);
       setCats(p.data.categories);
+      setOpLogo(p.data.operator_logo || "");
       setActiveCat(p.data.categories[0]?.id ?? null);
     } catch (e: any) {
       reset();
@@ -1352,21 +1364,24 @@ function MobileTab() {
   }
 
   async function showOffers() {
-    if (offers) { setActiveCat("offers"); return; }
+    if (offers) { setActiveCat("live"); return; }
     setBusy("offers"); setMsg(null);
     try {
       const r = await api.post("/kontor/store/offers/", { gsm: digits, operator });
       setOffers(r.data.offers);
-      setActiveCat("offers");
+      setActiveCat("live");
     } catch (e: any) {
       setMsg({ ok: false, text: e?.response?.data?.detail || "تعذّر جلب العروض" });
     } finally { setBusy(""); }
   }
 
-  async function buy(pkg: KPkg) {
+  async function buy(pkg: KPkg, sellPrice: string) {
     setBusy("buy"); setMsg(null);
     try {
-      const r = await api.post("/kontor/store/buy/", { package: pkg.id, gsm: digits });
+      const r = await api.post("/kontor/store/buy/", {
+        package: pkg.id, gsm: digits,
+        dealer_sell_price: sellPrice.trim(), // فارغ ⇒ السعر المقترح
+      });
       const st = r.data.status;
       setMsg({ ok: st !== "failed" && st !== "refunded",
                text: st === "refunded" ? `فشل الشحن وأُعيد المبلغ: ${r.data.note || ""}`
@@ -1377,15 +1392,17 @@ function MobileTab() {
     } finally { setBusy(""); setConfirm(null); }
   }
 
-  const list = activeCat === "offers" ? (offers || []) : (cats.find((c) => c.id === activeCat)?.packages || []);
+  const list = activeCat === "live" ? (offers || []) : (cats.find((c) => c.id === activeCat)?.packages || []);
 
   return (
-    <div>
+    <div style={opVars(operator)}>
       <h1 className="ag-h1">موبايل <small>شحن الخطوط التركية</small></h1>
 
       {/* بطاقة الرقم */}
-      <div className={`km-num${op ? " has-op" : ""}`} style={opVars(op?.color)}>
-        <span className="km-num-ico"><Icon name="phone" size={21} /></span>
+      <div className={`km-num${op ? " has-op" : ""}`}>
+        <span className="km-num-ico">
+          {op && opLogo ? <img src={opLogo} alt="" /> : <Icon name="phone" size={21} />}
+        </span>
         <div className="km-num-field">
           <span className="km-cc" dir="ltr">+90</span>
           <input inputMode="numeric" dir="ltr" value={fmtGsm(digits)} autoComplete="tel"
@@ -1401,49 +1418,48 @@ function MobileTab() {
             </button>
           )}
         </div>
-        <button type="button" className="km-go" disabled={digits.length < 10 || busy === "detect"} onClick={detect}>
-          {busy === "detect" ? <span className="km-spin" /> : <>كشف <Icon name="search" size={16} /></>}
-        </button>
-      </div>
-
-      {op && (
-        <div className="km-op" style={opVars(op.color, op.ink)}>
-          <span className="km-op-badge">{operator === "Callback" ? "🌐" : op.label[0]}</span>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div className="km-op-name">{op.label}</div>
-            <div className="km-op-num" dir="ltr">+90 {fmtGsm(digits)}</div>
-          </div>
-          <button type="button" className={`km-offers${activeCat === "offers" ? " on" : ""}`}
-            disabled={busy === "offers"} onClick={showOffers}>
+        {op ? (
+          <button type="button" className={`km-offers${activeCat === "live" ? " on" : ""}`}
+            disabled={busy === "offers"} onClick={showOffers} title="العروض الخاصة بهذا الرقم">
             {busy === "offers" ? <span className="km-spin" /> : <Icon name="bolt" size={15} />}
             عروض الرقم
           </button>
-        </div>
-      )}
+        ) : (
+          <button type="button" className="km-go" disabled={digits.length < 10 || busy === "detect"} onClick={detect}>
+            {busy === "detect" ? <span className="km-spin" /> : <>كشف <Icon name="search" size={16} /></>}
+          </button>
+        )}
+      </div>
 
       {msg && <div className={`ag-msg ${msg.ok ? "ok" : "err"}`} style={{ marginBottom: 12 }}>{msg.text}</div>}
 
+      {/* الفئات: مربّعات بلون الشركة وشعارها — كما في ZNET */}
       {cats.length > 0 && (
-        <div className="ag-chips" style={{ marginBottom: 14 }}>
+        <div className="km-cats">
           {offers && (
-            <button className={`ag-chip km-chip-offer${activeCat === "offers" ? " on" : ""}`} onClick={() => setActiveCat("offers")}>
-              <Icon name="bolt" size={14} /> عروض خاصة <span className="n">{offers.length}</span>
+            <button className={`km-cat live${activeCat === "live" ? " on" : ""}`} onClick={() => setActiveCat("live")}>
+              <span className="km-cat-logo"><Icon name="bolt" size={22} /></span>
+              <span className="km-cat-name">عروض الرقم</span>
+              <span className="km-cat-n">{offers.length}</span>
             </button>
           )}
           {cats.map((c) => (
-            <button key={c.id} className={`ag-chip${activeCat === c.id ? " on" : ""}`} onClick={() => setActiveCat(c.id)}>
-              {c.logo_url && <img src={c.logo_url} alt="" className="km-chip-logo" />}
-              {c.name} <span className="n">{c.packages.length}</span>
+            <button key={c.id} className={`km-cat${activeCat === c.id ? " on" : ""}`} onClick={() => setActiveCat(c.id)}>
+              <span className="km-cat-logo">
+                {c.logo_url ? <img src={c.logo_url} alt="" /> : <b>{op?.label[0]}</b>}
+              </span>
+              <span className="km-cat-name">★ {c.name} ★</span>
+              <span className="km-cat-n">{c.packages.length}</span>
             </button>
           ))}
         </div>
       )}
 
       {activeCat !== null && (list.length === 0
-        ? <Empty icon="tag" text={activeCat === "offers" ? "لا عروض خاصة لهذا الرقم" : "لا باقات في هذه الفئة"} />
+        ? <Empty icon="tag" text={activeCat === "live" ? "لا عروض خاصة لهذا الرقم" : "لا باقات في هذه الفئة"} />
         : (
           <div className="km-grid">
-            {list.map((p) => <PkgCard key={p.id} p={p} sym={sym} color={op?.color} onPick={() => setConfirm(p)} />)}
+            {list.map((p) => <PkgCard key={p.id} p={p} sym={sym} logo={opLogo} onPick={() => setConfirm(p)} />)}
           </div>
         ))}
 
@@ -1455,21 +1471,49 @@ function MobileTab() {
       )}
 
       {confirm && (
-        <Sheet title="تأكيد الشحن" onClose={() => setConfirm(null)} locked={busy === "buy"}>
-          <div className="km-confirm" style={opVars(op?.color)}>
-            <div className="km-confirm-row"><span>الرقم</span><b dir="ltr">+90 {fmtGsm(digits)}</b></div>
-            <div className="km-confirm-row"><span>الشركة</span><b>{op?.label}</b></div>
-            <div className="km-confirm-row"><span>الباقة</span><b>{confirm.name}</b></div>
-            {confirm.details && <div className="km-confirm-row"><span>التفاصيل</span><b>{confirm.details}</b></div>}
-            <Specs p={confirm} />
-            <div className="km-confirm-price"><span>المبلغ</span><b>{confirm.price} <small>{sym}</small></b></div>
-          </div>
-          <button className="btn g ag-cta" disabled={busy === "buy"} onClick={() => buy(confirm)}>
-            {busy === "buy" ? "جارٍ الإرسال..." : "تأكيد الشحن"}
-          </button>
-        </Sheet>
+        <BuySheet pkg={confirm} gsm={digits} op={operator} sym={sym} busy={busy === "buy"}
+          onClose={() => setConfirm(null)} onBuy={(sell) => buy(confirm, sell)} />
       )}
     </div>
+  );
+}
+
+/** ورقة تأكيد الشحن — مع سعر بيع الوكيل لزبونه (فارغ = المقترح) وربحه منه. */
+function BuySheet({ pkg, gsm, op, sym, busy, onClose, onBuy }: {
+  pkg: KPkg; gsm: string; op: string; sym: string; busy: boolean;
+  onClose: () => void; onBuy: (sellPrice: string) => void;
+}) {
+  const [sell, setSell] = useState("");
+  const pay = Number(pkg.price);
+  const suggested = Number(pkg.recommended_price || 0);
+  const retail = sell.trim() ? Number(sell) : suggested;
+  const profit = retail - pay;
+  return (
+    <Sheet title="تأكيد الشحن" onClose={onClose} locked={busy}>
+      <div style={opVars(op)}>
+        <div className="km-confirm">
+          <div className="km-confirm-row"><span>الرقم</span><b dir="ltr">+90 {fmtGsm(gsm)}</b></div>
+          <div className="km-confirm-row"><span>الشركة</span><b>{OPS[op]?.label}</b></div>
+          <div className="km-confirm-row"><span>الباقة</span><b>{pkg.name}</b></div>
+          {pkg.details && <div className="km-confirm-row"><span>التفاصيل</span><b>{pkg.details}</b></div>}
+          <Specs p={pkg} />
+          <div className="km-confirm-price"><span>يُخصم من رصيدك</span><b><Amt v={pay} sym={sym} /></b></div>
+        </div>
+
+        <label className="ag-label">سعر بيعك للزبون (اختياري)</label>
+        <input type="number" step="0.01" min="0" inputMode="decimal" value={sell} dir="ltr"
+          onChange={(e) => setSell(e.target.value)} style={{ textAlign: "center", fontWeight: 700 }}
+          placeholder={suggested > 0 ? `فارغ = المقترح ${money(suggested)} ${sym}` : "فارغ = المقترح"} />
+        <div className="km-profit">
+          <span>ربحك من العملية</span>
+          <b style={{ color: profit < 0 ? "var(--danger)" : "var(--primary)" }}><Amt v={profit} sym={sym} /></b>
+        </div>
+
+        <button className="btn g ag-cta" disabled={busy} onClick={() => onBuy(sell)}>
+          {busy ? "جارٍ الإرسال..." : <><Icon name="check" size={18} />تأكيد الشحن</>}
+        </button>
+      </div>
+    </Sheet>
   );
 }
 
@@ -1487,19 +1531,22 @@ function Specs({ p }: { p: KPkg }) {
   );
 }
 
-/** بطاقة باقة — الضغط عليها كلّها يفتح تأكيد الشحن. */
-function PkgCard({ p, sym, color, onPick }: { p: KPkg; sym: string; color?: string; onPick: () => void }) {
+/** بطاقة باقة بلون الشركة — الضغط عليها كلّها يفتح تأكيد الشحن. */
+function PkgCard({ p, sym, logo, onPick }: { p: KPkg; sym: string; logo: string; onPick: () => void }) {
   const offer = p.is_offer || p.kind === "offer";
+  const rec = Number(p.recommended_price || 0);
   return (
-    <button type="button" className={`km-card${offer ? " offer" : ""}`} onClick={onPick} style={opVars(color)}>
-      {offer && <span className="km-ribbon">عرض</span>}
+    <button type="button" className={`km-card${offer ? " offer" : ""}`} onClick={onPick}>
+      {logo && <img src={logo} alt="" className="km-card-mark" />}
+      {offer && <span className="km-ribbon">★ عرض</span>}
       <div className="km-card-body">
         <div className="km-card-name">{p.name}</div>
         <Specs p={p} />
         {p.details && <div className="km-card-det">{p.details}</div>}
       </div>
       <div className="km-card-price">
-        <b>{p.price}</b><small>{sym}</small>
+        <Amt v={p.price} sym={sym} className="km-card-amt" />
+        {rec > 0 && <span className="km-card-rec">المقترح <Amt v={rec} sym={sym} /></span>}
       </div>
     </button>
   );

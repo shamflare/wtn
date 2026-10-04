@@ -10,6 +10,13 @@ _TYPES = {c.value for c in LineType}
 _TYPE_LABEL = dict(LineType.choices)
 _OP_LABEL = dict(Operator.choices)
 
+# أسماء الفئات القصيرة كما في ZNET (الشعار يدلّ على الشركة فلا يُكرَّر اسمها)،
+# مع تصحيح التباسه: 3gPc يصير Wifi كي لا يتشابه مع 3gCep.
+SHORT_NAME = {
+    "Tam": "Tam", "Ses": "Ses", "Sms": "Sms", "3gCep": "3gCep", "3gPc": "Wifi",
+    "Yds": "Yds", "BimCell": "BiP", "Mtn": "MTN", "Syriatel": "Syriatel",
+}
+
 
 def parse_feed(text: str) -> list[dict]:
     """نصّ `paket_listesi` ⇐ قائمة باقات صالحة. يتجاهل الأسطر المشوّهة."""
@@ -70,7 +77,7 @@ def upsert_packages(tenant, rows, *, dry_run=False, provider=None) -> dict:
         if cat is None:
             cat, _ = KontorCategory.objects.get_or_create(
                 tenant=tenant, operator=r["operator"], line_type=r["line_type"],
-                defaults={"name": f"{_OP_LABEL[r['operator']]} — {_TYPE_LABEL[r['line_type']]}"},
+                defaults={"name": SHORT_NAME.get(r["line_type"], r["line_type"])},
             )
             cats[key] = cat
 

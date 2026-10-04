@@ -75,6 +75,26 @@ services:
     depends_on: [web]
     networks: [wtn]
 
+  # خدمة جلسة ZNET: متصفّح خفيّ يمسك جلسة لوحة واحدة ويُجيب الموقعَ عن كشف
+  # الشركة والعروض الخاصة (ما لا يعطيه API الرسمي). يصل إليها `web` بالاسم
+  # الداخلي `kontor-session` على المنفذ 8700. تحتاج بيانات دخول اللوحة + رمز
+  # الصورة الأمنية من deploy/.env (KONTOR_*). إن غابت، الكشف/العروض يُعطِّلان
+  # بلطف ويبقى باقي الموقع يعمل.
+  kontor-session:
+    build:
+      context: ..
+      dockerfile: Dockerfile.kontor-session
+    restart: unless-stopped
+    env_file: [.env]   # SECRET_KEY/DB لتحميل إعدادات Django (لا تُستعمل القاعدة)
+    environment:
+      KONTOR_BASE_URL: ${KONTOR_BASE_URL:-}
+      KONTOR_USER: ${KONTOR_USER:-}
+      KONTOR_PASS: ${KONTOR_PASS:-}
+      KONTOR_SECURITY_IMAGE: ${KONTOR_SECURITY_IMAGE:-D}
+      KONTOR_SESSION_PORT: "8700"
+    expose: ["8700"]
+    networks: [wtn]
+
   # بوت واتساب: كان على جهاز المالك فينام معه. هنا يعمل دائماً.
   # `network_mode` عادي كي يصل إلى الموقع بالاسم الداخلي `web`.
   bot:

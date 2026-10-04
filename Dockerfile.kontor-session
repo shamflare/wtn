@@ -1,0 +1,14 @@
+# حاوية خدمة جلسة ZNET (متصفّح خفيّ Playwright) — مستقلّة عن الموقع.
+# تمسك جلسة لوحة واحدة وتُجيب الموقعَ عن كشف الشركة والعروض على منفذٍ داخلي.
+FROM mcr.microsoft.com/playwright/python:v1.47.0-jammy
+
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+WORKDIR /app
+
+COPY backend/requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt playwright==1.47.0
+
+COPY backend/ ./
+
+# الخدمة لا تحتاج قاعدة بيانات — تقرأ الإعداد من البيئة وتشغّل خادماً صغيراً
+CMD ["python", "manage.py", "run_kontor_session"]

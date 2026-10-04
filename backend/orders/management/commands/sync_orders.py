@@ -43,6 +43,14 @@ class Command(BaseCommand):
             return
         try:
             self._run(options)
+            try:
+                from kontor.execution import poll_all_processing
+                n = poll_all_processing()
+                if n and not options["quiet"]:
+                    self.stdout.write(f"خطوط: حُدّث {n} طلب")
+            except Exception as e:  # noqa: BLE001 — متابعة الخطوط لا تُسقط مزامنة الألعاب
+                if not options["quiet"]:
+                    self.stdout.write(f"تعذّرت متابعة الخطوط: {e}")
         finally:
             try:
                 os.unlink(LOCK_PATH)

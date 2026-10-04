@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import KontorCategory, KontorPackage
+from .models import KontorCategory, KontorPackage, KontorPriceGroup
 
 
 class KontorCategorySerializer(serializers.ModelSerializer):
@@ -36,3 +36,15 @@ class KontorPackageSerializer(serializers.ModelSerializer):
         ]
         # المعرّف والكلفة والمشغّل يأتون من الاستيراد؛ المالك يملك الباقي
         read_only_fields = ["tenant", "operator", "znet_id", "cost_price", "updated_at"]
+
+
+class KontorPriceGroupSerializer(serializers.ModelSerializer):
+    dealer_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = KontorPriceGroup
+        fields = ["id", "name", "dealer_count", "created_at"]
+        read_only_fields = ["tenant", "created_at"]
+
+    def get_dealer_count(self, obj):
+        return obj.dealer_settings.values("dealer").distinct().count()

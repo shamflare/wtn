@@ -282,4 +282,14 @@ GET {base}/servis/tl_kontrol.php?bayi_kodu=…&sifre=…&tekilnumara=<المعر
 
 ## 6. سجلّ ما بُني
 
-- (لا شيء بعد — نبدأ بالمرحلة 1.)
+- **م1 كتالوج:** تطبيق `kontor` — نماذج Category/Package + استيراد `paket_listesi` + لوحة «رصيد الموبايل ⟵ الباقات».
+- **م1-ب API/واجهة:** عرض/تعديل الباقات + زرّ استيراد (يقرأ بيانات مزوّد znet).
+- **م2 الأسعار:** PriceGroup/PackagePrice/DealerSetting + مصفوفة أسعار + ربط الوكيل بمجموعة لكل شركة + إذن الاستعلام. صفحات «مجموعات الأسعار» و«إعدادات الوكلاء».
+- **م3 الجلسة الحيّة:** `panel_parse` (نقيّ، مُختبَر) + `session_playwright` + خدمة `run_kontor_session` (حاوية `kontor-session`) + عميل `session_client`.
+- **م4 واجهة الوكيل:** تبويب «رصيد الموبايل» في المتجر (رقم ⟵ كشف ⟵ كرات/باقات ⟵ عروض حيّة ⟵ شراء).
+- **م5 التنفيذ والمال:** `KontorOrder` + `execution` (tl_servis/tl_kontrol، خصم وإرجاع) + صفحة «الطلبات» + متابعة دورية ضمن `sync_orders`.
+
+### يتبقّى للتشغيل الحيّ (يحتاج بيئة الخادم)
+1. ضبط `deploy/.env`: `KONTOR_BASE_URL` · `KONTOR_USER` · `KONTOR_PASS` · `KONTOR_SECURITY_IMAGE` (حرف صورة المالك).
+2. التأكد أن مزوّد ZNET في «مزوّدو API» فيه `base_url/kod/sifre` (للاستيراد والتنفيذ الرسمي).
+3. اختبار حيّ واحد للكشف/العروض وشحنة واحدة صغيرة (التحقّق من `tip`/`kontor` الفعليَّين).

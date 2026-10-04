@@ -16,6 +16,9 @@ import PinList from "./pages/PinList";
 import PriceGroups from "./pages/PriceGroups";
 import Providers from "./pages/Providers";
 import Kontor from "./pages/Kontor";
+import KontorPrices from "./pages/KontorPrices";
+import KontorDealers from "./pages/KontorDealers";
+import KontorOrders from "./pages/KontorOrders";
 import Orders from "./pages/Orders";
 import Pool from "./pages/Pool";
 import SiteSettings from "./pages/SiteSettings";
@@ -94,6 +97,9 @@ export default function App() {
 
           {/* رصيد الموبايل (kontör) */}
           <Route path="/kontor" element={Admin(<Kontor />)} />
+          <Route path="/kontor/prices" element={Admin(<KontorPrices />)} />
+          <Route path="/kontor/dealers" element={Admin(<KontorDealers />)} />
+          <Route path="/kontor/orders" element={Admin(<KontorOrders />)} />
           <Route path="/oyunpin/:id" element={Admin(<GameDetail />)} />
 
           {/* الوكلاء */}

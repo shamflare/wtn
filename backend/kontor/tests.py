@@ -113,3 +113,273 @@ class ApiTest(APITestCase):
         self.client.force_authenticate(self.admin)
         r = self.client.post("/api/kontor/import/")
         self.assertEqual(r.status_code, 400)
+
+
+class PricingTest(APITestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(subdomain="kon", name="متجر", base_currency="TRY")
+        self.admin = User.objects.create(login_id="own", name="مالك", tenant=self.tenant,
+                                         role=User.Role.TENANT_ADMIN)
+        self.dealer = User.objects.create(login_id="bayi", name="وكيل", tenant=self.tenant,
+                                          role=User.Role.BAYI)
+        upsert_packages(self.tenant, parse_feed(FEED))
+        self.client.force_authenticate(self.admin)
+
+    def _group(self, name="VIP"):
+        return self.client.post("/api/kontor/price-groups/", {"name": name}, format="json").json()
+
+    def test_create_group_and_set_manual_price(self):
+        g = self._group()
+        pk = KontorPackage.objects.get(znet_id="100").pk
+        r = self.client.post("/api/kontor/set-price/",
+                             {"package": pk, "group": g["id"], "price": "160.00"}, format="json")
+        self.assertEqual(r.status_code, 200, r.content)
+        from kontor.models import KontorPackagePrice
+        self.assertEqual(KontorPackagePrice.objects.get(package_id=pk, group_id=g["id"]).price,
+                         Decimal("160.00"))
+
+    def test_margin_rule_and_recompute_on_reimport(self):
+        from kontor.models import KontorPackagePrice, KontorPriceGroup
+        from kontor.services import recompute_group_prices, upsert_packages
+        g = self._group()
+        pk = KontorPackage.objects.get(znet_id="100")  # كلفة 148
+        self.client.post("/api/kontor/set-price/",
+                         {"package": pk.id, "group": g["id"], "mode": "percent", "value": "10"},
+                         format="json")
+        pp = KontorPackagePrice.objects.get(package=pk, group_id=g["id"])
+        self.assertEqual(pp.price, Decimal("162.80"))  # 148 + 10%
+        # إعادة استيراد بكلفة أعلى ⇐ السعر المرتبط يُعاد حسابه
+        upsert_packages(self.tenant, parse_feed(FEED.replace("148.00", "200.00")))
+        recompute_group_prices(KontorPriceGroup.objects.get(pk=g["id"]))
+        pp.refresh_from_db()
+        self.assertEqual(pp.price, Decimal("220.00"))  # 200 + 10%
+
+    def test_bulk_price_to_recommended(self):
+        g = self._group()
+        p = KontorPackage.objects.filter(operator="Turkcell").first()
+        p.recommended_price = Decimal("500"); p.save()
+        r = self.client.post("/api/kontor/bulk-price/",
+                             {"group": g["id"], "operator": "Turkcell", "to_recommended": True},
+                             format="json")
+        self.assertEqual(r.status_code, 200)
+        from kontor.models import KontorPackagePrice
+        self.assertEqual(KontorPackagePrice.objects.get(package=p, group_id=g["id"]).price, Decimal("500"))
+
+    def test_dealer_price_resolution(self):
+        from kontor.models import KontorDealerSetting
+        from kontor.services import dealer_price
+        g = self._group()
+        pk = KontorPackage.objects.get(znet_id="100")
+        self.client.post("/api/kontor/set-price/",
+                         {"package": pk.id, "group": g["id"], "price": "170.00"}, format="json")
+        # بلا ربط ⇐ السعر الموصى
+        pk.recommended_price = Decimal("199"); pk.save()
+        self.assertEqual(dealer_price(self.dealer, pk), Decimal("199.00"))
+        # بعد الربط ⇐ سعر المجموعة
+        KontorDealerSetting.objects.create(tenant=self.tenant, dealer=self.dealer,
+                                           operator="Turkcell", group_id=g["id"])
+        self.assertEqual(dealer_price(self.dealer, pk), Decimal("170.00"))
+
+    def test_dealer_settings_api(self):
+        g = self._group()
+        r = self.client.patch("/api/kontor/dealer-settings/",
+                              [{"dealer": self.dealer.id, "operator": "Vodafone",
+                                "group": g["id"], "can_query": False}], format="json")
+        self.assertEqual(r.status_code, 200)
+        from kontor.services import dealer_can_query
+        self.assertFalse(dealer_can_query(self.dealer, "Vodafone"))
+        self.assertTrue(dealer_can_query(self.dealer, "Turkcell"))  # افتراضي
+
+    def test_dealer_cannot_access_pricing(self):
+        self.client.force_authenticate(self.dealer)
+        self.assertEqual(self.client.get("/api/kontor/price-matrix/?operator=Turkcell").status_code, 403)
+
+
+class PanelParseTest(TestCase):
+    """تحليل مخرجات اللوحة من عيّنة حقيقية (kontor/tests_fixture.html)."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        import os
+        path = os.path.join(os.path.dirname(__file__), "tests_fixture.html")
+        with open(path, encoding="utf-8") as f:
+            cls.html = f.read()
+
+    def test_operator_detection_last_loader_wins(self):
+        from kontor.panel_parse import parse_operator
+        self.assertEqual(parse_operator("gsm_loader('Turkcell'); gsm_loader('VODAFONE','');"), "Vodafone")
+        self.assertEqual(parse_operator("gsm_loader('Turkcell'); gsm_loader('AVEA','');"), "Avea")
+        self.assertEqual(parse_operator("gsm_loader('Turkcell');"), "Turkcell")
+        self.assertIsNone(parse_operator("<html>no loader</html>"))
+
+    def test_parse_offers_from_fixture(self):
+        from kontor.panel_parse import parse_offers
+        rows = parse_offers(self.html)
+        self.assertTrue(len(rows) >= 3)
+        first = rows[0]
+        self.assertEqual(first["znet_id"], "476647")       # 476647.00 ⇐ 476647
+        self.assertEqual(first["operator"], "Turkcell")
+        self.assertEqual(first["line_type"], "Ses")
+        self.assertTrue(first["is_offer"])                  # خلفية وردية
+        self.assertEqual(first["cost"], "970.00")
+        self.assertEqual(first["days"], 30)
+        self.assertEqual(first["gb"], 30)
+
+    def test_offer_flag_matches_pink_only(self):
+        from kontor.panel_parse import parse_offers
+        rows = parse_offers(self.html)
+        # في العيّنة: صفوف وردية (عرض) وأخرى صفراء (عامة)
+        self.assertTrue(any(r["is_offer"] for r in rows))
+
+    def test_norm_id_handles_integers_and_floats(self):
+        from kontor.panel_parse import _norm_id
+        self.assertEqual(_norm_id("476647.00"), "476647")
+        self.assertEqual(_norm_id("100"), "100")
+        self.assertEqual(_norm_id("abc"), "abc")
+
+
+class StoreTest(APITestCase):
+    def setUp(self):
+        from core.models import Wallet
+        self.tenant = Tenant.objects.create(subdomain="kon", name="متجر", base_currency="TRY")
+        self.dealer = User.objects.create(login_id="bayi", name="وكيل", tenant=self.tenant,
+                                          role=User.Role.BAYI)
+        Wallet.objects.create(tenant=self.tenant, user=self.dealer, balance=Decimal("0"))
+        upsert_packages(self.tenant, parse_feed(FEED))
+        # تفعيل باقة Turkcell وسعرها الموصى
+        self.p = KontorPackage.objects.get(znet_id="476647")
+        self.p.recommended_price = Decimal("1000"); self.p.status = "active"; self.p.save()
+        self.client.force_authenticate(self.dealer)
+
+    def test_clean_gsm(self):
+        from kontor.views_store import _clean_gsm, _valid
+        self.assertEqual(_clean_gsm("0544 219 99 92"), "5442199992")
+        self.assertEqual(_clean_gsm("905442199992"), "5442199992")
+        self.assertEqual(_clean_gsm("٥٤٤٢١٩٩٩٩٢"), "5442199992")
+        self.assertTrue(_valid("5442199992"))
+        self.assertFalse(_valid("44219"))
+
+    def test_detect(self):
+        from unittest.mock import patch
+        with patch("kontor.session_client.detect_operator", return_value="Turkcell"):
+            r = self.client.post("/api/kontor/store/detect/", {"gsm": "5442199992"}, format="json")
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(r.json()["operator"], "Turkcell")
+
+    def test_detect_bad_number(self):
+        r = self.client.post("/api/kontor/store/detect/", {"gsm": "123"}, format="json")
+        self.assertEqual(r.status_code, 400)
+
+    def test_store_packages_grouped(self):
+        r = self.client.get("/api/kontor/store/packages/?operator=Turkcell")
+        self.assertEqual(r.status_code, 200, r.content)
+        data = r.json()
+        self.assertEqual(data["operator"], "Turkcell")
+        # فئتان لـTurkcell في العيّنة (Ses, Tam)
+        names = {c["line_type"] for c in data["categories"]}
+        self.assertTrue({"Ses", "Tam"} <= names)
+
+    def test_offers_live_merge(self):
+        from unittest.mock import patch
+        fake = [{"znet_id": "476647", "operator": "Turkcell", "line_type": "Ses",
+                 "name": "x", "details": "d", "days": 30, "gb": 30, "minutes": 1000,
+                 "shown_price": "1000", "cost": "970", "is_offer": True}]
+        with patch("kontor.session_client.fetch_offers", return_value=fake):
+            r = self.client.post("/api/kontor/store/offers/",
+                                 {"gsm": "5442199992", "operator": "Turkcell"}, format="json")
+        self.assertEqual(r.status_code, 200, r.content)
+        offers = r.json()["offers"]
+        self.assertEqual(len(offers), 1)
+        self.assertTrue(offers[0]["is_offer"])
+        self.assertEqual(offers[0]["price"], "1000.00")  # السعر الموصى (بلا مجموعة)
+
+    def test_offers_denied_when_not_allowed(self):
+        from kontor.models import KontorDealerSetting
+        KontorDealerSetting.objects.create(tenant=self.tenant, dealer=self.dealer,
+                                           operator="Turkcell", can_query=False)
+        r = self.client.post("/api/kontor/store/offers/",
+                             {"gsm": "5442199992", "operator": "Turkcell"}, format="json")
+        self.assertEqual(r.status_code, 403)
+
+
+class ExecutionTest(APITestCase):
+    def setUp(self):
+        from core.models import Wallet
+        from providers.models import Provider
+        self.tenant = Tenant.objects.create(subdomain="kon", name="متجر", base_currency="TRY")
+        self.dealer = User.objects.create(login_id="bayi", name="وكيل", tenant=self.tenant,
+                                          role=User.Role.BAYI)
+        self.wallet = Wallet.objects.create(tenant=self.tenant, user=self.dealer, balance=Decimal("5000"))
+        Provider.objects.create(tenant=self.tenant, name="ZNET", type=Provider.Type.SAME_SYSTEM,
+                                config={"code": "znet", "base_url": "http://z", "kod": "k", "sifre": "s"})
+        upsert_packages(self.tenant, parse_feed(FEED))
+        self.p = KontorPackage.objects.get(znet_id="476647")
+        self.p.recommended_price = Decimal("1000"); self.p.cost_price = Decimal("970"); self.p.save()
+        self.client.force_authenticate(self.dealer)
+
+    def _buy(self):
+        return self.client.post("/api/kontor/store/buy/",
+                               {"package": self.p.id, "gsm": "5442199992"}, format="json")
+
+    def test_accepted_debits_and_processing(self):
+        from unittest.mock import MagicMock, patch
+        with patch("kontor.execution.requests.get", return_value=MagicMock(text="OK|1|Talebiniz İşleme Alındı|970.00")):
+            r = self._buy()
+        self.assertEqual(r.status_code, 201, r.content)
+        self.assertEqual(r.json()["status"], "processing")
+        self.wallet.refresh_from_db()
+        self.assertEqual(self.wallet.balance, Decimal("4000"))  # 5000 - 1000
+
+    def test_rejected_refunds(self):
+        from unittest.mock import MagicMock, patch
+        with patch("kontor.execution.requests.get", return_value=MagicMock(text="OK|3|Hatali numara|0.00")):
+            r = self._buy()
+        self.assertEqual(r.json()["status"], "refunded")
+        self.wallet.refresh_from_db()
+        self.assertEqual(self.wallet.balance, Decimal("5000"))  # أُعيد المبلغ
+
+    def test_insufficient_balance(self):
+        self.wallet.balance = Decimal("100"); self.wallet.save()
+        r = self._buy()
+        self.assertEqual(r.status_code, 400)
+        from kontor.models import KontorOrder
+        self.assertEqual(KontorOrder.objects.count(), 0)
+
+    def test_poll_success(self):
+        from unittest.mock import MagicMock, patch
+        from kontor.execution import poll
+        from kontor.models import KontorOrder
+        with patch("kontor.execution.requests.get", return_value=MagicMock(text="OK|1|ok|970")):
+            self._buy()
+        o = KontorOrder.objects.latest("id")
+        with patch("kontor.execution.requests.get", return_value=MagicMock(text="1:olumlu_islem:970")):
+            poll(o)
+        o.refresh_from_db()
+        self.assertEqual(o.status, "success")
+
+    def test_poll_cancel_refunds(self):
+        from unittest.mock import MagicMock, patch
+        from kontor.execution import poll
+        from kontor.models import KontorOrder
+        with patch("kontor.execution.requests.get", return_value=MagicMock(text="OK|1|ok|970")):
+            self._buy()
+        self.wallet.refresh_from_db()
+        self.assertEqual(self.wallet.balance, Decimal("4000"))
+        o = KontorOrder.objects.latest("id")
+        with patch("kontor.execution.requests.get", return_value=MagicMock(text="3:iptal nedeni")):
+            poll(o)
+        o.refresh_from_db()
+        self.assertEqual(o.status, "refunded")
+        self.wallet.refresh_from_db()
+        self.assertEqual(self.wallet.balance, Decimal("5000"))
+
+    def test_tip_mapping(self):
+        from kontor.execution import _tip
+        self.assertEqual(_tip(self.p), "ses")  # فئة Ses ⇐ ses
+
+    def test_parse_place(self):
+        from kontor.execution import _parse_place
+        self.assertEqual(_parse_place("OK|1|ok|5.5")[0], 1)
+        self.assertEqual(_parse_place("OK|3|bad|0")[0], 3)
+        self.assertEqual(_parse_place("garbage")[0], None)

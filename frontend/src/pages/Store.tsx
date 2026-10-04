@@ -59,10 +59,10 @@ interface Summary {
   store?: { name: string; short_name: string; logo_url: string };
 }
 
-type Tab = "home" | "sell" | "packages" | "orders" | "reports" | "wallet" | "topup" | "api" | "support" | "settings";
+type Tab = "home" | "sell" | "mobile" | "packages" | "orders" | "reports" | "wallet" | "topup" | "api" | "support" | "settings";
 
 // كل قسم له رابطه: /store (الرئيسية) · /store/orders · /store/sell/12 (لعبة) ...
-const SECTIONS: Tab[] = ["sell", "packages", "orders", "reports", "wallet", "topup", "api", "support", "settings"];
+const SECTIONS: Tab[] = ["sell", "mobile", "packages", "orders", "reports", "wallet", "topup", "api", "support", "settings"];
 function parsePath(pathname: string): { tab: Tab; gameId: number | null } {
   const [seg, sub] = pathname.replace(/^\/store\/?/, "").split("/");
   const tab = (SECTIONS as string[]).includes(seg) ? (seg as Tab) : "home";
@@ -72,7 +72,7 @@ function parsePath(pathname: string): { tab: Tab; gameId: number | null } {
 const pathForTab = (t: Tab) => (t === "home" ? "/store" : `/store/${t}`);
 
 /** أقسام «المزيد» — لا تتّسع لها ستّ خانات في الشريط السفلي */
-const MORE_TABS: Tab[] = ["topup", "packages", "reports", "support", "settings", "api"];
+const MORE_TABS: Tab[] = ["mobile", "topup", "packages", "reports", "support", "settings", "api"];
 
 /**
  * لون الحالة بمنظور الوكيل: انتظار · تنفيذ · نجاح · رفض.
@@ -226,6 +226,7 @@ export default function Store() {
             <SellTab gameId={gameId} onGame={(g) => nav(`/store/sell/${g.id}`)}
               onBought={loadSummary} onFinish={() => goTab("orders")} />
           )}
+          {tab === "mobile" && <MobileTab />}
           {tab === "packages" && <PackagesTab />}
           {tab === "orders" && <OrdersTab />}
           {tab === "reports" && <ReportsTab />}
@@ -258,6 +259,7 @@ export default function Store() {
         <Sheet title="المزيد" onClose={() => setMore(false)}>
           <div className="ag-menu">
             <MenuBtn icon="plusCircle" label="شحن رصيد" tone="var(--primary)" onClick={() => goTab("topup")} />
+            <MenuBtn icon="phone" label="رصيد الموبايل" tone="var(--info)" onClick={() => goTab("mobile")} />
             <MenuBtn icon="tag" label="قائمة الباقات" tone="var(--gold)" onClick={() => goTab("packages")} />
             <MenuBtn icon="chart" label="تقاريري" tone="var(--info)" onClick={() => goTab("reports")} />
             <MenuBtn icon="chat" label="الدعم" tone="var(--ok)" badge={unread} onClick={() => goTab("support")} />
@@ -1290,6 +1292,152 @@ function AccountPane() {
           {busy ? "جارٍ..." : "حفظ كلمة السر"}
         </button>
       </form>
+    </div>
+  );
+}
+
+/* ═════════════════════════ رصيد الموبايل (شحن الخطوط) ═════════════════════════ */
+interface KPkg {
+  id: number; znet_id: string; name: string; details: string;
+  days: number; gb: number; minutes: number; kind: string; price: string; is_offer?: boolean;
+}
+interface KCat { id: number; line_type: string; name: string; packages: KPkg[] }
+
+const OP_LABEL: Record<string, string> = {
+  Turkcell: "Turkcell", Vodafone: "Vodafone", Avea: "Türk Telekom", Callback: "دولي",
+};
+
+function MobileTab() {
+  const sym = useCur();
+  const [gsm, setGsm] = useState("");
+  const [operator, setOperator] = useState("");
+  const [cats, setCats] = useState<KCat[]>([]);
+  const [activeCat, setActiveCat] = useState<number | null>(null);
+  const [offers, setOffers] = useState<KPkg[] | null>(null);
+  const [busy, setBusy] = useState<"" | "detect" | "offers" | "buy">("");
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const digits = gsm.replace(/\D/g, "");
+
+  function reset() {
+    setOperator(""); setCats([]); setActiveCat(null); setOffers(null); setMsg(null);
+  }
+
+  async function detect() {
+    if (digits.length < 10) return;
+    setBusy("detect"); setMsg(null); setOffers(null);
+    try {
+      const d = await api.post("/kontor/store/detect/", { gsm: digits });
+      setOperator(d.data.operator);
+      const p = await api.get(`/kontor/store/packages/?operator=${d.data.operator}`);
+      setCats(p.data.categories);
+      setActiveCat(p.data.categories[0]?.id ?? null);
+    } catch (e: any) {
+      reset();
+      setMsg({ ok: false, text: e?.response?.data?.detail || "تعذّر كشف الشركة" });
+    } finally { setBusy(""); }
+  }
+
+  async function showOffers() {
+    setBusy("offers"); setMsg(null);
+    try {
+      const r = await api.post("/kontor/store/offers/", { gsm: digits, operator });
+      setOffers(r.data.offers);
+    } catch (e: any) {
+      setMsg({ ok: false, text: e?.response?.data?.detail || "تعذّر جلب العروض" });
+    } finally { setBusy(""); }
+  }
+
+  async function buy(pkg: KPkg) {
+    if (!window.confirm(`شحن «${pkg.name}» للرقم ${digits} بسعر ${pkg.price} ${sym}؟`)) return;
+    setBusy("buy"); setMsg(null);
+    try {
+      const r = await api.post("/kontor/store/buy/", { package: pkg.id, gsm: digits });
+      const st = r.data.status;
+      setMsg({ ok: st !== "failed" && st !== "refunded",
+               text: st === "refunded" ? `فشل الشحن وأُعيد المبلغ: ${r.data.note || ""}`
+                   : st === "processing" ? "تم إرسال الطلب — قيد التنفيذ"
+                   : `الحالة: ${r.data.status_label || st}` });
+    } catch (e: any) {
+      setMsg({ ok: false, text: e?.response?.data?.detail || "تعذّر تنفيذ الطلب" });
+    } finally { setBusy(""); }
+  }
+
+  const shownCat = cats.find((c) => c.id === activeCat);
+
+  return (
+    <div>
+      <h1 className="ag-h1">رصيد الموبايل <small>شحن الخطوط التركية</small></h1>
+
+      {/* حقل الرقم */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+        <input inputMode="numeric" dir="ltr" value={gsm}
+          onChange={(e) => { setGsm(e.target.value); if (operator) reset(); }}
+          onKeyDown={(e) => { if (e.key === "Enter") detect(); }}
+          placeholder="5XX XXX XX XX" maxLength={14}
+          style={{ flex: "1 1 220px", fontSize: 22, textAlign: "center", letterSpacing: 2, height: 48 }} />
+        <button className="btn ag-cta" style={{ flex: "0 0 auto", minWidth: 120 }}
+          disabled={digits.length < 10 || busy === "detect"} onClick={detect}>
+          {busy === "detect" ? "جارٍ..." : "كشف الخط"}
+        </button>
+      </div>
+
+      {operator && (
+        <div style={{ marginBottom: 12, fontWeight: 700 }}>
+          الشركة: <span style={{ color: "var(--primary)" }}>{OP_LABEL[operator] || operator}</span>
+          <button className="btn" style={{ marginInlineStart: 10, height: 30 }}
+            disabled={busy === "offers"} onClick={showOffers}>
+            {busy === "offers" ? "جارٍ..." : "إظهار العروض الخاصة"}
+          </button>
+        </div>
+      )}
+
+      {msg && <div className={`ag-msg ${msg.ok ? "ok" : "err"}`} style={{ marginBottom: 12 }}>{msg.text}</div>}
+
+      {/* العروض الخاصة الحيّة */}
+      {offers && (
+        <div style={{ marginBottom: 16 }}>
+          <h2 className="ag-h2">العروض الخاصة بهذا الرقم</h2>
+          {offers.length === 0 ? <Empty icon="tag" text="لا عروض خاصة لهذا الرقم" /> : (
+            <div className="ag-list">
+              {offers.map((p) => <PkgRow key={p.id} p={p} sym={sym} onBuy={buy} buying={busy === "buy"} />)}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* الكرات (الفئات) + باقاتها */}
+      {cats.length > 0 && (
+        <>
+          <div className="ag-chips" style={{ marginBottom: 12 }}>
+            {cats.map((c) => (
+              <button key={c.id} className={`ag-chip${activeCat === c.id ? " on" : ""}`}
+                onClick={() => setActiveCat(c.id)}>{c.name}</button>
+            ))}
+          </div>
+          {shownCat && (
+            <div className="ag-list">
+              {shownCat.packages.map((p) => <PkgRow key={p.id} p={p} sym={sym} onBuy={buy} buying={busy === "buy"} />)}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function PkgRow({ p, sym, onBuy, buying }: { p: KPkg; sym: string; onBuy: (p: KPkg) => void; buying: boolean }) {
+  return (
+    <div className="ag-card" style={{ display: "flex", alignItems: "center", gap: 10,
+      borderInlineStart: p.is_offer ? "3px solid var(--danger)" : undefined }}>
+      <div style={{ flex: 1 }}>
+        <div style={{ fontWeight: 700 }}>
+          {p.name} {p.is_offer && <span style={{ color: "var(--danger)", fontSize: 11 }}>• عرض خاص</span>}
+        </div>
+        {p.details && <div style={{ fontSize: 12, color: "var(--muted)" }}>{p.details}</div>}
+      </div>
+      <div style={{ fontWeight: 800, whiteSpace: "nowrap" }}>{p.price} {sym}</div>
+      <button className="btn ag-cta" style={{ height: 34 }} disabled={buying} onClick={() => onBuy(p)}>شحن</button>
     </div>
   );
 }

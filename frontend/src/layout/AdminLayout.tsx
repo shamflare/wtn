@@ -49,6 +49,9 @@ const SUBNAV_OYUNPIN = [
 // قسم رصيد الموبايل — شحن الخطوط التركية (kontör)
 const SUBNAV_KONTOR = [
   { label: "الباقات", to: "/kontor" },
+  { label: "مجموعات الأسعار", to: "/kontor/prices" },
+  { label: "إعدادات الوكلاء", to: "/kontor/dealers" },
+  { label: "الطلبات", to: "/kontor/orders" },
 ];
 // قسم الوكلاء — كل ما يخصّ الوكيل وماله
 const SUBNAV_BAYILER = [

@@ -78,6 +78,7 @@ INSTALLED_APPS = [
     "whatsapp",
     "inventory",
     "clientapi",
+    "kontor",
 ]
 
 MIDDLEWARE = [

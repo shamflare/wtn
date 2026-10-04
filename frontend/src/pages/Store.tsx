@@ -210,6 +210,11 @@ export default function Store() {
               </>
             )}
           </button>
+          <button className="ag-icon-btn" aria-label="الإشعارات" style={{ position: "relative" }}
+            onClick={() => { setMore(false); setBell(true); notif.markSeen(); }}>
+            <Icon name="bell" size={19} />
+            {!!notif.total && <span className="ag-badge">{notif.total > 9 ? "9+" : notif.total}</span>}
+          </button>
           <button className={`ag-balance${Number(balance) < 0 ? " neg" : ""}`} onClick={() => goTab("wallet")}
             title="رصيدي">
             <span className="cur">{symbolOf(currency)}</span>{money(balance)}
@@ -247,8 +252,7 @@ export default function Store() {
         <div className="ag-nav-in">
           <NavItem icon="home" label="الرئيسية" on={(navOn("home") || navOn("sell")) && !bell} onClick={() => goTab("home")} />
           <NavItem icon="receipt" label="طلباتي" on={navOn("orders") && !bell} onClick={() => goTab("orders")} />
-          <NavItem icon="bell" label="الإشعارات" on={bell} badge={notif.total}
-            onClick={() => { setMore(false); setBell(true); notif.markSeen(); }} />
+          <NavItem icon="phone" label="موبايل" on={navOn("mobile") && !bell && !more} onClick={() => goTab("mobile")} />
           <NavItem icon="wallet" label="محفظتي" on={navOn("wallet") && !bell} onClick={() => goTab("wallet")} />
           <NavItem icon="grid" label="المزيد" on={(navOn("settings") || more) && !bell} badge={unread}
             onClick={() => { setBell(false); setMore(true); }} />
@@ -259,7 +263,6 @@ export default function Store() {
         <Sheet title="المزيد" onClose={() => setMore(false)}>
           <div className="ag-menu">
             <MenuBtn icon="plusCircle" label="شحن رصيد" tone="var(--primary)" onClick={() => goTab("topup")} />
-            <MenuBtn icon="phone" label="موبايل" tone="var(--info)" onClick={() => goTab("mobile")} />
             <MenuBtn icon="tag" label="قائمة الباقات" tone="var(--gold)" onClick={() => goTab("packages")} />
             <MenuBtn icon="chart" label="تقاريري" tone="var(--info)" onClick={() => goTab("reports")} />
             <MenuBtn icon="chat" label="الدعم" tone="var(--ok)" badge={unread} onClick={() => goTab("support")} />
@@ -1393,10 +1396,26 @@ function MobileTab() {
   }
 
   const list = activeCat === "live" ? (offers || []) : (cats.find((c) => c.id === activeCat)?.packages || []);
+  const [view, setView] = useState<"charge" | "prices">("charge");
+
+  const head = (
+    <>
+      <h1 className="ag-h1">موبايل <small>شحن الخطوط التركية</small></h1>
+      <div className="km-views">
+        <button className={view === "charge" ? "on" : ""} onClick={() => setView("charge")}>
+          <Icon name="phone" size={16} /> شحن رقم
+        </button>
+        <button className={view === "prices" ? "on" : ""} onClick={() => setView("prices")}>
+          <Icon name="tag" size={16} /> قائمة الأسعار
+        </button>
+      </div>
+    </>
+  );
+  if (view === "prices") return <div>{head}<PriceList sym={sym} /></div>;
 
   return (
     <div style={opVars(operator)}>
-      <h1 className="ag-h1">موبايل <small>شحن الخطوط التركية</small></h1>
+      {head}
 
       {/* بطاقة الرقم */}
       <div className={`km-num${op ? " has-op" : ""}`}>
@@ -1473,6 +1492,92 @@ function MobileTab() {
       {confirm && (
         <BuySheet pkg={confirm} gsm={digits} op={operator} sym={sym} busy={busy === "buy"}
           onClose={() => setConfirm(null)} onBuy={(sell) => buy(confirm, sell)} />
+      )}
+    </div>
+  );
+}
+
+/**
+ * قائمة أسعار الخطوط للوكيل: كل الباقات بكلفتها عليه وسعرها المقترح وربحه.
+ * الفلترة بالشركة أوّلاً ثم بفئاتها — نفس بيانات الشحن (store/packages) بلا كشف رقم.
+ */
+function PriceList({ sym }: { sym: string }) {
+  const [op, setOp] = useState("Turkcell");
+  const [cats, setCats] = useState<KCat[] | null>(null);
+  const [logo, setLogo] = useState("");
+  const [cat, setCat] = useState<string>("");
+  const [q, setQ] = useState("");
+
+  useEffect(() => {
+    setCats(null); setCat("");
+    api.get(`/kontor/store/packages/?operator=${op}`)
+      .then((r) => { setCats(r.data.categories); setLogo(r.data.operator_logo || ""); })
+      .catch(() => setCats([]));
+  }, [op]);
+
+  const needle = q.trim().toLowerCase();
+  const shown = (cats || [])
+    .filter((c) => !cat || c.id === cat)
+    .map((c) => ({ ...c, packages: c.packages.filter((p) => !needle || `${p.name} ${p.details} ${p.znet_id}`.toLowerCase().includes(needle)) }))
+    .filter((c) => c.packages.length);
+
+  return (
+    <div style={opVars(op)}>
+      <div className="km-ops">
+        {Object.entries(OPS).map(([code, o]) => (
+          <button key={code} className={`km-op-tab${op === code ? " on" : ""}`} style={opVars(code)} onClick={() => setOp(code)}>
+            {o.label}
+          </button>
+        ))}
+      </div>
+
+      {cats && cats.length > 0 && (
+        <div className="km-cats">
+          <button className={`km-cat${cat === "" ? " on" : ""}`} onClick={() => setCat("")}>
+            <span className="km-cat-logo">{logo ? <img src={logo} alt="" /> : <Icon name="grid" size={22} />}</span>
+            <span className="km-cat-name">الكل</span>
+            <span className="km-cat-n">{cats.reduce((n, c) => n + c.packages.length, 0)}</span>
+          </button>
+          {cats.map((c) => (
+            <button key={c.id} className={`km-cat${cat === c.id ? " on" : ""}`} onClick={() => setCat(c.id)}>
+              <span className="km-cat-logo">{c.logo_url ? <img src={c.logo_url} alt="" /> : <b>{OPS[op]?.label[0]}</b>}</span>
+              <span className="km-cat-name">★ {c.name} ★</span>
+              <span className="km-cat-n">{c.packages.length}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div className="ag-search" style={{ marginBottom: 14 }}>
+        <span className="ico"><Icon name="search" size={19} /></span>
+        <input placeholder="ابحث باسم الباقة أو تفاصيلها..." value={q} onChange={(e) => setQ(e.target.value)} />
+      </div>
+
+      {cats === null ? <div className="km-skel" /> : shown.length === 0 ? <Empty icon="tag" text="لا باقات" /> : (
+        shown.map((c) => (
+          <div key={c.id} className="km-pl">
+            <div className="km-pl-head">
+              <span>★ {c.name} ★</span><small>{c.packages.length} باقة</small>
+            </div>
+            <div className="km-pl-cols"><span>الباقة</span><span>كلفتك</span><span>المقترح</span></div>
+            {c.packages.map((p) => {
+              const cost = Number(p.price), rec = Number(p.recommended_price || 0);
+              return (
+                <div key={p.id} className={`km-pl-row${p.kind === "offer" ? " offer" : ""}`}>
+                  <div className="km-pl-name">
+                    <b>{p.name}</b>
+                    {p.details && <small>{p.details}</small>}
+                  </div>
+                  <Amt v={cost} sym={sym} className="km-pl-cost" />
+                  <div className="km-pl-rec">
+                    {rec > 0 ? <Amt v={rec} sym={sym} /> : <span style={{ color: "var(--faint)" }}>—</span>}
+                    {rec > cost && <small dir="ltr">+{money(rec - cost)}</small>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ))
       )}
     </div>
   );

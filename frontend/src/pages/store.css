@@ -1008,3 +1008,57 @@ button.ag-stat:active { transform: scale(.98); }
   .km-card { padding: 14px 12px; }
   .km-card-price { min-width: 84px; padding: 8px; }
 }
+
+/* ── تبديل «شحن رقم / قائمة الأسعار» ── */
+.km-views {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; margin-bottom: 14px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+}
+.km-views button {
+  height: 40px; border: 0; border-radius: 12px; background: transparent; color: var(--muted);
+  font: inherit; font-weight: 800; font-size: 14px; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; transition: .15s;
+}
+.km-views button.on { background: var(--primary); color: var(--on-primary); box-shadow: 0 4px 12px color-mix(in srgb, var(--primary) 30%, transparent); }
+
+/* ── قائمة الأسعار: الشركات ثم الفئات ثم الجدول ── */
+.km-ops { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px; }
+.km-op-tab {
+  height: 44px; border-radius: 14px; cursor: pointer; font: inherit; font-weight: 800; font-size: 13px;
+  border: 2px solid transparent; color: var(--opi); opacity: .55;
+  background: linear-gradient(150deg, var(--op2), var(--op1)); transition: .15s;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 6px;
+}
+.km-op-tab.on { opacity: 1; border-color: var(--opa); box-shadow: 0 6px 16px color-mix(in srgb, var(--op1) 35%, transparent); }
+
+.km-pl {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 18px;
+  box-shadow: var(--shadow-soft); overflow: hidden; margin-bottom: 14px;
+}
+.km-pl-head {
+  display: flex; align-items: center; justify-content: space-between; padding: 10px 14px;
+  background: linear-gradient(135deg, var(--op1), var(--op2)); color: var(--opi); font-weight: 900;
+}
+.km-pl-head small { font-weight: 700; opacity: .8; font-size: 12px; }
+.km-pl-cols, .km-pl-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) 84px 92px; gap: 8px; align-items: center; padding: 9px 14px;
+}
+.km-pl-cols { font-size: 11.5px; font-weight: 800; color: var(--muted); background: var(--surface-2); }
+.km-pl-cols span:not(:first-child), .km-pl-row > :not(:first-child) { text-align: center; }
+.km-pl-row { border-top: 1px solid var(--border); }
+.km-pl-row.offer { background: color-mix(in srgb, #ec4899 7%, var(--surface)); box-shadow: inset -3px 0 0 #ec4899; }
+.km-pl-name { min-width: 0; }
+.km-pl-name b { display: block; font-size: 13.5px; font-weight: 800; line-height: 1.4; }
+.km-pl-name small { display: block; font-size: 11px; color: var(--muted); line-height: 1.45; margin-top: 2px; }
+.km-pl-cost { font-weight: 900; color: var(--primary); font-variant-numeric: tabular-nums; font-size: 13.5px; white-space: nowrap; }
+.km-pl-rec { display: flex; flex-direction: column; align-items: center; font-weight: 700; font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.km-pl-rec small { font-size: 10.5px; color: var(--ok); font-weight: 800; }
+.km-skel {
+  height: 220px; border-radius: 18px;
+  background: linear-gradient(90deg, var(--surface) 0%, var(--surface-2) 50%, var(--surface) 100%);
+  background-size: 200% 100%; animation: agShimmer 1.3s linear infinite;
+}
+@media (max-width: 380px) {
+  .km-pl-cols, .km-pl-row { grid-template-columns: minmax(0, 1fr) 72px 80px; padding: 8px 10px; }
+  .km-op-tab { font-size: 11.5px; }
+}

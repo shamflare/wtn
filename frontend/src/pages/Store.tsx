@@ -259,7 +259,7 @@ export default function Store() {
         <Sheet title="المزيد" onClose={() => setMore(false)}>
           <div className="ag-menu">
             <MenuBtn icon="plusCircle" label="شحن رصيد" tone="var(--primary)" onClick={() => goTab("topup")} />
-            <MenuBtn icon="phone" label="رصيد الموبايل" tone="var(--info)" onClick={() => goTab("mobile")} />
+            <MenuBtn icon="phone" label="موبايل" tone="var(--info)" onClick={() => goTab("mobile")} />
             <MenuBtn icon="tag" label="قائمة الباقات" tone="var(--gold)" onClick={() => goTab("packages")} />
             <MenuBtn icon="chart" label="تقاريري" tone="var(--info)" onClick={() => goTab("reports")} />
             <MenuBtn icon="chat" label="الدعم" tone="var(--ok)" badge={unread} onClick={() => goTab("support")} />
@@ -1296,28 +1296,41 @@ function AccountPane() {
   );
 }
 
-/* ═════════════════════════ رصيد الموبايل (شحن الخطوط) ═════════════════════════ */
+/* ═════════════════════════ موبايل (شحن الخطوط) ═════════════════════════ */
 interface KPkg {
   id: number; znet_id: string; name: string; details: string;
   days: number; gb: number; minutes: number; kind: string; price: string; is_offer?: boolean;
 }
-interface KCat { id: number; line_type: string; name: string; packages: KPkg[] }
+interface KCat { id: number; line_type: string; name: string; logo_url?: string; packages: KPkg[] }
 
-const OP_LABEL: Record<string, string> = {
-  Turkcell: "Turkcell", Vodafone: "Vodafone", Avea: "Türk Telekom", Callback: "دولي",
+// الشركات بألوان علاماتها — تلوّن شريط الشركة وحافّة البطاقات
+const OPS: Record<string, { label: string; color: string; ink: string }> = {
+  Turkcell: { label: "Turkcell", color: "#ffc900", ink: "#1f2f6b" },
+  Vodafone: { label: "Vodafone", color: "#e60000", ink: "#fff" },
+  Avea: { label: "Türk Telekom", color: "#1d6fd6", ink: "#fff" },
+  Callback: { label: "دولي", color: "#8b5cf6", ink: "#fff" },
 };
+
+/** 5XXXXXXXXX ⇐ 5XX XXX XX XX للعرض */
+const fmtGsm = (d: string) => [d.slice(0, 3), d.slice(3, 6), d.slice(6, 8), d.slice(8, 10)].filter(Boolean).join(" ");
+
+/** متغيّر CSS للون الشركة على عنصر. */
+const opVars = (color?: string, ink?: string) =>
+  (color ? { "--opc": color, ...(ink ? { "--opi": ink } : {}) } : {}) as React.CSSProperties;
 
 function MobileTab() {
   const sym = useCur();
   const [gsm, setGsm] = useState("");
   const [operator, setOperator] = useState("");
   const [cats, setCats] = useState<KCat[]>([]);
-  const [activeCat, setActiveCat] = useState<number | null>(null);
+  const [activeCat, setActiveCat] = useState<number | "offers" | null>(null);
   const [offers, setOffers] = useState<KPkg[] | null>(null);
   const [busy, setBusy] = useState<"" | "detect" | "offers" | "buy">("");
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [confirm, setConfirm] = useState<KPkg | null>(null);
 
-  const digits = gsm.replace(/\D/g, "");
+  const digits = gsm;
+  const op = OPS[operator];
 
   function reset() {
     setOperator(""); setCats([]); setActiveCat(null); setOffers(null); setMsg(null);
@@ -1339,105 +1352,155 @@ function MobileTab() {
   }
 
   async function showOffers() {
+    if (offers) { setActiveCat("offers"); return; }
     setBusy("offers"); setMsg(null);
     try {
       const r = await api.post("/kontor/store/offers/", { gsm: digits, operator });
       setOffers(r.data.offers);
+      setActiveCat("offers");
     } catch (e: any) {
       setMsg({ ok: false, text: e?.response?.data?.detail || "تعذّر جلب العروض" });
     } finally { setBusy(""); }
   }
 
   async function buy(pkg: KPkg) {
-    if (!window.confirm(`شحن «${pkg.name}» للرقم ${digits} بسعر ${pkg.price} ${sym}؟`)) return;
     setBusy("buy"); setMsg(null);
     try {
       const r = await api.post("/kontor/store/buy/", { package: pkg.id, gsm: digits });
       const st = r.data.status;
       setMsg({ ok: st !== "failed" && st !== "refunded",
                text: st === "refunded" ? `فشل الشحن وأُعيد المبلغ: ${r.data.note || ""}`
-                   : st === "processing" ? "تم إرسال الطلب — قيد التنفيذ"
+                   : st === "processing" ? `✓ أُرسل شحن «${pkg.name}» إلى ${fmtGsm(digits)} — قيد التنفيذ`
                    : `الحالة: ${r.data.status_label || st}` });
     } catch (e: any) {
       setMsg({ ok: false, text: e?.response?.data?.detail || "تعذّر تنفيذ الطلب" });
-    } finally { setBusy(""); }
+    } finally { setBusy(""); setConfirm(null); }
   }
 
-  const shownCat = cats.find((c) => c.id === activeCat);
+  const list = activeCat === "offers" ? (offers || []) : (cats.find((c) => c.id === activeCat)?.packages || []);
 
   return (
     <div>
-      <h1 className="ag-h1">رصيد الموبايل <small>شحن الخطوط التركية</small></h1>
+      <h1 className="ag-h1">موبايل <small>شحن الخطوط التركية</small></h1>
 
-      {/* حقل الرقم */}
-      <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
-        <input inputMode="numeric" dir="ltr" value={gsm}
-          onChange={(e) => { setGsm(e.target.value); if (operator) reset(); }}
-          onKeyDown={(e) => { if (e.key === "Enter") detect(); }}
-          placeholder="5XX XXX XX XX" maxLength={14}
-          style={{ flex: "1 1 220px", fontSize: 22, textAlign: "center", letterSpacing: 2, height: 48 }} />
-        <button className="btn ag-cta" style={{ flex: "0 0 auto", minWidth: 120 }}
-          disabled={digits.length < 10 || busy === "detect"} onClick={detect}>
-          {busy === "detect" ? "جارٍ..." : "كشف الخط"}
+      {/* بطاقة الرقم */}
+      <div className={`km-num${op ? " has-op" : ""}`} style={opVars(op?.color)}>
+        <span className="km-num-ico"><Icon name="phone" size={21} /></span>
+        <div className="km-num-field">
+          <span className="km-cc" dir="ltr">+90</span>
+          <input inputMode="numeric" dir="ltr" value={fmtGsm(digits)} autoComplete="tel"
+            onChange={(e) => {
+              setGsm(e.target.value.replace(/\D/g, "").replace(/^(90|0)(?=5)/, "").slice(0, 10));
+              if (operator) reset();
+            }}
+            onKeyDown={(e) => { if (e.key === "Enter") detect(); }}
+            placeholder="5XX XXX XX XX" />
+          {digits && (
+            <button type="button" className="km-clear" onClick={() => { setGsm(""); reset(); }} aria-label="مسح">
+              <Icon name="x" size={14} />
+            </button>
+          )}
+        </div>
+        <button type="button" className="km-go" disabled={digits.length < 10 || busy === "detect"} onClick={detect}>
+          {busy === "detect" ? <span className="km-spin" /> : <>كشف <Icon name="search" size={16} /></>}
         </button>
       </div>
 
-      {operator && (
-        <div style={{ marginBottom: 12, fontWeight: 700 }}>
-          الشركة: <span style={{ color: "var(--primary)" }}>{OP_LABEL[operator] || operator}</span>
-          <button className="btn" style={{ marginInlineStart: 10, height: 30 }}
+      {op && (
+        <div className="km-op" style={opVars(op.color, op.ink)}>
+          <span className="km-op-badge">{operator === "Callback" ? "🌐" : op.label[0]}</span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="km-op-name">{op.label}</div>
+            <div className="km-op-num" dir="ltr">+90 {fmtGsm(digits)}</div>
+          </div>
+          <button type="button" className={`km-offers${activeCat === "offers" ? " on" : ""}`}
             disabled={busy === "offers"} onClick={showOffers}>
-            {busy === "offers" ? "جارٍ..." : "إظهار العروض الخاصة"}
+            {busy === "offers" ? <span className="km-spin" /> : <Icon name="bolt" size={15} />}
+            عروض الرقم
           </button>
         </div>
       )}
 
       {msg && <div className={`ag-msg ${msg.ok ? "ok" : "err"}`} style={{ marginBottom: 12 }}>{msg.text}</div>}
 
-      {/* العروض الخاصة الحيّة */}
-      {offers && (
-        <div style={{ marginBottom: 16 }}>
-          <h2 className="ag-h2">العروض الخاصة بهذا الرقم</h2>
-          {offers.length === 0 ? <Empty icon="tag" text="لا عروض خاصة لهذا الرقم" /> : (
-            <div className="ag-list">
-              {offers.map((p) => <PkgRow key={p.id} p={p} sym={sym} onBuy={buy} buying={busy === "buy"} />)}
-            </div>
+      {cats.length > 0 && (
+        <div className="ag-chips" style={{ marginBottom: 14 }}>
+          {offers && (
+            <button className={`ag-chip km-chip-offer${activeCat === "offers" ? " on" : ""}`} onClick={() => setActiveCat("offers")}>
+              <Icon name="bolt" size={14} /> عروض خاصة <span className="n">{offers.length}</span>
+            </button>
           )}
+          {cats.map((c) => (
+            <button key={c.id} className={`ag-chip${activeCat === c.id ? " on" : ""}`} onClick={() => setActiveCat(c.id)}>
+              {c.logo_url && <img src={c.logo_url} alt="" className="km-chip-logo" />}
+              {c.name} <span className="n">{c.packages.length}</span>
+            </button>
+          ))}
         </div>
       )}
 
-      {/* الكرات (الفئات) + باقاتها */}
-      {cats.length > 0 && (
-        <>
-          <div className="ag-chips" style={{ marginBottom: 12 }}>
-            {cats.map((c) => (
-              <button key={c.id} className={`ag-chip${activeCat === c.id ? " on" : ""}`}
-                onClick={() => setActiveCat(c.id)}>{c.name}</button>
-            ))}
+      {activeCat !== null && (list.length === 0
+        ? <Empty icon="tag" text={activeCat === "offers" ? "لا عروض خاصة لهذا الرقم" : "لا باقات في هذه الفئة"} />
+        : (
+          <div className="km-grid">
+            {list.map((p) => <PkgCard key={p.id} p={p} sym={sym} color={op?.color} onPick={() => setConfirm(p)} />)}
           </div>
-          {shownCat && (
-            <div className="ag-list">
-              {shownCat.packages.map((p) => <PkgRow key={p.id} p={p} sym={sym} onBuy={buy} buying={busy === "buy"} />)}
-            </div>
-          )}
-        </>
+        ))}
+
+      {!operator && !msg && (
+        <div className="km-hint">
+          <span className="km-hint-ico"><Icon name="phone" size={26} /></span>
+          <div>اكتب رقم الخط واضغط «كشف» — نتعرّف على الشركة ونعرض باقاتها بأسعارك.</div>
+        </div>
+      )}
+
+      {confirm && (
+        <Sheet title="تأكيد الشحن" onClose={() => setConfirm(null)} locked={busy === "buy"}>
+          <div className="km-confirm" style={opVars(op?.color)}>
+            <div className="km-confirm-row"><span>الرقم</span><b dir="ltr">+90 {fmtGsm(digits)}</b></div>
+            <div className="km-confirm-row"><span>الشركة</span><b>{op?.label}</b></div>
+            <div className="km-confirm-row"><span>الباقة</span><b>{confirm.name}</b></div>
+            {confirm.details && <div className="km-confirm-row"><span>التفاصيل</span><b>{confirm.details}</b></div>}
+            <Specs p={confirm} />
+            <div className="km-confirm-price"><span>المبلغ</span><b>{confirm.price} <small>{sym}</small></b></div>
+          </div>
+          <button className="btn g ag-cta" disabled={busy === "buy"} onClick={() => buy(confirm)}>
+            {busy === "buy" ? "جارٍ الإرسال..." : "تأكيد الشحن"}
+          </button>
+        </Sheet>
       )}
     </div>
   );
 }
 
-function PkgRow({ p, sym, onBuy, buying }: { p: KPkg; sym: string; onBuy: (p: KPkg) => void; buying: boolean }) {
+/** شرائح المواصفات: الإنترنت والدقائق والأيام إن عُرفت. */
+function Specs({ p }: { p: KPkg }) {
+  const bits: [string, string][] = [];
+  if (p.gb) bits.push(["🌐", `${p.gb} GB`]);
+  if (p.minutes) bits.push(["📞", `${p.minutes} دقيقة`]);
+  if (p.days) bits.push(["📅", `${p.days} يوم`]);
+  if (!bits.length) return null;
   return (
-    <div className="ag-card" style={{ display: "flex", alignItems: "center", gap: 10,
-      borderInlineStart: p.is_offer ? "3px solid var(--danger)" : undefined }}>
-      <div style={{ flex: 1 }}>
-        <div style={{ fontWeight: 700 }}>
-          {p.name} {p.is_offer && <span style={{ color: "var(--danger)", fontSize: 11 }}>• عرض خاص</span>}
-        </div>
-        {p.details && <div style={{ fontSize: 12, color: "var(--muted)" }}>{p.details}</div>}
-      </div>
-      <div style={{ fontWeight: 800, whiteSpace: "nowrap" }}>{p.price} {sym}</div>
-      <button className="btn ag-cta" style={{ height: 34 }} disabled={buying} onClick={() => onBuy(p)}>شحن</button>
+    <div className="km-specs">
+      {bits.map(([i, t]) => <span key={t}><i>{i}</i>{t}</span>)}
     </div>
+  );
+}
+
+/** بطاقة باقة — الضغط عليها كلّها يفتح تأكيد الشحن. */
+function PkgCard({ p, sym, color, onPick }: { p: KPkg; sym: string; color?: string; onPick: () => void }) {
+  const offer = p.is_offer || p.kind === "offer";
+  return (
+    <button type="button" className={`km-card${offer ? " offer" : ""}`} onClick={onPick} style={opVars(color)}>
+      {offer && <span className="km-ribbon">عرض</span>}
+      <div className="km-card-body">
+        <div className="km-card-name">{p.name}</div>
+        <Specs p={p} />
+        {p.details && <div className="km-card-det">{p.details}</div>}
+      </div>
+      <div className="km-card-price">
+        <b>{p.price}</b><small>{sym}</small>
+      </div>
+    </button>
   );
 }

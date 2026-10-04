@@ -848,3 +848,147 @@ button.ag-stat:active { transform: scale(.98); }
 /* اختيار العملة في التسجيل — شرائح لا قائمة منسدلة: يرى الخيارات كلّها دفعةً */
 .ag-cur-pick { display: flex; flex-wrap: wrap; gap: 8px; }
 .ag-cur-pick .ag-chip { height: 42px; padding: 0 16px; gap: 6px; }
+
+/* ═══ موبايل (شحن الخطوط) — بطاقة الرقم + بطاقات الباقات ═══
+   --opc لون الشركة المكتشفة (يُمرَّر من الصفحة)، وإلا لون المتجر الأساسي. */
+.km-num {
+  display: flex; align-items: center; gap: 10px; padding: 8px;
+  background: var(--surface); border: 1.5px solid var(--border-strong); border-radius: 22px;
+  box-shadow: var(--shadow-soft); margin-bottom: 12px; transition: border-color .2s, box-shadow .2s;
+}
+.km-num:focus-within { border-color: color-mix(in srgb, var(--primary) 60%, transparent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 12%, transparent), var(--shadow-soft); }
+.km-num.has-op { border-color: color-mix(in srgb, var(--opc) 70%, transparent); }
+.km-num-ico {
+  width: 46px; height: 46px; border-radius: 16px; flex-shrink: 0; display: grid; place-items: center;
+  background: color-mix(in srgb, var(--opc, var(--primary)) 14%, transparent); color: var(--opc, var(--primary));
+}
+.km-num-field { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; direction: ltr; }
+.km-cc { font-weight: 800; color: var(--muted); font-size: 16px; }
+.ag .km-num-field input {
+  flex: 1; min-width: 0; height: 46px; border: 0 !important; background: transparent !important;
+  box-shadow: none !important; padding: 0 4px !important; font-size: 22px; font-weight: 800;
+  letter-spacing: 1.5px; font-variant-numeric: tabular-nums; color: var(--text);
+}
+.km-clear {
+  width: 28px; height: 28px; border-radius: 50%; border: 0; flex-shrink: 0; cursor: pointer;
+  background: var(--surface-3); color: var(--muted); display: grid; place-items: center;
+}
+.km-go {
+  height: 46px; padding: 0 18px; border: 0; border-radius: 16px; flex-shrink: 0; cursor: pointer;
+  background: var(--primary); color: var(--on-primary); font: inherit; font-weight: 800; font-size: 15px;
+  display: inline-flex; align-items: center; gap: 6px; transition: transform .12s, opacity .15s;
+}
+.km-go:active { transform: scale(.96); }
+.km-go:disabled { opacity: .45; cursor: not-allowed; }
+.km-spin {
+  width: 18px; height: 18px; border-radius: 50%; border: 2.5px solid currentColor; border-top-color: transparent;
+  animation: kmSpin .7s linear infinite; display: inline-block;
+}
+@keyframes kmSpin { to { transform: rotate(360deg); } }
+
+/* شريط الشركة بعد الكشف */
+.km-op {
+  display: flex; align-items: center; gap: 12px; padding: 12px 14px; margin-bottom: 12px;
+  border-radius: 20px; border: 1px solid color-mix(in srgb, var(--opc) 35%, transparent);
+  background: linear-gradient(110deg, color-mix(in srgb, var(--opc) 22%, var(--surface)), var(--surface) 75%);
+  animation: agPop .22s ease-out;
+}
+.km-op-badge {
+  width: 44px; height: 44px; border-radius: 50%; flex-shrink: 0; display: grid; place-items: center;
+  background: var(--opc); color: var(--opi); font-weight: 900; font-size: 20px;
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--opc) 40%, transparent), inset 0 -4px 8px rgba(0,0,0,.15);
+}
+.km-op-name { font-weight: 900; font-size: 16px; }
+.km-op-num { font-size: 13px; color: var(--muted); font-weight: 700; text-align: end; font-variant-numeric: tabular-nums; }
+.km-offers {
+  height: 38px; padding: 0 14px; border-radius: 999px; flex-shrink: 0; cursor: pointer;
+  border: 1px solid color-mix(in srgb, #ec4899 45%, transparent); font: inherit; font-weight: 800; font-size: 13px;
+  background: color-mix(in srgb, #ec4899 12%, var(--surface)); color: #db2777;
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.km-offers.on { background: #ec4899; color: #fff; }
+.km-chip-offer { color: #db2777 !important; }
+.km-chip-logo { width: 22px; height: 22px; border-radius: 50%; object-fit: cover; margin-inline-start: -6px; }
+
+/* شبكة الباقات: بطاقة واحدة في كل صف على الجوال، ثم 2 ثم 3 */
+.km-grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
+@media (min-width: 680px) { .km-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; } }
+@media (min-width: 1040px) { .km-grid { grid-template-columns: repeat(3, 1fr); } }
+
+.km-card {
+  position: relative; overflow: hidden; width: 100%; display: flex; align-items: center; gap: 12px;
+  padding: 16px 18px; padding-inline-start: 20px; text-align: start; cursor: pointer;
+  font: inherit; color: var(--text);
+  background: var(--surface); border: 1px solid var(--border); border-radius: 20px;
+  box-shadow: var(--shadow-soft);
+  transition: transform .15s, border-color .15s, box-shadow .15s;
+  animation: agPop .2s ease-out both;
+}
+.km-card::before {
+  content: ""; position: absolute; inset-block: 12px; inset-inline-start: 0; width: 4px;
+  border-radius: 0 4px 4px 0; background: var(--opc, var(--primary));
+}
+.km-card:hover {
+  transform: translateY(-2px); border-color: color-mix(in srgb, var(--primary) 45%, transparent);
+  box-shadow: 0 14px 32px color-mix(in srgb, var(--primary) 16%, transparent);
+}
+.km-card:active { transform: scale(.98); }
+.km-card-body { flex: 1; min-width: 0; }
+.km-card-name { font-weight: 800; font-size: 15px; line-height: 1.45; }
+.km-card-det { font-size: 12px; color: var(--muted); margin-top: 4px; line-height: 1.5; }
+.km-card-price {
+  flex-shrink: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  min-width: 82px; padding: 8px 12px; border-radius: 16px;
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+}
+.km-card-price b { font-size: 19px; font-weight: 900; color: var(--primary); font-variant-numeric: tabular-nums; line-height: 1.2; }
+.km-card-price small { font-size: 11.5px; color: var(--muted); font-weight: 700; }
+.km-card.offer {
+  border-color: color-mix(in srgb, #ec4899 35%, transparent);
+  background: linear-gradient(120deg, color-mix(in srgb, #ec4899 9%, var(--surface)), var(--surface) 70%);
+}
+.km-card.offer::before { background: #ec4899; }
+.km-ribbon {
+  position: absolute; top: 0; inset-inline-end: 0; padding: 3px 12px 4px;
+  border-end-start-radius: 12px; background: #ec4899; color: #fff; font-size: 11px; font-weight: 800;
+}
+.km-card.offer .km-card-body { padding-top: 4px; }
+
+.km-specs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+.km-specs span {
+  display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 9px; border-radius: 999px;
+  background: var(--surface-2); border: 1px solid var(--border); font-size: 11.5px; font-weight: 700;
+}
+.km-specs i { font-style: normal; font-size: 11px; }
+
+.km-hint {
+  display: flex; align-items: center; gap: 14px; padding: 18px; margin-top: 8px;
+  border: 1.5px dashed var(--border-strong); border-radius: 20px; color: var(--muted); font-size: 13.5px; line-height: 1.7;
+}
+.km-hint-ico {
+  width: 52px; height: 52px; border-radius: 18px; flex-shrink: 0; display: grid; place-items: center;
+  background: var(--surface-2); color: var(--faint);
+}
+
+/* ورقة التأكيد */
+.km-confirm {
+  border: 1px solid var(--border); border-radius: 18px; padding: 6px 14px; margin-top: 4px;
+  background: var(--surface-2); border-inline-start: 4px solid var(--opc, var(--primary));
+}
+.km-confirm-row {
+  display: flex; justify-content: space-between; gap: 12px; padding: 10px 0;
+  border-bottom: 1px dashed var(--border); font-size: 14px;
+}
+.km-confirm-row span { color: var(--muted); }
+.km-confirm-row b { text-align: end; }
+.km-confirm .km-specs { padding: 10px 0; margin: 0; border-bottom: 1px dashed var(--border); }
+.km-confirm-price { display: flex; justify-content: space-between; align-items: center; padding: 12px 0 8px; }
+.km-confirm-price span { color: var(--muted); font-weight: 700; }
+.km-confirm-price b { font-size: 26px; font-weight: 900; color: var(--primary); font-variant-numeric: tabular-nums; }
+.km-confirm-price small { font-size: 14px; color: var(--muted); }
+
+@media (max-width: 380px) {
+  .km-num-ico { display: none; }
+  .ag .km-num-field input { font-size: 19px; letter-spacing: .5px; }
+  .km-card { padding: 14px; padding-inline-start: 16px; }
+}

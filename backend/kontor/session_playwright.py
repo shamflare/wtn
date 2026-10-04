@@ -87,6 +87,9 @@ class KontorSession:
         """رد العروض الخاصة (HTML). operator بصيغة ZNET (TURKCELL/AVEA/VODAFONE)."""
         with self._lock:
             self._ensure_login()
+            # الموقع يكشف الرقم أوّلاً (gsm_loader 'bul') فتُضبط حالة الجلسة في
+            # الخادم قبل استعلام العروض — بدونها يعيد paketsor قائمةً فارغة.
+            self._post(f"/Kontor/bilgi_api.php?GSMNO={gsm}&operatoru=bul&kisitlama=undefined&")
             tok = self._page.evaluate("(g) => znet_token_ver(g, g)", gsm)
             url = (f"/Kontor/bilgi_api_paketsor.php?GSMNO={gsm}"
                    f"&paketsorgula=true&operator={operator}&znet_token={tok}&")

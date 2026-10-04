@@ -75,6 +75,7 @@ def price_matrix_view(request):
             "category": p.category.name if p.category else "",
             "category_id": p.category_id, "kind": p.kind, "status": p.status,
             "znet_id": p.znet_id, "cost_price": str(p.cost_price),
+            "provider_cost": str(p.provider_cost),
             "recommended_price": str(p.recommended_price), "prices": cells,
         })
     return Response({

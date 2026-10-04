@@ -38,11 +38,28 @@ def looks_like_offer(name: str) -> bool:
     return any(k in low for k in ("fırsat", "firsat", "indirim", "i̇ndirim"))
 
 
-def upsert_packages(tenant, rows, *, dry_run=False) -> dict:
+def _cost_in_base(tenant, cost, provider):
+    """كلفة ZNET (بعملته) ⇐ عملة دفتر المتجر. ValueError إن لم يُضبط سعر الصرف."""
+    from core import currency
+    val = currency.from_provider(tenant, cost, provider)
+    if val is None:
+        cur = currency.currency_of(provider)
+        raise ValueError(
+            f"لا سعر صرف لـ{cur} — اضبطه في «الوكلاء ⟵ أسعار الصرف» قبل الاستيراد، "
+            f"فكلفة ZNET بـ{cur} ودفتر المتجر بـ{currency.base_currency(tenant)}.")
+    return val
+
+
+def upsert_packages(tenant, rows, *, dry_run=False, provider=None) -> dict:
     """
     يُنشئ الفئات الناقصة ويحفظ الباقات. عند وجود باقة سابقة لا يُحدَّث إلا الاسم
     والكلفة — حفاظاً على ما عدّله المالك (الموصى، النوع، الحالة، التوجيه).
+
+    الكلفة تصل بعملة ZNET (الليرة): تُحفظ كما هي في provider_cost، ومحوّلةً إلى
+    عملة الدفتر في cost_price — فكل سعر بعدها (الموصى، المجموعات، الخصم) بعملة الدفتر.
     """
+    if rows and not dry_run:
+        _cost_in_base(tenant, rows[0]["cost"], provider)  # يفشل مبكراً إن لم يُضبط الصرف
     created = updated = 0
     cats: dict[tuple, KontorCategory] = {}
     for r in rows:
@@ -59,17 +76,19 @@ def upsert_packages(tenant, rows, *, dry_run=False) -> dict:
 
         obj = KontorPackage.objects.filter(
             tenant=tenant, operator=r["operator"], znet_id=r["znet_id"]).first()
+        cost = _cost_in_base(tenant, r["cost"], provider)
         if obj:
             obj.name = r["name"]
-            obj.cost_price = r["cost"]
+            obj.provider_cost = r["cost"]
+            obj.cost_price = cost
             if obj.category_id is None:
                 obj.category = cat
-            obj.save(update_fields=["name", "cost_price", "category", "updated_at"])
+            obj.save(update_fields=["name", "provider_cost", "cost_price", "category", "updated_at"])
             updated += 1
         else:
             KontorPackage.objects.create(
                 tenant=tenant, operator=r["operator"], category=cat,
-                znet_id=r["znet_id"], name=r["name"], cost_price=r["cost"],
+                znet_id=r["znet_id"], name=r["name"], provider_cost=r["cost"], cost_price=cost,
                 kind=KontorPackage.Kind.OFFER if looks_like_offer(r["name"]) else KontorPackage.Kind.GENERAL,
             )
             created += 1
@@ -83,17 +102,42 @@ def fetch_feed(base_url: str, kod: str, sifre: str) -> str:
     return resp.text
 
 
-def import_from_znet(tenant, base_url, kod, sifre, *, dry_run=False) -> dict:
+def import_from_znet(tenant, base_url, kod, sifre, *, dry_run=False, provider=None) -> dict:
     """يجلب من ZNET ثم يحفظ. يرفع ValueError برسالة عربية عند عدم وجود باقات."""
     rows = parse_feed(fetch_feed(base_url, kod, sifre))
     if not rows:
         raise ValueError("لا باقات في الرد — تحقّق من بيانات الدخول وتفعيل API وثبات الـ IP.")
-    res = upsert_packages(tenant, rows, dry_run=dry_run)
+    res = upsert_packages(tenant, rows, dry_run=dry_run, provider=provider)
     if not dry_run:
         from .models import KontorPriceGroup
         for g in KontorPriceGroup.objects.filter(tenant=tenant):
             recompute_group_prices(g)
     return res
+
+
+def reprice_costs(tenant, provider=None) -> int:
+    """
+    يعيد اشتقاق cost_price من provider_cost بسعر الصرف الحالي، ثم يعيد حساب
+    الخلايا المرتبطة بقاعدة. يُستدعى عند تغيير أسعار الصرف. بلا سعر صرف ⇐ لا شيء.
+    """
+    from core import currency
+    from .models import KontorPriceGroup
+    if provider is None:
+        from .execution import znet_provider
+        provider = znet_provider(tenant)
+    n = 0
+    for p in KontorPackage.objects.filter(tenant=tenant, provider_cost__gt=0):
+        val = currency.from_provider(tenant, p.provider_cost, provider)
+        if val is None:
+            return 0
+        if val != p.cost_price:
+            p.cost_price = val
+            p.save(update_fields=["cost_price", "updated_at"])
+            n += 1
+    if n:
+        for g in KontorPriceGroup.objects.filter(tenant=tenant):
+            recompute_group_prices(g)
+    return n
 
 
 # ─────────────────────────── التسعير ───────────────────────────

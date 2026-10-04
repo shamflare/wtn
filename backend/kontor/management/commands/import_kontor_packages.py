@@ -27,8 +27,10 @@ class Command(BaseCommand):
         if not tenant:
             raise CommandError(f"لا متجر بالـ subdomain: {o['tenant']}")
         try:
+            from kontor.execution import znet_provider
             res = import_from_znet(
-                tenant, o["base_url"], o["bayi_kodu"], o["sifre"], dry_run=o["dry_run"])
+                tenant, o["base_url"], o["bayi_kodu"], o["sifre"], dry_run=o["dry_run"],
+                provider=znet_provider(tenant))
         except requests.RequestException as e:
             raise CommandError(f"تعذّر الاتصال بـ ZNET: {e}")
         except ValueError as e:

@@ -97,7 +97,7 @@ def import_view(request):
     if not (base_url and kod and sifre):
         return Response({"detail": "إعداد ZNET ناقص (base_url/kod/sifre)."}, status=400)
     try:
-        res = import_from_znet(tenant, base_url, kod, sifre)
+        res = import_from_znet(tenant, base_url, kod, sifre, provider=prov)
     except requests.RequestException as e:
         return Response({"detail": f"تعذّر الاتصال بـ ZNET: {e}"}, status=502)
     except ValueError as e:

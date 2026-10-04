@@ -97,7 +97,10 @@ class KontorPackage(models.Model):
     gb = models.PositiveIntegerField(default=0)
     minutes = models.PositiveIntegerField(default=0)
 
-    cost_price = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"))        # كلفة المزوّد
+    # كلفة ZNET كما وصلت بعملته (الليرة) — المرجع الذي تُشتقّ منه cost_price
+    provider_cost = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"))
+    # كل ما يلي بعملة دفتر المتجر (Tenant.base_currency) — كبقية المشروع، لا بالليرة
+    cost_price = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"))        # الكلفة محوّلة
     recommended_price = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"))  # الموصى
 
     kind = models.CharField(max_length=8, choices=Kind.choices, default=Kind.GENERAL)

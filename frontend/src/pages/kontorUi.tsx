@@ -1,4 +1,6 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { api } from "../api";
+import { symbolOf } from "../currency";
 
 /**
  * عناصر مشتركة لصفحات «موبايل» (شحن الخطوط) — بنفس لغة تصميم الألعاب:
@@ -90,6 +92,45 @@ export function Field({ label, hint, children }: { label: string; hint?: string;
       <label style={{ display: "block", fontSize: 12.5, fontWeight: 700, marginBottom: 5 }}>{label}</label>
       {children}
       {hint && <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 4, lineHeight: 1.6 }}>{hint}</div>}
+    </div>
+  );
+}
+
+/**
+ * عملة دفتر المتجر وسعر صرف الليرة — كلفة ZNET تصل بالليرة وتُحوَّل بهذا السعر،
+ * وكل الأسعار في صفحات الموبايل بعملة الدفتر.
+ */
+export function useLedger() {
+  const [l, setL] = useState<{ base: string; sym: string; tryRate: number | null }>({ base: "", sym: "", tryRate: null });
+  useEffect(() => {
+    api.get("/settings/exchange/").then((r) => {
+      const base = r.data.base_currency || "USD";
+      const rate = base === "TRY" ? 1 : Number(r.data.exchange_rates?.TRY || 0);
+      setL({ base, sym: symbolOf(base), tryRate: rate > 0 ? rate : 0 });
+    }).catch(() => {});
+  }, []);
+  return l;
+}
+
+/** شريط يشرح عملة الأسعار ومصدر التحويل — ويحذّر بالأحمر إن غاب سعر صرف الليرة. */
+export function LedgerNote({ ledger }: { ledger: ReturnType<typeof useLedger> }) {
+  if (!ledger.base) return null;
+  if (ledger.base === "TRY") {
+    return <div style={note}>💱 كل الأسعار هنا <b>بالليرة التركية</b> — عملة دفتر متجرك وعملة ZNET معاً، فلا تحويل.</div>;
+  }
+  if (!ledger.tryRate) {
+    return (
+      <div style={{ ...note, background: "#fdf3f3", borderColor: "#f0caca", color: "#8a3535" }}>
+        ⚠️ <b>لا سعر صرف للّيرة.</b> كلفة ZNET بالليرة ودفتر متجرك بـ{ledger.base} — اضبط سعر TRY في
+        «الوكلاء ⟵ أسعار الصرف» ثم أعد الاستيراد. حتى ذلك الحين البيع موقوف تلقائياً حمايةً من الخطأ.
+      </div>
+    );
+  }
+  return (
+    <div style={note}>
+      💱 كل الأسعار هنا بعملة متجرك <b>{ledger.base} ({ledger.sym})</b>. كلفة ZNET تصل بالليرة (تظهر صغيرة تحت
+      الكلفة) وتُحوَّل بسعر <b className="num">1{ledger.sym} = {ledger.tryRate} ₺</b> من «أسعار الصرف» —
+      وتغيير هذا السعر يعيد حساب الكلف والأسعار المرتبطة بها تلقائياً.
     </div>
   );
 }

@@ -67,6 +67,13 @@ def create_order(dealer, package: KontorPackage, gsm: str) -> KontorOrder:
 
     sell = dealer_price(dealer, package).quantize(CENT)
     cost = (package.cost_price or Decimal("0")).quantize(CENT)
+    # حرّاس المال: بلا كلفة محوّلة (لا سعر صرف) أو بلا سعر أو بسعر دون الكلفة ⇐ لا بيع
+    if cost <= 0:
+        raise KontorOrderError("الباقة بلا كلفة بعملة المتجر — تواصل مع الإدارة")
+    if sell <= 0:
+        raise KontorOrderError("الباقة غير مسعّرة بعد — تواصل مع الإدارة")
+    if sell < cost:
+        raise KontorOrderError("سعر الباقة أقل من كلفتها — أوقف البيع حمايةً من الخسارة")
 
     wallet = getattr(dealer, "wallet", None)
     if wallet is None:

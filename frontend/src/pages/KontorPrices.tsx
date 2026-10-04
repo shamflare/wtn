@@ -5,15 +5,15 @@ import ProductPicker, { type PickerProduct } from "../components/ProductPicker";
 import ScrollTop from "../components/ScrollTop";
 import { matches } from "../search";
 import {
-  empty, errText, Field, groupHead, ib, input, Modal, money, note, OperatorTabs, opOf, pageTitle,
-  pageWrap, preview, Toast,
+  empty, errText, Field, groupHead, ib, input, LedgerNote, Modal, money, note, OperatorTabs, opOf, pageTitle,
+  pageWrap, preview, Toast, useLedger,
 } from "./kontorUi";
 
 interface Group { id: number; name: string; dealer_count?: number }
 interface Cell { price: string; linked: boolean; mode: string; value: string; round: boolean }
 interface Row {
   id: number; name: string; details: string; category: string; category_id: number | null;
-  znet_id: string; kind: string; status: string;
+  znet_id: string; kind: string; status: string; provider_cost: string;
   cost_price: string; recommended_price: string; prices: Record<string, Cell>;
 }
 
@@ -37,6 +37,7 @@ export default function KontorPrices() {
   const [draft, setDraft] = useState("");
   const [dialog, setDialog] = useState<"new" | "bulk" | "rec" | "delete" | null>(null);
   const [toast, setToast] = useState("");
+  const ledger = useLedger();
 
   async function load() {
     const r = await api.get(`/kontor/price-matrix/?operator=${op}`);
@@ -123,6 +124,7 @@ export default function KontorPrices() {
 
       <div style={{ marginBottom: 12 }}><OperatorTabs value={op} onChange={(c) => { setOp(c); setEditing(null); }} /></div>
 
+      <LedgerNote ledger={ledger} />
       <div style={note}>
         اضغط على أي خلية سعر لتعديلها. الخلية <b style={{ color: "var(--primary-dark)" }}>الملوّنة</b> = سعر مخصّص
         للمجموعة، والرمادية = تتبع <b>السعر الموصى</b>. عمود الموصى قابل للتعديل هنا أيضاً.
@@ -140,8 +142,8 @@ export default function KontorPrices() {
               <tr>
                 <th style={{ width: 70 }}>المعرّف</th>
                 <th className="cell-start">الباقة</th>
-                <th>الكلفة</th>
-                <th>الموصى</th>
+                <th>الكلفة {ledger.sym && `(${ledger.sym})`}</th>
+                <th>الموصى {ledger.sym && `(${ledger.sym})`}</th>
                 {groups.map((g) => (
                   <th key={g.id} style={{ background: "var(--primary)", color: "#fff" }}>
                     مجموعة {g.name}
@@ -164,7 +166,11 @@ export default function KontorPrices() {
                         {r.kind === "offer" && <span style={offerTag}>عرض</span>}
                         {r.status !== "active" && <span style={{ ...offerTag, background: "#eef1f2", color: "var(--muted)" }}>معطّلة</span>}
                       </td>
-                      <td className="num buy">{money(r.cost_price)}</td>
+                      <td className="num">
+                        <div className="buy">{money(r.cost_price)}</div>
+                        {ledger.base !== "TRY" && Number(r.provider_cost) > 0 &&
+                          <div style={{ fontSize: 11, color: "var(--faint)" }}>{money(r.provider_cost)} ₺</div>}
+                      </td>
                       <td className="num" style={{ cursor: "pointer" }}
                         onClick={() => startEdit(r.id, "rec", Number(r.recommended_price) ? r.recommended_price : "")}>
                         {editing?.p === r.id && editing?.g === "rec" ? cellInput(() => saveRec(r))
@@ -308,7 +314,7 @@ function BulkModal({ op, groups, products, costOf, initial, onClose, onDone }: {
       <Field label="طريقة التسعير">
         <select value={mode} onChange={(e) => setMode(e.target.value as any)} style={input}>
           <option value="percent">نسبة مئوية % فوق الكلفة</option>
-          <option value="fixed">مبلغ ثابت يُضاف إلى الكلفة</option>
+          <option value="fixed">مبلغ ثابت يُضاف إلى الكلفة (بعملة المتجر)</option>
           {!toRec && <option value="follow">نسخ السعر الموصى كما هو</option>}
         </select>
       </Field>

@@ -434,3 +434,76 @@ class ExecutionTest(APITestCase):
         self.assertEqual(_parse_place("OK|1|ok|5.5")[0], 1)
         self.assertEqual(_parse_place("OK|3|bad|0")[0], 3)
         self.assertEqual(_parse_place("garbage")[0], None)
+
+
+class CurrencyTest(APITestCase):
+    """كلفة ZNET بالليرة ⇐ عملة دفتر المتجر (هنا الدولار) — لا تُعامَل الليرة كأنها دولار."""
+
+    def setUp(self):
+        from core.models import Wallet
+        from providers.models import Provider
+        self.tenant = Tenant.objects.create(subdomain="usd", name="متجر", base_currency="USD",
+                                            exchange_rates={"TRY": "40"})
+        self.admin = User.objects.create(login_id="own", name="مالك", tenant=self.tenant,
+                                         role=User.Role.TENANT_ADMIN)
+        self.dealer = User.objects.create(login_id="bayi", name="وكيل", tenant=self.tenant,
+                                          role=User.Role.BAYI)
+        self.wallet = Wallet.objects.create(tenant=self.tenant, user=self.dealer, balance=Decimal("100"))
+        self.prov = Provider.objects.create(
+            tenant=self.tenant, name="ZNET", type=Provider.Type.SAME_SYSTEM,
+            config={"code": "znet", "base_url": "http://z", "kod": "k", "sifre": "s"})
+
+    def test_import_converts_try_cost_to_base(self):
+        upsert_packages(self.tenant, parse_feed(FEED), provider=self.prov)
+        p = KontorPackage.objects.get(znet_id="476647")  # 970 ل.ت
+        self.assertEqual(p.provider_cost, Decimal("970.00"))
+        self.assertEqual(p.cost_price, Decimal("24.25"))  # 970 ÷ 40
+
+    def test_import_refuses_without_rate(self):
+        self.tenant.exchange_rates = {}
+        self.tenant.save()
+        with self.assertRaises(ValueError):
+            upsert_packages(self.tenant, parse_feed(FEED), provider=self.prov)
+        self.assertFalse(KontorPackage.objects.exists())
+
+    def test_rate_change_reprices_costs_and_linked_cells(self):
+        from kontor.models import KontorPackagePrice, KontorPriceGroup
+        upsert_packages(self.tenant, parse_feed(FEED), provider=self.prov)
+        p = KontorPackage.objects.get(znet_id="476647")
+        g = KontorPriceGroup.objects.create(tenant=self.tenant, name="VIP")
+        self.client.force_authenticate(self.admin)
+        self.client.post("/api/kontor/set-price/", {"package": p.id, "group": g.id,
+                                                    "mode": "percent", "value": "10"}, format="json")
+        r = self.client.put("/api/settings/exchange/",
+                            {"base_currency": "USD", "exchange_rates": {"TRY": "50"}}, format="json")
+        self.assertEqual(r.status_code, 200, r.content)
+        p.refresh_from_db()
+        self.assertEqual(p.cost_price, Decimal("19.40"))  # 970 ÷ 50
+        self.assertEqual(KontorPackagePrice.objects.get(package=p, group=g).price, Decimal("21.34"))
+
+    def test_buy_debits_base_currency_not_lira(self):
+        from unittest.mock import MagicMock, patch
+        upsert_packages(self.tenant, parse_feed(FEED), provider=self.prov)
+        p = KontorPackage.objects.get(znet_id="476647")
+        p.recommended_price = Decimal("26.00"); p.save()
+        self.client.force_authenticate(self.dealer)
+        with patch("kontor.execution.requests.get", return_value=MagicMock(text="OK|1|ok|970")):
+            r = self.client.post("/api/kontor/store/buy/", {"package": p.id, "gsm": "5442199992"}, format="json")
+        self.assertEqual(r.status_code, 201, r.content)
+        self.wallet.refresh_from_db()
+        self.assertEqual(self.wallet.balance, Decimal("74.00"))  # 100 − 26$ لا 970
+
+    def test_guards_block_unpriced_and_loss(self):
+        from kontor.execution import KontorOrderError, create_order
+        upsert_packages(self.tenant, parse_feed(FEED), provider=self.prov)
+        p = KontorPackage.objects.get(znet_id="476647")  # كلفة 24.25$
+        with self.assertRaises(KontorOrderError):     # بلا سعر موصى
+            create_order(self.dealer, p, "5442199992")
+        p.recommended_price = Decimal("20"); p.save()
+        with self.assertRaises(KontorOrderError):     # دون الكلفة
+            create_order(self.dealer, p, "5442199992")
+        p.cost_price = Decimal("0"); p.recommended_price = Decimal("30"); p.save()
+        with self.assertRaises(KontorOrderError):     # بلا كلفة
+            create_order(self.dealer, p, "5442199992")
+        self.wallet.refresh_from_db()
+        self.assertEqual(self.wallet.balance, Decimal("100"))

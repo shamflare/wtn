@@ -201,6 +201,9 @@ def exchange_rates_view(request):
             tenant.exchange_rates = clean
         tenant.base_currency = base
         tenant.save(update_fields=["base_currency", "exchange_rates"])
+        # كلفة باقات الخطوط مشتقّة من كلفة ZNET بالليرة ⇐ تتبع سعر الصرف الجديد
+        from kontor.services import reprice_costs
+        reprice_costs(tenant)
 
     return Response({
         "base_currency": tenant.base_currency or "TRY",

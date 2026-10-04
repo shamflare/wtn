@@ -29,13 +29,13 @@ class KontorPackageSerializer(serializers.ModelSerializer):
         fields = [
             "id", "operator", "operator_label", "category", "category_name",
             "znet_id", "name", "details", "days", "gb", "minutes",
-            "cost_price", "recommended_price", "profit",
+            "provider_cost", "cost_price", "recommended_price", "profit",
             "kind", "kind_label", "status", "status_label",
             "provider", "provider_alt1", "provider_alt2", "provider_package_id",
             "sort_order", "updated_at",
         ]
         # المعرّف والكلفة والمشغّل يأتون من الاستيراد؛ المالك يملك الباقي
-        read_only_fields = ["tenant", "operator", "znet_id", "cost_price", "updated_at"]
+        read_only_fields = ["tenant", "operator", "znet_id", "provider_cost", "cost_price", "updated_at"]
 
 
 class KontorPriceGroupSerializer(serializers.ModelSerializer):

@@ -4,8 +4,8 @@ import Icon from "../components/Icon";
 import ScrollTop from "../components/ScrollTop";
 import { matches } from "../search";
 import {
-  empty, Field, groupHead, ib, input, Modal, money, note, OperatorTabs, OPERATORS, pageTitle,
-  pageWrap, Switch, Toast, errText,
+  empty, Field, groupHead, ib, input, LedgerNote, Modal, money, note, OperatorTabs, OPERATORS, pageTitle,
+  pageWrap, Switch, Toast, errText, useLedger,
 } from "./kontorUi";
 
 /* باقة خطّ كما يعرضها الخادم */
@@ -14,7 +14,7 @@ interface Pkg {
   category: number | null; category_name: string;
   znet_id: string; name: string; details: string;
   days: number; gb: number; minutes: number;
-  cost_price: string; recommended_price: string; profit: string;
+  provider_cost: string; cost_price: string; recommended_price: string; profit: string;
   kind: "general" | "offer"; kind_label: string;
   status: "active" | "passive" | "sale_paused"; status_label: string;
   sort_order: number;
@@ -39,6 +39,7 @@ export default function Kontor() {
   const [editing, setEditing] = useState<number | null>(null);
   const [draft, setDraft] = useState("");
   const [modal, setModal] = useState<Pkg | null>(null);
+  const ledger = useLedger();
 
   async function load() {
     const p = await api.get("/kontor/packages/");
@@ -173,6 +174,7 @@ export default function Kontor() {
             style={{ ...input, width: 230, marginInlineStart: "auto" }} />
         </div>
 
+        <LedgerNote ledger={ledger} />
         <div style={note}>
           اضغط على <b>السعر الموصى</b> لتعديله — وهو ما يدفعه الوكيل غير المربوط بمجموعة أسعار.
           المفتاح يفعّل الباقة أو يعطّلها، والضغط على <b>النوع</b> يبدّله بين عامة وعرض.
@@ -199,7 +201,7 @@ export default function Kontor() {
                 <th style={{ width: 34 }}><input type="checkbox" checked={allPicked} onChange={() => toggleMany(shownIds)} /></th>
                 <th style={{ width: 70 }}>المعرّف</th>
                 <th className="cell-start">الباقة</th>
-                <th>الكلفة</th><th>الموصى</th><th>الربح</th>
+                <th>الكلفة {ledger.sym && `(${ledger.sym})`}</th><th>الموصى {ledger.sym && `(${ledger.sym})`}</th><th>الربح</th>
                 <th>النوع</th><th>الحالة</th><th style={{ width: 44 }}></th>
               </tr>
             </thead>
@@ -226,7 +228,11 @@ export default function Kontor() {
                             <div style={{ fontWeight: 700 }}>{p.name}</div>
                             <Specs p={p} />
                           </td>
-                          <td className="num buy">{money(p.cost_price)}</td>
+                          <td className="num">
+                            <div className="buy">{money(p.cost_price)}</div>
+                            {ledger.base !== "TRY" && Number(p.provider_cost) > 0 &&
+                              <div style={{ fontSize: 11, color: "var(--faint)" }}>{money(p.provider_cost)} ₺</div>}
+                          </td>
                           <td className="num" style={{ cursor: "pointer", minWidth: 100 }}
                             onClick={() => { if (editing !== p.id) { setEditing(p.id); setDraft(rec ? p.recommended_price : ""); } }}>
                             {editing === p.id ? (
@@ -312,6 +318,7 @@ function Stat({ label, value, sub, icon, tone }: { label: string; value: string;
 
 /** نافذة تفاصيل الباقة: المواصفات (للفلاتر عند الوكيل) والترتيب والحالة. */
 function PackageModal({ pkg, onClose, onSaved }: { pkg: Pkg; onClose: () => void; onSaved: (p: Pkg) => void }) {
+  const ledger = useLedger();
   const [f, setF] = useState({
     details: pkg.details, days: String(pkg.days || ""), gb: String(pkg.gb || ""),
     minutes: String(pkg.minutes || ""), sort_order: String(pkg.sort_order || ""),
@@ -342,7 +349,8 @@ function PackageModal({ pkg, onClose, onSaved }: { pkg: Pkg; onClose: () => void
       <button className="btn g" disabled={busy} onClick={save}>{busy ? "جارٍ الحفظ..." : "حفظ"}</button>
     </>}>
       <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 12 }}>
-        {pkg.category_name} · المعرّف <b className="num">{pkg.znet_id}</b> · الكلفة <b className="num">{money(pkg.cost_price)}</b>
+        {pkg.category_name} · المعرّف <b className="num">{pkg.znet_id}</b> · الكلفة <b className="num">{money(pkg.cost_price)} {ledger.sym}</b>
+        {ledger.base !== "TRY" && <> (<span className="num">{money(pkg.provider_cost)} ₺</span> لدى ZNET)</>}
         <div style={{ fontSize: 11.5 }}>الاسم والكلفة يأتيان من ZNET ويتحدّثان مع كل استيراد.</div>
       </div>
       <Field label="التفاصيل" hint="سطر قصير يراه الوكيل تحت اسم الباقة — مثل: 30 يوم · 10GB · 1000 دقيقة">
@@ -357,7 +365,7 @@ function PackageModal({ pkg, onClose, onSaved }: { pkg: Pkg; onClose: () => void
         هذه الأرقام تشغّل فلاتر «المدة/الإنترنت/الدقائق» في متجر الوكيل. اتركها فارغة إن لم تنطبق.
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
-        <Field label="السعر الموصى">
+        <Field label={`السعر الموصى (${ledger.base || "…"})`}>
           <input type="number" step="any" value={f.recommended_price} onChange={(e) => set("recommended_price", e.target.value)} style={input} />
         </Field>
         <Field label="الترتيب">

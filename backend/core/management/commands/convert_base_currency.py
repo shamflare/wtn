@@ -25,6 +25,7 @@ from orders.models import Order
 from payments.models import PaymentNotification, ReceivingAccount
 from pool.models import Pin
 from providers.models import Provider
+from kontor.models import KontorOrder, KontorPackage, KontorPackagePrice
 
 # (النموذج، الحقول المحفوظة بعملة الدفتر)
 TENANT_SCOPED = [
@@ -39,6 +40,10 @@ TENANT_SCOPED = [
     (PaymentNotification, ["credit_amount", "balance_before", "balance_after"]),
     (Pin, ["cost"]),
     (Provider, ["real_balance", "balance", "debt", "balance_alert_threshold"]),
+    # الخطوط: provider_cost يبقى بعملة ZNET ولا يُحوَّل
+    (KontorPackage, ["cost_price", "recommended_price"]),
+    (KontorPackagePrice, ["price"]),
+    (KontorOrder, ["cost_price", "sell_price", "profit", "balance_before", "balance_after"]),
 ]
 
 

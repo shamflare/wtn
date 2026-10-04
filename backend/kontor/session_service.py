@@ -53,6 +53,20 @@ class Handler(BaseHTTPRequestHandler):
                 if not gsm.isdigit():
                     return self._send(400, {"detail": "gsm غير صحيح"})
                 return self._send(200, {"html": _get_session().detect(gsm)})
+            if u.path == "/debug":
+                gsm = (q.get("gsm") or [""])[0]
+                s = _get_session()
+                with s._lock:
+                    s._ensure_login()
+                    s._post(f"/Kontor/bilgi_api.php?GSMNO={gsm}&operatoru=bul&kisitlama=undefined&")
+                    has = s._page.evaluate("() => typeof znet_token_ver")
+                    tok = None
+                    try:
+                        tok = s._page.evaluate("(g) => String(znet_token_ver(g, g))", gsm)
+                    except Exception as e:  # noqa: BLE001
+                        tok = f"ERR:{e}"
+                    url = s._page.url
+                return self._send(200, {"typeof_fn": has, "token": tok, "page_url": url})
             if u.path == "/offers":
                 gsm = (q.get("gsm") or [""])[0]
                 op = (q.get("operator") or [""])[0]

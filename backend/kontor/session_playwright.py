@@ -31,35 +31,53 @@ class KontorSession:
         self._page = self._browser.new_context().new_page()
         self._page.on("dialog", lambda d: d.dismiss())
 
+    def _kontor_ready(self) -> bool:
+        """هل صفحة Kontor محمّلة ومسجّلة الدخول (دالة الرمز متاحة)؟"""
+        try:
+            self._page.goto(f"{self.base}/Kontor/index.php", wait_until="networkidle", timeout=30000)
+            return bool(self._page.evaluate("() => typeof znet_token_ver === 'function'"))
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _do_security_image(self):
+        p = self._page
+        if "parolax" not in p.url:
+            return
+        ok = p.evaluate(
+            "(name) => { const i=[...document.querySelectorAll('img')]"
+            ".find(x => (x.getAttribute('src')||'').endsWith(name)); if(i){i.click();return true;} return false; }",
+            f"{self.sec}.png",
+        )
+        if not ok:
+            raise RuntimeError("تعذّر إيجاد الصورة الأمنية — تحقّق من KONTOR_SECURITY_IMAGE")
+        p.wait_for_load_state("networkidle", timeout=45000)
+        p.wait_for_timeout(1200)
+
     def _login(self):
         self._ensure_browser()
         p = self._page
         p.goto(f"{self.base}/index.php?giris=true", wait_until="networkidle", timeout=45000)
-        p.fill("#kullanici_adi", self.user)
-        p.fill("#password", self.password)
-        p.evaluate("() => { const b = document.getElementById('girisbutton'); if (b) b.style.display='block'; }")
-        p.wait_for_timeout(2500)
-        p.evaluate("() => EntryPoint.login.login()")
-        p.wait_for_timeout(1500)
+        # قد نكون مسجّلين أصلاً (تُحوّلنا إلى menu/parolax بلا نموذج دخول)
         if "parolax" in p.url:
-            ok = p.evaluate(
-                "(name) => { const i=[...document.querySelectorAll('img')]"
-                ".find(x => (x.getAttribute('src')||'').endsWith(name)); if(i){i.click();return true;} return false; }",
-                f"{self.sec}.png",
-            )
-            if not ok:
-                raise RuntimeError("تعذّر إيجاد الصورة الأمنية — تحقّق من KONTOR_SECURITY_IMAGE")
-            p.wait_for_load_state("networkidle", timeout=45000)
-            p.wait_for_timeout(1200)
-        p.goto(f"{self.base}/Kontor/index.php", wait_until="networkidle", timeout=45000)
-        has_fn = p.evaluate("() => typeof znet_token_ver === 'function'")
-        if not has_fn:
+            self._do_security_image()
+        elif p.query_selector("#kullanici_adi"):
+            p.fill("#kullanici_adi", self.user)
+            p.fill("#password", self.password)
+            p.evaluate("() => { const b = document.getElementById('girisbutton'); if (b) b.style.display='block'; }")
+            p.wait_for_timeout(2500)
+            p.evaluate("() => EntryPoint.login.login()")
+            p.wait_for_timeout(1500)
+            self._do_security_image()
+        # وإلا: لا نموذج ولا صورة ⇐ غالباً مسجّلون — نتحقّق أدناه
+        if not self._kontor_ready():
             raise RuntimeError("الجلسة لم تكتمل بعد الدخول (znet_token_ver غير متاح)")
         self._logged = True
 
     def _ensure_login(self):
-        if not self._logged:
-            self._login()
+        if self._logged and self._kontor_ready():
+            return
+        self._logged = False
+        self._login()
 
     def _post(self, path: str) -> str:
         return self._page.evaluate(

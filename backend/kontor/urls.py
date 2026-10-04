@@ -1,7 +1,9 @@
 """روابط إدارة كتالوج الخطوط وتسعيرها."""
 from django.urls import path
 
-from .views import categories_view, import_view, package_update_view, packages_view
+from .views import (
+    categories_view, import_view, package_update_view, packages_bulk_view, packages_view,
+)
 from .views_store import (
     buy_view, detect_view, my_orders_view, store_offers_view, store_packages_view,
 )
@@ -13,6 +15,7 @@ from .views_pricing import (
 urlpatterns = [
     path("categories/", categories_view, name="kontor-categories"),
     path("packages/", packages_view, name="kontor-packages"),
+    path("packages/bulk/", packages_bulk_view, name="kontor-packages-bulk"),
     path("packages/<int:pk>/", package_update_view, name="kontor-package-update"),
     path("import/", import_view, name="kontor-import"),
     # المرحلة 2 — الأسعار وربط الوكلاء

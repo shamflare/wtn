@@ -190,6 +190,57 @@ class PricingTest(APITestCase):
         self.assertFalse(dealer_can_query(self.dealer, "Vodafone"))
         self.assertTrue(dealer_can_query(self.dealer, "Turkcell"))  # افتراضي
 
+    def test_bulk_price_selected_packages_and_recommended_column(self):
+        from kontor.models import KontorPackagePrice
+        g = self._group()
+        p = KontorPackage.objects.get(znet_id="100")  # كلفة 148
+        others = KontorPackage.objects.filter(operator="Turkcell").exclude(pk=p.pk)
+        r = self.client.post("/api/kontor/bulk-price/",
+                             {"group": g["id"], "operator": "Turkcell", "mode": "fixed",
+                              "value": "2", "packages": [p.pk]}, format="json")
+        self.assertEqual(r.json()["updated"], 1)
+        self.assertEqual(KontorPackagePrice.objects.get(package=p).price, Decimal("150.00"))
+        self.assertFalse(KontorPackagePrice.objects.filter(package__in=others).exists())
+        # عمود الموصى: يُكتب في الباقة نفسها مع التقريب لأعلى إلى النصف
+        self.client.post("/api/kontor/bulk-price/",
+                         {"group": "recommended", "operator": "Turkcell", "mode": "percent",
+                          "value": "10", "round": True, "packages": [p.pk]}, format="json")
+        p.refresh_from_db()
+        self.assertEqual(p.recommended_price, Decimal("163.00"))  # 162.80 ⇐ 163
+
+    def test_bulk_price_skips_zero_cost(self):
+        g = self._group()
+        p = KontorPackage.objects.get(znet_id="100")
+        p.cost_price = Decimal("0"); p.save()
+        r = self.client.post("/api/kontor/bulk-price/",
+                             {"group": g["id"], "operator": "Turkcell", "mode": "percent",
+                              "value": "5", "packages": [p.pk]}, format="json").json()
+        self.assertEqual(r["updated"], 0)
+        self.assertEqual(r["skipped_zero_cost"], [p.name])
+
+    def test_packages_bulk_edit(self):
+        ids = list(KontorPackage.objects.filter(operator="Turkcell").values_list("pk", flat=True))
+        r = self.client.post("/api/kontor/packages/bulk/",
+                             {"ids": ids, "status": "passive", "kind": "offer"}, format="json")
+        self.assertEqual(r.json()["updated"], len(ids))
+        self.assertFalse(KontorPackage.objects.filter(pk__in=ids, status="active").exists())
+        self.assertEqual(self.client.post("/api/kontor/packages/bulk/", {"ids": ids, "status": "x"},
+                                          format="json").status_code, 400)
+
+    def test_admin_orders_summary_and_filters(self):
+        from kontor.models import KontorOrder
+        p = KontorPackage.objects.get(znet_id="100")
+        for gsm, st in (("5321112233", "success"), ("5329998877", "failed")):
+            KontorOrder.objects.create(tenant=self.tenant, dealer=self.dealer, package=p,
+                                       operator=p.operator, gsm=gsm, status=st,
+                                       sell_price=Decimal("160"), profit=Decimal("12"))
+        d = self.client.get("/api/kontor/orders/?status=success").json()
+        self.assertEqual(len(d["results"]), 1)
+        self.assertEqual(d["summary"]["counts"], {"success": 1, "failed": 1})
+        self.assertEqual(Decimal(d["summary"]["profit"]), Decimal("12"))
+        d = self.client.get("/api/kontor/orders/?q=99988").json()
+        self.assertEqual([o["gsm"] for o in d["results"]], ["5329998877"])
+
     def test_dealer_cannot_access_pricing(self):
         self.client.force_authenticate(self.dealer)
         self.assertEqual(self.client.get("/api/kontor/price-matrix/?operator=Turkcell").status_code, 403)

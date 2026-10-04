@@ -103,3 +103,21 @@ def import_view(request):
     except ValueError as e:
         return Response({"detail": str(e)}, status=400)
     return Response(res, status=status.HTTP_200_OK)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def packages_bulk_view(request):
+    """تعديل جماعي: {ids:[...], status?, kind?} — تفعيل/تعطيل/إيقاف بيع أو تغيير النوع."""
+    if not _require_admin(request):
+        return Response({"detail": "مخصّص لصاحب المتجر"}, status=403)
+    ids = request.data.get("ids") or []
+    changes = {}
+    if request.data.get("status") in KontorPackage.Status.values:
+        changes["status"] = request.data["status"]
+    if request.data.get("kind") in KontorPackage.Kind.values:
+        changes["kind"] = request.data["kind"]
+    if not ids or not changes:
+        return Response({"detail": "حدّد باقات وتعديلاً"}, status=400)
+    n = KontorPackage.objects.filter(tenant=request.user.tenant, pk__in=ids).update(**changes)
+    return Response({"updated": n})

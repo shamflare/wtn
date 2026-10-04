@@ -10,7 +10,7 @@ import { applyThemeConfig, THEME_DEFAULTS, type ThemeConfig } from "../theme";
 const ADMIN_TABS = [
   { key: "home", label: "الرئيسية", icon: "home", to: "/home" },
   { key: "oyunpin", label: "الألعاب", icon: "games", to: "/oyunpin" },
-  { key: "kontor", label: "رصيد الموبايل", icon: "phone", to: "/kontor" },
+  { key: "kontor", label: "موبايل", icon: "phone", to: "/kontor" },
   { key: "bayiler", label: "الوكلاء", icon: "users", to: "/dealers" },
   { key: "ayarlar", label: "الإعدادات", icon: "settings", to: "/settings/site" },
   { key: "raporlar", label: "التقارير", icon: "chart", to: "/reports" },
@@ -46,12 +46,13 @@ const SUBNAV_OYUNPIN = [
   { label: "بنك الأكواد", to: "/oyunpin/pool" },
   { label: "مزوّدو API", to: "/oyunpin/providers" },
 ];
-// قسم رصيد الموبايل — شحن الخطوط التركية (kontör)
+// قسم الموبايل — شحن الخطوط التركية (kontör)
 const SUBNAV_KONTOR = [
+  { label: "الطلبات", to: "/kontor/orders" },
   { label: "الباقات", to: "/kontor" },
+  { label: "الفئات", to: "/kontor/categories" },
   { label: "مجموعات الأسعار", to: "/kontor/prices" },
   { label: "إعدادات الوكلاء", to: "/kontor/dealers" },
-  { label: "الطلبات", to: "/kontor/orders" },
 ];
 // قسم الوكلاء — كل ما يخصّ الوكيل وماله
 const SUBNAV_BAYILER = [

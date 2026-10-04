@@ -19,6 +19,7 @@ import Kontor from "./pages/Kontor";
 import KontorPrices from "./pages/KontorPrices";
 import KontorDealers from "./pages/KontorDealers";
 import KontorOrders from "./pages/KontorOrders";
+import KontorCategories from "./pages/KontorCategories";
 import Orders from "./pages/Orders";
 import Pool from "./pages/Pool";
 import SiteSettings from "./pages/SiteSettings";
@@ -97,6 +98,7 @@ export default function App() {
 
           {/* رصيد الموبايل (kontör) */}
           <Route path="/kontor" element={Admin(<Kontor />)} />
+          <Route path="/kontor/categories" element={Admin(<KontorCategories />)} />
           <Route path="/kontor/prices" element={Admin(<KontorPrices />)} />
           <Route path="/kontor/dealers" element={Admin(<KontorDealers />)} />
           <Route path="/kontor/orders" element={Admin(<KontorOrders />)} />

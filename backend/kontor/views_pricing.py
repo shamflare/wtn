@@ -71,8 +71,9 @@ def price_matrix_view(request):
                 "round": bool(pp.margin_round) if pp else False,
             }
         rows.append({
-            "id": p.id, "name": p.name,
+            "id": p.id, "name": p.name, "details": p.details,
             "category": p.category.name if p.category else "",
+            "category_id": p.category_id, "kind": p.kind, "status": p.status,
             "znet_id": p.znet_id, "cost_price": str(p.cost_price),
             "recommended_price": str(p.recommended_price), "prices": cells,
         })
@@ -124,19 +125,28 @@ def set_price_view(request):
 @permission_classes([IsAuthenticated])
 def bulk_price_view(request):
     """
-    قاعدة على كل باقات شركةٍ لمجموعة: {group, operator, mode, value, round}،
-    أو {group, operator, to_recommended:true} لضبطها على السعر الموصى.
+    تسعير جماعي لباقات شركةٍ واحدة (كنظيره في الألعاب):
+      {group, operator, mode, value, round, packages?}  قاعدة مرتبطة بالكلفة لمجموعة.
+      {group:"recommended", operator, mode, value, round, packages?}  تُكتب في الموصى مرّة واحدة.
+      {group, operator, to_recommended:true, packages?}  خلايا المجموعة = الموصى.
+    `packages` فارغة ⇐ كل باقات الشركة. الباقة بلا كلفة تُتخطّى في القواعد.
     """
     if not _require_admin(request):
         return Response({"detail": "مخصّص لصاحب المتجر"}, status=403)
     tenant = request.user.tenant
-    grp = KontorPriceGroup.objects.filter(pk=request.data.get("group"), tenant=tenant).first()
-    if not grp:
-        return Response({"detail": "مجموعة غير صحيحة"}, status=400)
+    to_rec_col = request.data.get("group") == "recommended"
+    grp = None
+    if not to_rec_col:
+        grp = KontorPriceGroup.objects.filter(pk=request.data.get("group"), tenant=tenant).first()
+        if not grp:
+            return Response({"detail": "مجموعة غير صحيحة"}, status=400)
     op = request.data.get("operator") or Operator.TURKCELL
     pkgs = KontorPackage.objects.filter(tenant=tenant, operator=op)
+    ids = request.data.get("packages") or []
+    if ids:
+        pkgs = pkgs.filter(pk__in=ids)
 
-    to_rec = request.data.get("to_recommended")
+    to_rec = bool(request.data.get("to_recommended")) and not to_rec_col
     mode = request.data.get("mode") or ""
     value = None
     rnd = bool(request.data.get("round"))
@@ -148,17 +158,25 @@ def bulk_price_view(request):
         except (InvalidOperation, TypeError):
             return Response({"detail": "قيمة غير صحيحة"}, status=400)
 
-    n = 0
+    n, skipped = 0, []
     for p in pkgs:
-        if to_rec:
-            defaults = {"price": (p.recommended_price or Decimal("0")),
-                        "margin_mode": "", "margin_value": None, "margin_round": False}
+        if not to_rec and not p.cost_price:
+            skipped.append(p.name)
+            continue
+        if to_rec_col:
+            p.recommended_price = services._apply_margin(p.cost_price, mode, value, rnd)
+            p.save(update_fields=["recommended_price", "updated_at"])
         else:
-            defaults = {"price": services._apply_margin(p.cost_price, mode, value, rnd),
-                        "margin_mode": mode, "margin_value": value, "margin_round": rnd}
-        KontorPackagePrice.objects.update_or_create(tenant=tenant, package=p, group=grp, defaults=defaults)
+            if to_rec:
+                defaults = {"price": (p.recommended_price or Decimal("0")),
+                            "margin_mode": "", "margin_value": None, "margin_round": False}
+            else:
+                defaults = {"price": services._apply_margin(p.cost_price, mode, value, rnd),
+                            "margin_mode": mode, "margin_value": value, "margin_round": rnd}
+            KontorPackagePrice.objects.update_or_create(
+                tenant=tenant, package=p, group=grp, defaults=defaults)
         n += 1
-    return Response({"updated": n})
+    return Response({"updated": n, "group": grp.name if grp else "", "skipped_zero_cost": skipped})
 
 
 @api_view(["GET", "PATCH"])
@@ -208,24 +226,50 @@ def dealer_settings_view(request):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def admin_orders_view(request):
-    """كل طلبات شحن الخطوط (لصاحب المتجر) — مع تصفية ?status= و?operator=."""
+    """
+    طلبات شحن الخطوط (لصاحب المتجر) مع ملخّصها. تصفية: ?status= ?operator=
+    ?dealer= ?q= (رقم/باقة/مرجع) ?date_from= ?date_to= (YYYY-MM-DD).
+    """
     if not _require_admin(request):
         return Response({"detail": "مخصّص لصاحب المتجر"}, status=403)
+    from django.db.models import Count, Q, Sum
     from .models import KontorOrder
     qs = (KontorOrder.objects.filter(tenant=request.user.tenant)
           .select_related("package", "dealer", "provider"))
-    st = request.query_params.get("status")
-    op = request.query_params.get("operator")
+    qp = request.query_params
+    if qp.get("operator"):
+        qs = qs.filter(operator=qp["operator"])
+    if qp.get("dealer"):
+        qs = qs.filter(dealer_id=qp["dealer"])
+    if qp.get("q"):
+        t = qp["q"].strip()
+        qs = qs.filter(Q(gsm__icontains=t) | Q(package__name__icontains=t) | Q(tekil__icontains=t))
+    if qp.get("date_from"):
+        qs = qs.filter(created_at__date__gte=qp["date_from"])
+    if qp.get("date_to"):
+        qs = qs.filter(created_at__date__lte=qp["date_to"])
+
+    # الملخّص قبل تصفية الحالة — فتبقى أعداد الكرات صحيحة أيّاً كان المختار
+    counts = {r["status"]: r["n"] for r in qs.values("status").annotate(n=Count("id"))}
+    ok = qs.filter(status=KontorOrder.Status.SUCCESS).aggregate(s=Sum("sell_price"), p=Sum("profit"))
+    st = qp.get("status")
     if st:
         qs = qs.filter(status=st)
-    if op:
-        qs = qs.filter(operator=op)
     rows = [{
         "id": o.id, "gsm": o.gsm, "operator": o.operator,
-        "dealer": o.dealer.name, "package_name": o.package.name, "znet_id": o.package.znet_id,
+        "dealer": o.dealer.name, "dealer_id": o.dealer_id,
+        "package_name": o.package.name, "znet_id": o.package.znet_id,
         "cost_price": str(o.cost_price), "sell_price": str(o.sell_price), "profit": str(o.profit),
         "status": o.status, "status_label": o.get_status_display(),
         "provider": o.provider.name if o.provider else "", "note": o.provider_note,
+        "tekil": o.tekil, "balance_before": str(o.balance_before), "balance_after": str(o.balance_after),
         "created_at": o.created_at.strftime("%Y-%m-%d %H:%M"),
+        "updated_at": o.updated_at.strftime("%Y-%m-%d %H:%M"),
     } for o in qs[:300]]
-    return Response(rows)
+    return Response({
+        "results": rows,
+        "summary": {
+            "counts": counts, "total": sum(counts.values()),
+            "sales": str(ok["s"] or 0), "profit": str(ok["p"] or 0),
+        },
+    })

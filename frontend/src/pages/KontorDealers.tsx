@@ -1,77 +1,141 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
+import Icon from "../components/Icon";
 import ScrollTop from "../components/ScrollTop";
+import { matches } from "../search";
+import { empty, input, note, OpBadge, opOf, pageTitle, pageWrap, Switch, Toast } from "./kontorUi";
 
 interface Group { id: number; name: string }
 interface OpSetting { group: number | null; can_query: boolean }
 interface Dealer { id: number; name: string; login_id: string; operators: Record<string, OpSetting> }
 
-const OP_LABEL: Record<string, string> = {
-  Turkcell: "Turkcell", Vodafone: "Vodafone", Avea: "Türk Telekom", Callback: "دولي",
-};
-
 export default function KontorDealers() {
   const [operators, setOperators] = useState<string[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
   const [dealers, setDealers] = useState<Dealer[]>([]);
-  const [msg, setMsg] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [q, setQ] = useState("");
+  const [toast, setToast] = useState("");
 
   async function load() {
     const r = await api.get("/kontor/dealer-settings/");
     setOperators(r.data.operators); setGroups(r.data.groups); setDealers(r.data.dealers);
   }
-  useEffect(() => { load().catch(() => {}); }, []);
+  useEffect(() => { load().catch(() => {}).finally(() => setLoading(false)); }, []);
 
-  async function save(dealer: number, operator: string, patch: Partial<OpSetting>) {
-    setDealers((ds) => ds.map((d) => d.id === dealer
-      ? { ...d, operators: { ...d.operators, [operator]: { ...d.operators[operator], ...patch } } } : d));
-    await api.patch("/kontor/dealer-settings/", [{ dealer, operator, ...patch }]);
-    setMsg("حُفظ"); setTimeout(() => setMsg(""), 1200);
+  function say(t: string) { setToast(t); setTimeout(() => setToast(""), 2500); }
+
+  const shown = useMemo(() => dealers.filter((d) => matches(q, d.name, d.login_id)), [dealers, q]);
+
+  /** حفظ دفعة إعدادات — لوكيل واحد أو لكل المعروضين في عمود شركة. */
+  async function save(rows: { dealer: number; operator: string; patch: Partial<OpSetting> }[], msg = "✅ حُفظ") {
+    if (!rows.length) return;
+    setDealers((ds) => ds.map((d) => {
+      const mine = rows.filter((r) => r.dealer === d.id);
+      if (!mine.length) return d;
+      const ops = { ...d.operators };
+      for (const r of mine) ops[r.operator] = { ...ops[r.operator], ...r.patch };
+      return { ...d, operators: ops };
+    }));
+    try {
+      await api.patch("/kontor/dealer-settings/", rows.map((r) => ({ dealer: r.dealer, operator: r.operator, ...r.patch })));
+      say(msg);
+    } catch { say("تعذّر الحفظ"); load().catch(() => {}); }
   }
 
-  return (
-    <div style={{ padding: 16 }}>
-      <ScrollTop />
-      <h2 style={{ fontWeight: 800, fontSize: 20 }}>إعدادات الوكلاء — الأسعار والاستعلام</h2>
-      <p style={{ color: "var(--muted)", fontSize: 13 }}>لكل وكيل: مجموعة سعره لكل شركة، وهل يُسمح له باستعلام العروض الخاصة.</p>
-      {msg && <div style={{ color: "var(--ok)", fontSize: 13 }}>{msg}</div>}
-      {groups.length === 0 && <div style={{ color: "var(--warn)", fontSize: 13 }}>لا مجموعات أسعار بعد — أنشئها أولاً في «مجموعات الأسعار».</div>}
+  function applyColumn(op: string, value: string) {
+    if (value === "") return;
+    const patch: Partial<OpSetting> = value === "q-on" ? { can_query: true } : value === "q-off" ? { can_query: false }
+      : { group: value === "rec" ? null : Number(value) };
+    save(shown.map((d) => ({ dealer: d.id, operator: op, patch })), `✅ طُبّق على ${shown.length} وكيل في ${opOf(op).label}`);
+  }
 
-      <div style={{ overflowX: "auto", marginTop: 10 }}>
-        <table style={{ borderCollapse: "collapse", fontSize: 13, width: "100%" }}>
-          <thead>
-            <tr style={{ textAlign: "right", color: "var(--muted)" }}>
-              <th style={th}>الوكيل</th>
-              {operators.map((op) => <th key={op} style={th}>{OP_LABEL[op] || op}</th>)}
-            </tr>
-          </thead>
-          <tbody>
-            {dealers.map((d) => (
-              <tr key={d.id} style={{ borderTop: "1px solid var(--border)" }}>
-                <td style={td}><div>{d.name}</div><div style={{ fontSize: 11, color: "var(--muted)" }}>{d.login_id}</div></td>
-                {operators.map((op) => {
-                  const s = d.operators[op];
-                  return (
-                    <td key={op} style={td}>
-                      <select value={s.group ?? ""} onChange={(e) => save(d.id, op, { group: e.target.value ? Number(e.target.value) : null })}
-                        style={{ height: 28, maxWidth: 120 }}>
-                        <option value="">— موصى —</option>
-                        {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
-                      </select>
-                      <label style={{ display: "block", fontSize: 11, marginTop: 2 }}>
-                        <input type="checkbox" checked={s.can_query} onChange={(e) => save(d.id, op, { can_query: e.target.checked })} /> استعلام
-                      </label>
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+  const groupName = (id: number | null) => groups.find((g) => g.id === id)?.name;
+
+  return (
+    <div style={pageWrap}>
+      <ScrollTop />
+      <h2 style={pageTitle}><Icon name="users" size={20} /> إعدادات الوكلاء — الأسعار والاستعلام</h2>
+
+      <div className="toolbar">
+        <span style={{ color: "var(--muted)", fontSize: 13 }}>{dealers.length} وكيل</span>
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="بحث عن وكيل بالاسم أو المعرّف..."
+          style={{ ...input, width: 260, marginInlineStart: "auto" }} />
       </div>
+
+      <div style={note}>
+        لكل وكيل في كل شركة: <b>مجموعة سعره</b> (بلا مجموعة ⇐ يشتري بالسعر الموصى)، و<b>إذن الاستعلام</b> عن
+        العروض الخاصة بخطّ الزبون. القائمة أعلى كل عمود تطبّق الاختيار على كل الوكلاء المعروضين دفعة واحدة.
+        {groups.length === 0 && <div style={{ color: "var(--danger)", marginTop: 4 }}>لا مجموعات أسعار بعد — أنشئها أولاً في «مجموعات الأسعار».</div>}
+      </div>
+
+      {loading ? <div style={{ padding: 30 }}>جارٍ التحميل...</div> : (
+        <div className="card"><div className="table-scroll">
+          <table className="grid">
+            <thead>
+              <tr>
+                <th className="cell-start">الوكيل</th>
+                {operators.map((op) => (
+                  <th key={op} style={{ minWidth: 170 }}>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                      <OpBadge code={op} size={18} /> {opOf(op).label}
+                    </span>
+                    <select value="" onChange={(e) => applyColumn(op, e.target.value)} style={colSelect}>
+                      <option value="">تطبيق على الكل…</option>
+                      <option value="rec">المجموعة: الموصى</option>
+                      {groups.map((g) => <option key={g.id} value={g.id}>المجموعة: {g.name}</option>)}
+                      <option value="q-on">الاستعلام: مسموح</option>
+                      <option value="q-off">الاستعلام: ممنوع</option>
+                    </select>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {shown.length === 0 && <tr><td colSpan={1 + operators.length} style={empty}>
+                {dealers.length ? `لا وكيل يطابق «${q.trim()}»` : "لا وكلاء بعد."}</td></tr>}
+              {shown.map((d) => (
+                <tr key={d.id}>
+                  <td className="cell-start">
+                    <div style={{ fontWeight: 700 }}>{d.name}</div>
+                    <div style={{ fontSize: 11.5, color: "var(--muted)" }}>{d.login_id}</div>
+                  </td>
+                  {operators.map((op) => {
+                    const s = d.operators[op];
+                    return (
+                      <td key={op}>
+                        <select value={s.group ?? ""} style={{ ...cellSelect, fontWeight: s.group ? 700 : 400,
+                          color: s.group ? "var(--primary-dark)" : "var(--muted)" }}
+                          title={s.group ? `مجموعة ${groupName(s.group)}` : "يشتري بالسعر الموصى"}
+                          onChange={(e) => save([{ dealer: d.id, operator: op,
+                            patch: { group: e.target.value ? Number(e.target.value) : null } }])}>
+                          <option value="">— الموصى —</option>
+                          {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+                        </select>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, marginTop: 6, fontSize: 11.5,
+                          color: s.can_query ? "var(--ok)" : "var(--faint)" }}>
+                          <Switch on={s.can_query} title="استعلام العروض الخاصة"
+                            onChange={(v) => save([{ dealer: d.id, operator: op, patch: { can_query: v } }])} />
+                          استعلام
+                        </div>
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div></div>
+      )}
+      <Toast text={toast} />
     </div>
   );
 }
 
-const th: React.CSSProperties = { padding: "6px", fontWeight: 700, whiteSpace: "nowrap" };
-const td: React.CSSProperties = { padding: "5px 6px", whiteSpace: "nowrap" };
+const colSelect: React.CSSProperties = {
+  display: "block", width: "100%", marginTop: 6, height: 26, fontSize: 11.5, fontWeight: 400,
+  borderRadius: 6, border: "1px solid var(--border)", background: "var(--surface)", color: "var(--muted)",
+};
+const cellSelect: React.CSSProperties = {
+  width: 140, height: 30, borderRadius: 6, border: "1px solid var(--border)", background: "var(--surface)", padding: "0 6px",
+};

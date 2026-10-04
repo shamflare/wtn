@@ -101,22 +101,27 @@ class KontorSession:
                 html = self._post(f"/Kontor/bilgi_api.php?GSMNO={gsm}&operatoru=bul&kisitlama=undefined&")
             return html
 
+    # الكشف ثم حساب الرمز ثم الاستعلام في نداء JS **واحد** — تقسيمها يُفسد الهاش
+    # (يردّ الخادم HASH-SORUNU)، وهذا النمط هو المُثبت عمليّاً.
+    _OFFERS_JS = """
+    async (args) => {
+      const [gsm, op] = args;
+      const post = (u) => fetch(u, {method:'POST', headers:{'X-Requested-With':'XMLHttpRequest'}}).then(r => r.text());
+      await post(`/Kontor/bilgi_api.php?GSMNO=${gsm}&operatoru=bul&kisitlama=undefined&`);
+      const tok = znet_token_ver(gsm, gsm);
+      return await post(`/Kontor/bilgi_api_paketsor.php?GSMNO=${gsm}&paketsorgula=true&operator=${op}&znet_token=${tok}&`);
+    }
+    """
+
     def offers(self, gsm: str, operator: str) -> str:
         """رد العروض الخاصة (HTML). operator بصيغة ZNET (TURKCELL/AVEA/VODAFONE)."""
         with self._lock:
             self._ensure_login()
-            # الموقع يكشف الرقم أوّلاً (gsm_loader 'bul') فتُضبط حالة الجلسة في
-            # الخادم قبل استعلام العروض — بدونها يعيد paketsor قائمةً فارغة.
-            self._post(f"/Kontor/bilgi_api.php?GSMNO={gsm}&operatoru=bul&kisitlama=undefined&")
-            tok = self._page.evaluate("(g) => znet_token_ver(g, g)", gsm)
-            url = (f"/Kontor/bilgi_api_paketsor.php?GSMNO={gsm}"
-                   f"&paketsorgula=true&operator={operator}&znet_token={tok}&")
-            html = self._post(url)
+            html = self._page.evaluate(self._OFFERS_JS, [gsm, operator])
             if self._logged_out(html):
                 self._logged = False
                 self._ensure_login()
-                tok = self._page.evaluate("(g) => znet_token_ver(g, g)", gsm)
-                html = self._post(url)
+                html = self._page.evaluate(self._OFFERS_JS, [gsm, operator])
             return html
 
     def close(self):

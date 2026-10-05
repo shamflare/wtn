@@ -50,7 +50,7 @@ def detect_view(request):
 
 def _pkg_row(user, p: KontorPackage) -> dict:
     return {
-        "id": p.id, "znet_id": p.znet_id, "name": p.name, "details": p.details,
+        "id": p.id, "link_code": p.link_code, "znet_id": p.znet_id, "name": p.name, "details": p.details,
         "days": p.days, "gb": p.gb, "minutes": p.minutes,
         "kind": p.kind,
         "price": str(currency.to_display(user, dealer_price(user, p))),
@@ -117,7 +117,7 @@ def live_offers(user, gsm: str, op: str) -> list[dict]:
         if not p:
             continue  # غير موجودة في كتالوجنا (استورِد لتظهر وتُسعَّر)
         rows.append({
-            "id": p.id, "znet_id": p.znet_id, "name": p.name,
+            "id": p.id, "link_code": p.link_code, "znet_id": p.znet_id, "name": p.name,
             "details": o.get("details") or p.details,
             "days": o.get("days") or p.days, "gb": o.get("gb") or p.gb,
             "minutes": o.get("minutes") or p.minutes,

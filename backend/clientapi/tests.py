@@ -446,10 +446,10 @@ class MobileClientApiTest(APITestCase):
         cat = KontorCategory.objects.create(tenant=self.tenant, operator="Turkcell", line_type="Ses", name="Ses")
         self.pkg = KontorPackage.objects.create(
             tenant=self.tenant, operator="Turkcell", category=cat, znet_id="476647",
-            name="Fırsat 30GB", kind="offer", provider_cost=Decimal("970"),
+            name="Fırsat 30GB", kind="offer", provider_cost=Decimal("970"), link_code="476647",
             cost_price=Decimal("24.25"), recommended_price=Decimal("26"))
         KontorPackage.objects.create(
-            tenant=self.tenant, operator="Turkcell", category=cat, znet_id="9",
+            tenant=self.tenant, operator="Turkcell", category=cat, znet_id="9", link_code="9",
             name="Normal", provider_cost=Decimal("400"), cost_price=Decimal("10"),
             recommended_price=Decimal("12"))
 
@@ -458,13 +458,13 @@ class MobileClientApiTest(APITestCase):
 
     def order(self, uid, gsm="5442199992", **extra):
         with mock.patch("kontor.execution.requests.get", return_value=mock.Mock(text="OK|1|ok|970")):
-            return self.get(f"/client/api/mobile/newOrder/{self.pkg.id}/params",
+            return self.get(f"/client/api/mobile/newOrder/{self.pkg.link_code}/params",
                             gsm=gsm, order_uuid=str(uid), **extra)
 
     def test_packages_list_offers_first_with_link_id(self):
         r = self.get("/client/api/mobile/packages", operator="Turkcell").json()
         self.assertEqual(r["status"], "OK")
-        self.assertEqual(r["data"][0]["id"], self.pkg.id)
+        self.assertEqual(r["data"][0]["id"], "476647")  # رقم الربط = رقم ZNET
         self.assertEqual(r["data"][0]["category_name"], "Ses*")
         self.assertEqual(r["data"][0]["price"], "26.00")
         self.assertEqual(r["data"][0]["params"], ["gsm"])
@@ -488,14 +488,14 @@ class MobileClientApiTest(APITestCase):
 
     def test_validation_errors(self):
         self.assertEqual(self.order(uuid4(), gsm="123").json()["code"], 111)
-        self.assertEqual(self.get(f"/client/api/mobile/newOrder/{self.pkg.id}/params",
+        self.assertEqual(self.get(f"/client/api/mobile/newOrder/{self.pkg.link_code}/params",
                                   gsm="5442199992").json()["code"], 107)
         self.assertEqual(self.get("/client/api/mobile/newOrder/99999/params", gsm="5442199992",
                                   order_uuid=str(uuid4())).status_code, 404)
 
     def test_rejected_order_refunds_and_reports_reject(self):
         with mock.patch("kontor.execution.requests.get", return_value=mock.Mock(text="OK|3|bakiye yok|")):
-            r = self.get(f"/client/api/mobile/newOrder/{self.pkg.id}/params",
+            r = self.get(f"/client/api/mobile/newOrder/{self.pkg.link_code}/params",
                          gsm="5442199992", order_uuid=str(uuid4())).json()
         self.assertEqual(r["status"], "reject")
         self.wallet.refresh_from_db()
@@ -516,5 +516,5 @@ class MobileClientApiTest(APITestCase):
         offers = [{"znet_id": "476647", "is_offer": True}]
         with mock.patch("kontor.session_client.fetch_offers", return_value=offers):
             o = self.get("/client/api/mobile/offers", gsm="5442199992", operator="Turkcell").json()
-        self.assertEqual(o["data"][0]["id"], self.pkg.id)
+        self.assertEqual(o["data"][0]["id"], "476647")
         self.assertNotIn("znet_id", o["data"][0])

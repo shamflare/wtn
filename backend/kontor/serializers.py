@@ -28,7 +28,7 @@ class KontorPackageSerializer(serializers.ModelSerializer):
         model = KontorPackage
         fields = [
             "id", "operator", "operator_label", "category", "category_name",
-            "znet_id", "name", "details", "days", "gb", "minutes",
+            "znet_id", "link_code", "name", "details", "days", "gb", "minutes",
             "provider_cost", "cost_price", "recommended_price", "profit",
             "kind", "kind_label", "status", "status_label",
             "provider", "provider_alt1", "provider_alt2", "provider_package_id",
@@ -36,6 +36,17 @@ class KontorPackageSerializer(serializers.ModelSerializer):
         ]
         # المعرّف والكلفة والمشغّل يأتون من الاستيراد؛ المالك يملك الباقي
         read_only_fields = ["tenant", "operator", "znet_id", "provider_cost", "cost_price", "updated_at"]
+
+    def validate_link_code(self, value):
+        """رقم الربط: حروف لاتينية وأرقام و - _ فقط، وفريد في المتجر."""
+        import re
+        value = (value or "").strip()
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,40}", value):
+            raise serializers.ValidationError("رقم الربط: أرقام وحروف لاتينية و - _ فقط (حتى 40)")
+        taken = KontorPackage.objects.filter(tenant=self.instance.tenant, link_code=value)             .exclude(pk=self.instance.pk).first()
+        if taken:
+            raise serializers.ValidationError(f"رقم الربط {value} مستعمل لباقة «{taken.name}»")
+        return value
 
 
 class KontorPriceGroupSerializer(serializers.ModelSerializer):

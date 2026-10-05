@@ -45,6 +45,30 @@ def looks_like_offer(name: str) -> bool:
     return any(k in low for k in ("fırsat", "firsat", "indirim", "i̇ndirim"))
 
 
+# لاحقة الشركة حين يتكرّر رقم ZNET بين شركتين (باقات Tam مرقّمة بقيمتها: 100 لكلٍّ منها)
+OP_SUFFIX = {"Turkcell": "T", "Vodafone": "V", "Avea": "A", "Callback": "C"}
+
+
+def free_link_code(tenant, znet_id: str, operator: str, exclude_pk=None) -> str:
+    """
+    رقم ربط لباقة جديدة: رقم ZNET نفسه إن كان حرّاً في المتجر، وإلا مع لاحقة
+    الشركة (100 ⇐ 100V)، وإلا مع عدّاد. هكذا يبقى من ربط مع ZNET على أرقامه.
+    """
+    qs = KontorPackage.objects.filter(tenant=tenant)
+    if exclude_pk:
+        qs = qs.exclude(pk=exclude_pk)
+    taken = lambda c: qs.filter(link_code=c).exists()  # noqa: E731
+    base = (znet_id or "").strip()
+    if base and not taken(base):
+        return base
+    code = f"{base}{OP_SUFFIX.get(operator, 'X')}"
+    n = 2
+    while taken(code):
+        code = f"{base}{OP_SUFFIX.get(operator, 'X')}{n}"
+        n += 1
+    return code
+
+
 def _cost_in_base(tenant, cost, provider):
     """كلفة ZNET (بعملته) ⇐ عملة دفتر المتجر. ValueError إن لم يُضبط سعر الصرف."""
     from core import currency
@@ -90,12 +114,16 @@ def upsert_packages(tenant, rows, *, dry_run=False, provider=None) -> dict:
             obj.cost_price = cost
             if obj.category_id is None:
                 obj.category = cat
-            obj.save(update_fields=["name", "provider_cost", "cost_price", "category", "updated_at"])
+            if not obj.link_code:
+                obj.link_code = free_link_code(tenant, obj.znet_id, obj.operator, exclude_pk=obj.pk)
+            obj.save(update_fields=["name", "provider_cost", "cost_price", "category",
+                                    "link_code", "updated_at"])
             updated += 1
         else:
             KontorPackage.objects.create(
                 tenant=tenant, operator=r["operator"], category=cat,
                 znet_id=r["znet_id"], name=r["name"], provider_cost=r["cost"], cost_price=cost,
+                link_code=free_link_code(tenant, r["znet_id"], r["operator"]),
                 kind=KontorPackage.Kind.OFFER if looks_like_offer(r["name"]) else KontorPackage.Kind.GENERAL,
             )
             created += 1

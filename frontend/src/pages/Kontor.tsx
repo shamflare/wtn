@@ -12,7 +12,7 @@ import {
 interface Pkg {
   id: number; operator: string; operator_label: string;
   category: number | null; category_name: string;
-  znet_id: string; name: string; details: string;
+  znet_id: string; link_code: string; name: string; details: string;
   days: number; gb: number; minutes: number;
   provider_cost: string; cost_price: string; recommended_price: string; profit: string;
   kind: "general" | "offer"; kind_label: string;
@@ -37,6 +37,8 @@ export default function Kontor() {
   const [toast, setToast] = useState("");
   const [picked, setPicked] = useState<number[]>([]);
   const [editing, setEditing] = useState<number | null>(null);
+  const [editingCode, setEditingCode] = useState<number | null>(null);
+  const [codeDraft, setCodeDraft] = useState("");
   const [draft, setDraft] = useState("");
   const [modal, setModal] = useState<Pkg | null>(null);
   const ledger = useLedger();
@@ -63,7 +65,7 @@ export default function Kontor() {
 
   const shown = useMemo(() => opPkgs.filter((p) =>
     (!cat || (p.category_name || "—") === cat) && (!st || p.status === st) && (!kind || p.kind === kind) &&
-    (!q || matches(q, p.name, p.znet_id, p.details))), [opPkgs, cat, st, kind, q]);
+    (!q || matches(q, p.name, p.znet_id, p.link_code, p.details))), [opPkgs, cat, st, kind, q]);
 
   // الباقات مجمّعة تحت فئاتها — كالألعاب تحت أسمائها في مجموعات الأسعار
   const grouped = useMemo(() => {
@@ -95,6 +97,20 @@ export default function Kontor() {
     } catch (e: any) {
       say(e?.response?.data?.detail || "تعذّر الحفظ");
       load().catch(() => {});
+    }
+  }
+
+  /** رقم الربط: يحفظه الخادم إن كان فريداً، وإلا يردّ السبب ويبقى القديم. */
+  async function saveCode(p: Pkg) {
+    const v = codeDraft.trim();
+    setEditingCode(null);
+    if (!v || v === p.link_code) return;
+    try {
+      const r = await api.patch(`/kontor/packages/${p.id}/`, { link_code: v });
+      setPkgs((list) => list.map((x) => (x.id === p.id ? r.data : x)));
+      say(`✅ رقم الربط صار ${v} — أبلغ من يربط معك بهذه الباقة`);
+    } catch (e: any) {
+      say(e?.response?.data?.link_code?.[0] || "تعذّر حفظ رقم الربط");
     }
   }
 
@@ -170,12 +186,14 @@ export default function Kontor() {
           <select value={kind} onChange={(e) => setKind(e.target.value)} style={{ ...input, width: 120 }}>
             <option value="">كل الأنواع</option><option value="general">عامة</option><option value="offer">عروض</option>
           </select>
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="بحث: اسم أو معرّف أو تفاصيل..."
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="بحث: اسم أو رقم ربط أو تفاصيل..."
             style={{ ...input, width: 230, marginInlineStart: "auto" }} />
         </div>
 
         <LedgerNote ledger={ledger} />
         <div style={note}>
+          <b>رقم الربط</b> هو ما يراه وكلاؤك ويرسلونه في الربط الخارجي — افتراضه رقم الباقة في ZNET
+          نفسه (فمن يربط مع ZNET يبقى على أرقامه)، واضغطه لتغييره. وإن اختلف عن رقم ZNET يظهر هذا تحته صغيراً.
           اضغط على <b>السعر الموصى</b> لتعديله — وهو ما يدفعه الوكيل غير المربوط بمجموعة أسعار.
           المفتاح يفعّل الباقة أو يعطّلها، والضغط على <b>النوع</b> يبدّله بين عامة وعرض.
           حدّد عدّة باقات لتعديلها دفعة واحدة. الأسعار الخاصة لكل مجموعة في «مجموعات الأسعار».
@@ -199,7 +217,7 @@ export default function Kontor() {
             <thead>
               <tr>
                 <th style={{ width: 34 }}><input type="checkbox" checked={allPicked} onChange={() => toggleMany(shownIds)} /></th>
-                <th style={{ width: 70 }}>المعرّف</th>
+                <th style={{ width: 96 }} title="الرقم الذي يرسله الوكيل في الربط الخارجي — اضغط لتعديله">رقم الربط</th>
                 <th className="cell-start">الباقة</th>
                 <th>الكلفة {ledger.sym && `(${ledger.sym})`}</th><th>الموصى {ledger.sym && `(${ledger.sym})`}</th><th>الربح</th>
                 <th>النوع</th><th>الحالة</th><th style={{ width: 44 }}></th>
@@ -223,7 +241,20 @@ export default function Kontor() {
                         <tr key={p.id} className={picked.includes(p.id) ? "row-pick" : ""}
                           style={{ opacity: p.status === "active" ? 1 : 0.55 }}>
                           <td><input type="checkbox" checked={picked.includes(p.id)} onChange={() => toggle(p.id)} /></td>
-                          <td className="num" style={{ color: "var(--muted)" }}>{p.znet_id}</td>
+                          <td className="num" style={{ cursor: "pointer" }} title="اضغط لتعديل رقم الربط"
+                            onClick={() => { if (editingCode !== p.id) { setEditingCode(p.id); setCodeDraft(p.link_code); } }}>
+                            {editingCode === p.id ? (
+                              <input autoFocus value={codeDraft} dir="ltr" style={{ width: 80, height: 26, textAlign: "center" }}
+                                onChange={(e) => setCodeDraft(e.target.value)} onBlur={() => saveCode(p)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") saveCode(p);
+                                  if (e.key === "Escape") { setCodeDraft(""); setEditingCode(null); }
+                                }} />
+                            ) : (<>
+                              <code style={codeTag}>{p.link_code || "—"}</code>
+                              {p.link_code !== p.znet_id && <div style={{ fontSize: 10.5, color: "var(--faint)", marginTop: 3 }}>ZNET {p.znet_id}</div>}
+                            </>)}
+                          </td>
                           <td className="cell-start">
                             <div style={{ fontWeight: 700 }}>{p.name}</div>
                             <Specs p={p} />
@@ -349,7 +380,7 @@ function PackageModal({ pkg, onClose, onSaved }: { pkg: Pkg; onClose: () => void
       <button className="btn g" disabled={busy} onClick={save}>{busy ? "جارٍ الحفظ..." : "حفظ"}</button>
     </>}>
       <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 12 }}>
-        {pkg.category_name} · المعرّف <b className="num">{pkg.znet_id}</b> · الكلفة <b className="num">{money(pkg.cost_price)} {ledger.sym}</b>
+        {pkg.category_name} · رقم الربط <b className="num">{pkg.link_code}</b> · رقم ZNET <b className="num">{pkg.znet_id}</b> · الكلفة <b className="num">{money(pkg.cost_price)} {ledger.sym}</b>
         {ledger.base !== "TRY" && <> (<span className="num">{money(pkg.provider_cost)} ₺</span> لدى ZNET)</>}
         <div style={{ fontSize: 11.5 }}>الاسم والكلفة يأتيان من ZNET ويتحدّثان مع كل استيراد.</div>
       </div>
@@ -381,6 +412,10 @@ function PackageModal({ pkg, onClose, onSaved }: { pkg: Pkg; onClose: () => void
   );
 }
 
+const codeTag: React.CSSProperties = {
+  fontFamily: "ui-monospace, Consolas, monospace", fontWeight: 800, fontSize: 12.5, direction: "ltr",
+  background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 6, padding: "2px 8px",
+};
 const iconBtn: React.CSSProperties = { width: 30, height: 28, padding: 0, display: "inline-flex", alignItems: "center", justifyContent: "center" };
 const kindBase: React.CSSProperties = {
   border: 0, cursor: "pointer", fontSize: 11.5, fontWeight: 700, padding: "3px 11px", borderRadius: 999,

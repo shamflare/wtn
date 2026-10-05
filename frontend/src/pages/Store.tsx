@@ -1301,7 +1301,7 @@ function AccountPane() {
 
 /* ═════════════════════════ موبايل (شحن الخطوط) ═════════════════════════ */
 interface KPkg {
-  id: number; znet_id: string; name: string; details: string;
+  id: number; link_code?: string; znet_id: string; name: string; details: string;
   days: number; gb: number; minutes: number; kind: string;
   price: string; recommended_price?: string; is_offer?: boolean;
 }
@@ -1518,7 +1518,7 @@ function PriceList({ sym }: { sym: string }) {
   const needle = q.trim().toLowerCase();
   const shown = (cats || [])
     .filter((c) => !cat || c.id === cat)
-    .map((c) => ({ ...c, packages: c.packages.filter((p) => !needle || `${p.name} ${p.details} ${p.znet_id}`.toLowerCase().includes(needle)) }))
+    .map((c) => ({ ...c, packages: c.packages.filter((p) => !needle || `${p.name} ${p.details} ${p.link_code}`.toLowerCase().includes(needle)) }))
     .filter((c) => c.packages.length);
 
   return (
@@ -1550,7 +1550,7 @@ function PriceList({ sym }: { sym: string }) {
 
       <div className="ag-search" style={{ marginBottom: 14 }}>
         <span className="ico"><Icon name="search" size={19} /></span>
-        <input placeholder="ابحث باسم الباقة أو تفاصيلها..." value={q} onChange={(e) => setQ(e.target.value)} />
+        <input placeholder="ابحث باسم الباقة أو تفاصيلها أو رقم الربط..." value={q} onChange={(e) => setQ(e.target.value)} />
       </div>
 
       {cats === null ? <div className="km-skel" /> : shown.length === 0 ? <Empty icon="tag" text="لا باقات" /> : (
@@ -1564,7 +1564,7 @@ function PriceList({ sym }: { sym: string }) {
               const cost = Number(p.price), rec = Number(p.recommended_price || 0);
               return (
                 <div key={p.id} className={`km-pl-row${p.kind === "offer" ? " offer" : ""}`}>
-                  <code className="km-pl-id" title="رقم الباقة في الربط الخارجي (API)">{p.id}</code>
+                  <code className="km-pl-id" title="رقم الباقة في الربط الخارجي (API)">{p.link_code || p.id}</code>
                   <div className="km-pl-name">
                     <b>{p.name}</b>
                     {p.details && <small>{p.details}</small>}

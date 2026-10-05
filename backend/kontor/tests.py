@@ -557,3 +557,34 @@ class StoreDisplayTest(APITestCase):
         a, b = KontorOrder.objects.order_by("id")
         self.assertEqual((a.dealer_sell_price, a.dealer_profit), (Decimal("1250.00"), Decimal("150.00")))
         self.assertEqual((b.dealer_sell_price, b.dealer_profit), (Decimal("1100.00"), Decimal("0.00")))
+
+
+class LinkCodeTest(APITestCase):
+    """رقم الربط: افتراضه رقم ZNET، فريد في المتجر، ويعدّله المالك."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(subdomain="kon", name="متجر", base_currency="TRY")
+        self.admin = User.objects.create(login_id="own", name="مالك", tenant=self.tenant,
+                                         role=User.Role.TENANT_ADMIN)
+        upsert_packages(self.tenant, parse_feed(FEED + "Vodafone|Tam|100|150.00|100 TL|^"))
+        self.client.force_authenticate(self.admin)
+
+    def test_default_is_znet_id_with_suffix_on_clash(self):
+        self.assertEqual(KontorPackage.objects.get(znet_id="476647").link_code, "476647")
+        codes = set(KontorPackage.objects.filter(znet_id="100").values_list("link_code", flat=True))
+        self.assertEqual(codes, {"100", "100V"})
+
+    def test_reimport_keeps_owner_code(self):
+        p = KontorPackage.objects.get(znet_id="476647")
+        r = self.client.patch(f"/api/kontor/packages/{p.id}/", {"link_code": "T30"}, format="json")
+        self.assertEqual(r.status_code, 200, r.content)
+        upsert_packages(self.tenant, parse_feed(FEED))
+        p.refresh_from_db()
+        self.assertEqual(p.link_code, "T30")
+
+    def test_owner_code_must_be_unique_and_clean(self):
+        p = KontorPackage.objects.get(znet_id="476647")
+        self.assertEqual(self.client.patch(f"/api/kontor/packages/{p.id}/", {"link_code": "100"},
+                                           format="json").status_code, 400)
+        self.assertEqual(self.client.patch(f"/api/kontor/packages/{p.id}/", {"link_code": "a b"},
+                                           format="json").status_code, 400)

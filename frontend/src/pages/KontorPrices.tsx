@@ -13,7 +13,7 @@ interface Group { id: number; name: string; dealer_count?: number }
 interface Cell { price: string; linked: boolean; mode: string; value: string; round: boolean }
 interface Row {
   id: number; name: string; details: string; category: string; category_id: number | null;
-  znet_id: string; kind: string; status: string; provider_cost: string;
+  znet_id: string; link_code: string; kind: string; status: string; provider_cost: string;
   cost_price: string; recommended_price: string; prices: Record<string, Cell>;
 }
 
@@ -51,7 +51,7 @@ export default function KontorPrices() {
   }
 
   const shown = useMemo(
-    () => rows.filter((r) => !q.trim() || matches(q, r.name, r.znet_id, r.category)),
+    () => rows.filter((r) => !q.trim() || matches(q, r.name, r.znet_id, r.link_code, r.category)),
     [rows, q],
   );
   const grouped = useMemo(() => {
@@ -65,7 +65,7 @@ export default function KontorPrices() {
   }, [shown]);
 
   const pickerItems = useMemo<PickerProduct[]>(
-    () => rows.map((r) => ({ id: r.id, name: `${r.name} · ${r.znet_id}`, game_name: r.category || "—" })),
+    () => rows.map((r) => ({ id: r.id, name: `${r.name} · ${r.link_code}`, game_name: r.category || "—" })),
     [rows],
   );
   const costOf = useMemo(() => new Map(rows.map((r) => [r.id, r.cost_price])), [rows]);
@@ -118,7 +118,7 @@ export default function KontorPrices() {
         <button className="btn" onClick={() => setDialog("rec")}><Icon name="chart" size={15} style={ib} />تحديد السعر الموصى</button>
         <button className="btn r" onClick={() => setDialog("delete")} disabled={!groups.length}>
           <Icon name="trash" size={15} style={ib} />حذف مجموعة</button>
-        <input placeholder="بحث سريع: باقة أو فئة أو معرّف..." value={q} onChange={(e) => setQ(e.target.value)}
+        <input placeholder="بحث سريع: باقة أو فئة أو رقم ربط..." value={q} onChange={(e) => setQ(e.target.value)}
           style={{ ...input, width: 250, marginInlineStart: "auto" }} />
       </div>
 
@@ -140,7 +140,7 @@ export default function KontorPrices() {
           <table className="grid">
             <thead>
               <tr>
-                <th style={{ width: 70 }}>المعرّف</th>
+                <th style={{ width: 80 }}>رقم الربط</th>
                 <th className="cell-start">الباقة</th>
                 <th>الكلفة {ledger.sym && `(${ledger.sym})`}</th>
                 <th>الموصى {ledger.sym && `(${ledger.sym})`}</th>
@@ -160,7 +160,7 @@ export default function KontorPrices() {
                   <tr><td colSpan={cols} style={groupHead}>{cat} <span style={{ fontWeight: 400, opacity: 0.75 }}>· {list.length}</span></td></tr>
                   {list.map((r) => (
                     <tr key={r.id} style={{ opacity: r.status === "active" ? 1 : 0.5 }}>
-                      <td className="num" style={{ color: "var(--muted)" }}>{r.znet_id}</td>
+                      <td className="num" style={{ color: "var(--muted)", fontWeight: 700 }}>{r.link_code}</td>
                       <td className="cell-start">
                         <span style={{ fontWeight: 700 }}>{r.name}</span>
                         {r.kind === "offer" && <span style={offerTag}>عرض</span>}

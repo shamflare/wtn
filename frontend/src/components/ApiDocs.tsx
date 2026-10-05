@@ -389,7 +389,8 @@ function MobileDocs({ base, token, onCopy }: {
           <code style={ic}>05442199992</code> و<code style={ic}>905442199992</code> ونصحّحها بأنفسنا.
           <br />
           <b>packageId</b> هو <b>رقم الربط</b> — الحقل <code style={ic}>id</code> في قائمة الباقات، وهو نفسه
-          عمود «رقم الربط» في «موبايل ⟵ قائمة الأسعار» في لوحتك.
+          عمود «رقم الربط» في «موبايل ⟵ قائمة الأسعار» في لوحتك. <b>وهو افتراضاً رقم الباقة في ZNET
+          نفسه</b> — فإن كنت مربوطاً مع ZNET فأرقام باقاتك عندنا هي أرقامها هناك.
         </div>
       </div>
 
@@ -403,7 +404,7 @@ function MobileDocs({ base, token, onCopy }: {
         </ol>
         <Snippet
           label="مثال كامل — شحن باقة لرقم"
-          code={`UUID=$(uuidgen)   # ولّده مرّة واحدة لكل شحنة واحفظه\n\ncurl -H "api-token: ${token}" \\\n  "${m}/newOrder/123/params?gsm=5442199992&order_uuid=$UUID"\n\n# ثم كل 5–10 ثوانٍ حتى تنتهي:\ncurl -H "api-token: ${token}" \\\n  "${m}/check?orders=$UUID&uuid=1"`}
+          code={`UUID=$(uuidgen)   # ولّده مرّة واحدة لكل شحنة واحفظه\n\ncurl -H "api-token: ${token}" \\\n  "${m}/newOrder/476647/params?gsm=5442199992&order_uuid=$UUID"\n\n# ثم كل 5–10 ثوانٍ حتى تنتهي:\ncurl -H "api-token: ${token}" \\\n  "${m}/check?orders=$UUID&uuid=1"`}
           onCopy={onCopy}
         />
         <div style={note}>
@@ -419,9 +420,9 @@ function MobileDocs({ base, token, onCopy }: {
 
         <Endpoint
           n="١" title="قائمة الباقات" method="GET" url={`${m}/packages`} onCopy={onCopy}
-          desc="الباقات المتاحة لك بأسعار شرائك أنت (price) والسعر المقترح لبيعها لزبونك (recommended_price). مرتّبة: الشركة، ثم العروض أوّلاً، ثم الأرخص. اختياري: operator=Turkcell · packages_id=1,2 · base=1 لردّ مختصر."
+          desc="الباقات المتاحة لك بأسعار شرائك أنت (price) والسعر المقترح لبيعها لزبونك (recommended_price). مرتّبة: الشركة، ثم العروض أوّلاً، ثم الأرخص. اختياري: operator=Turkcell · packages_id=476647,100 (أرقام ربط) · base=1 لردّ مختصر."
           res={`{ "status": "OK",
-  "data": [ { "id": 123, "name": "Fırsat 30GB İndirimli",
+  "data": [ { "id": "476647", "name": "Fırsat 30GB İndirimli",
               "operator": "Turkcell", "operator_label": "Turkcell",
               "category_name": "Ses*", "line_type": "Ses", "is_offer": true,
               "details": "30 Gün, 1000 Dk, 30 GB",
@@ -442,7 +443,7 @@ function MobileDocs({ base, token, onCopy }: {
           n="٣" title="عروض هذا الرقم" method="GET" url={`${m}/offers?gsm=5442199992&operator=Turkcell`} onCopy={onCopy}
           desc="الباقات المتاحة لهذا الرقم تحديداً الآن — ومنها عروض خاصة بالرقم (is_offer: true) أرخص من العامّة. يحتاج إذن الاستعلام من صاحب المتجر؛ بدونه تصلك 113."
           res={`{ "status": "OK",
-  "data": [ { "id": 123, "name": "Fırsat 30GB İndirimli",
+  "data": [ { "id": "476647", "name": "Fırsat 30GB İndirimli",
               "is_offer": true, "details": "…",
               "days": 30, "gb": 30, "minutes": 1000,
               "price": "20.69", "recommended_price": "22.00",
@@ -455,7 +456,7 @@ function MobileDocs({ base, token, onCopy }: {
           desc="المعاملات: gsm (مطلوب) · order_uuid=UUIDv4 (مطلوب) · dealer_sell_price (اختياري — سعر بيعك لزبونك لتقاريرك؛ فارغ = المقترح). يُخصم السعر من محفظتك لحظة الإنشاء."
           res={`{ "status": "wait",
   "data": { "order_id": "4821", "order_uuid": "…",
-            "status": "wait", "package_id": 123,
+            "status": "wait", "package_id": "476647",
             "package_name": "Fırsat 30GB İndirimli",
             "operator": "Turkcell", "gsm": "5442199992",
             "price": "20.69", "dealer_sell_price": "22.00",

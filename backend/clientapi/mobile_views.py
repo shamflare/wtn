@@ -50,7 +50,7 @@ def packages_view(request):
     GET /client/api/mobile/packages[?operator=Turkcell][&packages_id=1,2][&base=1]
 
     `price` سعر شراء **هذا الوكيل** (مجموعته)، و`recommended_price` السعر المقترح
-    لبيعه لزبونه. `id` هو رقم الربط الذي يُرسَل في newOrder.
+    لبيعه لزبونه. `id` هو **رقم الربط** (link_code — افتراضه رقم ZNET) الذي يُرسَل في newOrder.
     """
     user = request.user
     qs = (KontorPackage.objects
@@ -64,8 +64,8 @@ def packages_view(request):
         qs = qs.filter(operator=op)
     ids = (request.query_params.get("packages_id") or "").strip()
     if ids:
-        wanted = [int(x) for x in ids.replace(" ", "").split(",") if x.isdigit()]
-        qs = qs.filter(id__in=wanted or [0])
+        wanted = [x for x in ids.replace(" ", "").split(",") if x]
+        qs = qs.filter(link_code__in=wanted or [""])
 
     minimal = str(request.query_params.get("base") or "") in ("1", "true")
     order = {o: i for i, o in enumerate(OPERATORS)}
@@ -74,7 +74,7 @@ def packages_view(request):
         price = dealer_price(user, p)
         offer = p.kind == KontorPackage.Kind.OFFER
         row = {
-            "id": p.id,
+            "id": p.link_code,
             "name": p.name,
             "operator": p.operator,
             "price": _money(user, price),
@@ -93,9 +93,9 @@ def packages_view(request):
                 "params": ["gsm"],
                 "currency": currency.display_currency(user),
             })
-        rows.append((order.get(p.operator, 9), not offer, p.category.sort_order, price, p.id, row))
+        rows.append((order.get(p.operator, 9), not offer, p.category.sort_order, price, row))
     # الشركات بترتيبها، والعروض أوّلاً داخل كلٍّ منها، ثم الأرخص — كلوحة الوكيل
-    rows.sort(key=lambda r: r[:5])
+    rows.sort(key=lambda r: r[:4])
     return Response({"status": "OK", "data": [r[-1] for r in rows]})
 
 
@@ -141,7 +141,8 @@ def offers_view(request):
         return errors.error(errors.LIVE_UNAVAILABLE, str(e), http_status=502)
     cur = currency.display_currency(user)
     for r in rows:
-        r.pop("znet_id", None)  # معرّف المزوّد شأنٌ داخلي — رقم الربط هو id
+        r.pop("znet_id", None)  # معرّف المزوّد شأنٌ داخلي
+        r["id"] = r.pop("link_code")  # رقم الربط — نفس ما في packages وnewOrder
         r["currency"] = cur
     return Response({"status": "OK", "data": rows})
 
@@ -153,7 +154,7 @@ def _order_row(o: KontorOrder, user) -> dict:
         "order_id": str(o.id),
         "order_uuid": str(o.client_uuid or ""),
         "status": STATUS_OUT.get(o.status, "wait"),
-        "package_id": o.package_id,
+        "package_id": o.package.link_code,
         "package_name": o.package.name,
         "operator": o.operator,
         "gsm": o.gsm,
@@ -196,8 +197,8 @@ def new_order_view(request, package_id):
     if not gsm:
         return errors.error(errors.GSM_INVALID)
 
-    pkg = (KontorPackage.objects.filter(pk=package_id, tenant=user.tenant)
-           .select_related("category").first() if str(package_id).isdigit() else None)
+    pkg = (KontorPackage.objects.filter(link_code=str(package_id).strip(), tenant=user.tenant)
+           .select_related("category").first() if str(package_id).strip() else None)
     if pkg is None:
         return errors.error(errors.PRODUCT_NOT_FOUND, http_status=404)
     if pkg.status != KontorPackage.Status.ACTIVE or (

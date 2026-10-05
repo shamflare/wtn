@@ -89,6 +89,9 @@ class KontorPackage(models.Model):
     )
     # معرّف الباقة لدى ZNET (Küpür) — يُرسَل في `kontor=` إلى `tl_servis.php`
     znet_id = models.CharField(max_length=40)
+    # رقم الربط الذي يراه الوكيل ويرسله في الـ API — افتراضه رقم ZNET نفسه (فمن ربط
+    # مع ZNET يبقى على أرقامه)، ويعدّله المالك. فريد في المتجر كله لا في الشركة وحدها.
+    link_code = models.CharField(max_length=40, blank=True, default="", db_index=True)
     name = models.CharField(max_length=160)
     details = models.CharField(max_length=300, blank=True, default="")  # 30 Gün, 1000 Dk…
 
@@ -133,7 +136,12 @@ class KontorPackage(models.Model):
             models.UniqueConstraint(
                 fields=["tenant", "operator", "znet_id"],
                 name="uniq_kontor_package",
-            )
+            ),
+            models.UniqueConstraint(
+                fields=["tenant", "link_code"],
+                condition=~models.Q(link_code=""),
+                name="uniq_kontor_link_code",
+            ),
         ]
 
     def __str__(self):

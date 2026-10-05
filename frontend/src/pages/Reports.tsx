@@ -2,9 +2,10 @@ import { useEffect, useState } from "react";
 import { api, type Dealer, type Game } from "../api";
 import Icon from "../components/Icon";
 
-interface Row { game: string; count: number; cost: string; sell: string; profit: string }
+interface Row { game: string; kind?: "game" | "mobile"; count: number; cost: string; sell: string; profit: string }
 interface Totals { count: string; cost: string; sell: string; profit: string }
-interface Filters { dealer: string; game: string; date_from: string; date_to: string }
+/** section: "" الكل · games الألعاب · mobile الموبايل (شحن الخطوط) */
+interface Filters { dealer: string; game: string; section: string; date_from: string; date_to: string }
 
 type Range = "today" | "week" | "month" | "custom";
 
@@ -40,7 +41,7 @@ export default function Reports() {
   const [totals, setTotals] = useState<Totals | null>(null);
   const [range, setRange] = useState<Range>("today");
   // الافتراضي: اليوم — فلا يفتح التقرير على تاريخ المتجر كلّه
-  const [filters, setFilters] = useState<Filters>(() => ({ dealer: "", game: "", ...rangeDates("today") }));
+  const [filters, setFilters] = useState<Filters>(() => ({ dealer: "", game: "", section: "", ...rangeDates("today") }));
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -76,13 +77,13 @@ export default function Reports() {
 
   function clear() {
     setRange("today");
-    const next: Filters = { dealer: "", game: "", ...rangeDates("today") };
+    const next: Filters = { dealer: "", game: "", section: "", ...rangeDates("today") };
     setFilters(next);
     run(next);
   }
 
   function exportCsv() {
-    const header = ["اللعبة", "العدد", "الشراء", "البيع", "الربح"];
+    const header = ["اللعبة / الموبايل", "العدد", "الشراء", "البيع", "الربح"];
     const lines = rows.map((r) => [r.game, r.count, r.cost, r.sell, r.profit].join(","));
     const csv = "﻿" + [header.join(","), ...lines].join("\n");
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
@@ -96,7 +97,7 @@ export default function Reports() {
   return (
     <div style={{ padding: 16 }}>
       <h2 style={{ fontSize: 20, color: "var(--primary-dark)", marginBottom: 12 }}>
-        تقرير مبيعات الألعاب (Oyun Pin Toplam Raporu)
+        تقرير المبيعات — الألعاب والموبايل
       </h2>
 
       {/* الفلاتر */}
@@ -125,8 +126,17 @@ export default function Reports() {
             {dealers.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
           </select>
         </Field>
+        <Field label="القسم">
+          <div className="segment">
+            {([["", "الكل"], ["games", "الألعاب"], ["mobile", "الموبايل"]] as [string, string][]).map(([k, l]) => (
+              <button key={k} className={filters.section === k ? "active" : ""}
+                onClick={() => change({ section: k, ...(k === "mobile" ? { game: "" } : {}) })}>{l}</button>
+            ))}
+          </div>
+        </Field>
         <Field label="اللعبة">
-          <select value={filters.game} onChange={(e) => change({ game: e.target.value })} style={{ width: 150 }}>
+          <select value={filters.game} disabled={filters.section === "mobile"}
+            onChange={(e) => change({ game: e.target.value })} style={{ width: 150 }}>
             <option value="">كل الألعاب</option>
             {games.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
           </select>
@@ -152,7 +162,7 @@ export default function Reports() {
       <table style={table}>
         <thead>
           <tr>
-            {["اللعبة", "العدد", "الشراء", "البيع", "الربح"].map((h) => <th key={h} style={th}>{h}</th>)}
+            {["اللعبة / الموبايل", "العدد", "الشراء", "البيع", "الربح"].map((h) => <th key={h} style={th}>{h}</th>)}
           </tr>
         </thead>
         <tbody>
@@ -162,7 +172,10 @@ export default function Reports() {
             <tr><td colSpan={5} style={{ ...td, padding: 24 }}>لا توجد بيانات للفترة المحدّدة</td></tr>
           ) : rows.map((r, i) => (
             <tr key={i} style={{ background: i % 2 ? "var(--row-alt)" : "#fff" }}>
-              <td style={{ ...td, textAlign: "right", paddingInlineStart: 12, fontWeight: 600 }}>{r.game}</td>
+              <td style={{ ...td, textAlign: "right", paddingInlineStart: 12, fontWeight: 600 }}>
+                {r.kind === "mobile" && <Icon name="phone" size={14} style={{ marginInlineEnd: 6, color: "var(--info)", verticalAlign: -2 }} />}
+                {r.game}
+              </td>
               <td style={td}>{r.count}</td>
               <td style={{ ...td, color: "var(--muted)" }}>{money(r.cost)}</td>
               <td style={td}>{money(r.sell)}</td>
@@ -183,7 +196,7 @@ export default function Reports() {
         )}
       </table>
       <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 8 }}>
-        * التقرير يشمل الطلبات الناجحة فقط (الطلبات الملغاة غير محسوبة).
+        * التقرير يشمل الطلبات الناجحة فقط (الطلبات الملغاة غير محسوبة). الموبايل سطرٌ لكل شركة؛ واختيار لعبة بعينها يحصر التقرير في الألعاب.
       </div>
     </div>
   );

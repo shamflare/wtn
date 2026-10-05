@@ -127,7 +127,7 @@ export default function App() {
 
           {/* Raporlar */}
           <Route path="/reports" element={Admin(<Reports />)} />
-          <Route path="/reports/profits" element={Admin(<DealerReport title="تقرير الأرباح (حسب الوكيل)" highlight="profit" />)} />
+          <Route path="/reports/profits" element={Admin(<DealerReport title="تقرير الأرباح (حسب الوكيل) — الألعاب والموبايل" highlight="profit" />)} />
           <Route path="/reports/inventory" element={Admin(<Inventory />)} />
           {/* «كشف الوكلاء» كان نفس بيانات «تقرير الأرباح» بعنوان آخر — حلّ محلّه الجرد */}
           <Route path="/reports/dealers" element={<Navigate to="/reports/inventory" replace />} />

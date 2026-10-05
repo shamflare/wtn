@@ -41,26 +41,46 @@ def _filtered_orders(request):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def report_summary_view(request):
-    """تقرير مجمّع حسب اللعبة (Oyun Pin Toplam Raporu)."""
+    """
+    تقرير مجمّع حسب اللعبة (Oyun Pin Toplam Raporu) — والخطوط سطرٌ لكل شركة
+    («موبايل · Turkcell»). `section=games|mobile` يحصره في قسم واحد.
+    """
+    from kontor import reporting as kr
+
     qs = _filtered_orders(request)
-    rows = (
-        qs.values("game__name")
-        .annotate(count=Count("id"), cost=Sum("cost_price"),
-                  sell=Sum("sell_price"), profit=Sum("profit"))
-        .order_by("-count")
-    )
-    results = [{
-        "game": r["game__name"],
-        "count": r["count"],
-        "cost": str(r["cost"] or 0),
-        "sell": str(r["sell"] or 0),
-        "profit": str(r["profit"] or 0),
-    } for r in rows]
-    totals = qs.aggregate(count=Count("id"), cost=Sum("cost_price"),
-                          sell=Sum("sell_price"), profit=Sum("profit"))
+    section = request.query_params.get("section")
+    results, totals = [], {}
+    if section != "mobile":
+        rows = (
+            qs.values("game__name")
+            .annotate(count=Count("id"), cost=Sum("cost_price"),
+                      sell=Sum("sell_price"), profit=Sum("profit"))
+            .order_by("-count")
+        )
+        results = [{
+            "game": r["game__name"], "kind": "game",
+            "count": r["count"],
+            "cost": str(r["cost"] or 0),
+            "sell": str(r["sell"] or 0),
+            "profit": str(r["profit"] or 0),
+        } for r in rows]
+        totals = kr.sums(qs, cost="cost_price", sell="sell_price", profit="profit")
+
+    kq = kr.admin_orders(request)
+    if kq is not None:
+        for r in (kq.values("operator").annotate(count=Count("id"), cost=Sum("cost_price"),
+                                                  sell=Sum("sell_price"), profit=Sum("profit"))
+                  .order_by("-count")):
+            results.append({
+                "game": f"موبايل · {kr.OP_LABEL.get(r['operator'], r['operator'])}", "kind": "mobile",
+                "count": r["count"], "cost": str(r["cost"] or 0),
+                "sell": str(r["sell"] or 0), "profit": str(r["profit"] or 0),
+            })
+        totals = kr.add(totals, kr.sums(kq, cost="cost_price", sell="sell_price", profit="profit"))
+    results.sort(key=lambda r: -r["count"])
     return Response({
         "results": results,
-        "totals": {k: str(v or 0) for k, v in totals.items()},
+        "totals": {k: str(totals.get(k) or 0) for k in ("count", "cost", "sell", "profit")},
     })
 
 
@@ -131,22 +151,32 @@ def orders_view(request):
 @permission_classes([IsAuthenticated])
 def report_dealers_view(request):
     """تقرير مجمّع حسب الوكيل (كشف الوكلاء / تقرير الأرباح)."""
+    from kontor import reporting as kr
+
     qs = _filtered_orders(request)
-    rows = (
-        qs.values("dealer__name")
-        .annotate(count=Count("id"), sell=Sum("sell_price"), profit=Sum("profit"))
-        .order_by("-profit")
-    )
-    results = [{
-        "dealer": r["dealer__name"],
-        "count": r["count"],
-        "sell": str(r["sell"] or 0),
-        "profit": str(r["profit"] or 0),
-    } for r in rows]
-    totals = qs.aggregate(count=Count("id"), sell=Sum("sell_price"), profit=Sum("profit"))
+    section = request.query_params.get("section")
+    per: dict = {}   # اسم الوكيل ⇐ مجاميع الألعاب + الخطوط
+    totals: dict = {}
+    if section != "mobile":
+        for r in qs.values("dealer__name").annotate(count=Count("id"), sell=Sum("sell_price"),
+                                                      profit=Sum("profit")):
+            per[r["dealer__name"]] = {"count": r["count"], "sell": r["sell"] or 0, "profit": r["profit"] or 0}
+        totals = kr.sums(qs, sell="sell_price", profit="profit")
+    kq = kr.admin_orders(request)
+    if kq is not None:
+        for r in kq.values("dealer__name").annotate(count=Count("id"), sell=Sum("sell_price"),
+                                                      profit=Sum("profit")):
+            per[r["dealer__name"]] = kr.add(per.get(r["dealer__name"], {}),
+                                            {"count": r["count"], "sell": r["sell"] or 0,
+                                             "profit": r["profit"] or 0})
+        totals = kr.add(totals, kr.sums(kq, sell="sell_price", profit="profit"))
+    results = sorted(({
+        "dealer": name, "count": int(v["count"]),
+        "sell": str(v["sell"]), "profit": str(v["profit"]),
+    } for name, v in per.items()), key=lambda r: -Decimal(r["profit"]))
     return Response({
         "results": results,
-        "totals": {k: str(v or 0) for k, v in totals.items()},
+        "totals": {k: str(totals.get(k) or 0) for k in ("count", "sell", "profit")},
     })
 
 
@@ -266,18 +296,36 @@ def store_orders_view(request):
         key = DEALER_STATUS.get(row["status"], row["status"])
         counts[key] = counts.get(key, 0) + row["n"]
         counts["all"] += row["n"]
+    # طلبات الخطوط في القائمة نفسها — الوكيل يرى كل ما اشتراه في مكان واحد
+    from kontor import reporting as kr
+    kq = kr.dealer_orders(request.user, p)
+    for key, n in kr.dealer_counts(kq).items():
+        counts[key] = counts.get(key, 0) + n
+        counts["all"] += n
+
     status_filter = p.get("status")
     if status_filter and status_filter != "all":
         # الوكيل يرى العالق انتظاراً (انظر DEALER_STATUS)، فليجده مع الانتظار —
         # وإلّا اختفى طلبه من الفلترين معاً فظنّه ضائعاً.
         qs = qs.filter(status__in=dealer_filter(status_filter))
+        kq = kq.filter(status__in=kr.statuses_for(status_filter))
+    kind = p.get("kind")   # games | mobile — اختياري
+    if kind == "mobile":
+        qs = qs.none()
+    elif kind == "games":
+        kq = kq.none()
+
+    # إجمالي ما دفعه الوكيل في النتيجة المعروضة (بلا الملغاة — مالها عاد إليه)
+    paid = (qs.exclude(status=Order.Status.CANCELLED).aggregate(s=Sum("buyer_price"))["s"] or 0) \
+        + (kq.filter(status__in=kr.SPENT).aggregate(s=Sum("sell_price"))["s"] or 0)
+    merged = [(o.created_at, {**_store_order_row(o, request.user), "kind": "game"}) for o in qs[:200]]
+    merged += [(o.created_at, kr.dealer_row(o, request.user)) for o in kq.order_by("-created_at")[:200]]
+    merged.sort(key=lambda t: t[0], reverse=True)
     return Response({
-        "count": qs.count(),
+        "count": qs.count() + kq.count(),
         "counts": counts,
-        # إجمالي ما دفعه الوكيل في النتيجة المعروضة (بلا الملغاة — مالها عاد إليه)
-        "total_paid": str(currency.to_display(request.user, qs.exclude(
-            status=Order.Status.CANCELLED).aggregate(s=Sum("buyer_price"))["s"] or 0)),
-        "results": [_store_order_row(o, request.user) for o in qs[:200]],
+        "total_paid": str(currency.to_display(request.user, paid)),
+        "results": [row for _, row in merged[:200]],
         "currency": currency.display_currency(request.user),
     })
 
@@ -383,6 +431,22 @@ def store_report_view(request):
     } for r in rows]
     totals = qs.aggregate(count=Count("id"), cost=Sum("sell_price"),
                           sell=Sum("dealer_sell_price"), profit=Sum("dealer_profit"))
+
+    # الخطوط: «موبايل · الشركة» بدل اللعبة — بنفس منظور الوكيل (ما دفعه، ما باع به، ربحه)
+    from kontor import reporting as kr
+    kq = kr.dealer_orders(user, {"date_from": p.get("date_from"), "date_to": p.get("date_to")})
+    if not p.get("include_cancelled"):
+        kq = kq.filter(status__in=kr.SPENT)
+    for r in (kq.values("operator", "package__name")
+              .annotate(count=Count("id"), cost=Sum("sell_price"),
+                        sell=Sum("dealer_sell_price"), profit=Sum("dealer_profit"))
+              .order_by("operator", "-count")):
+        results.append({
+            "game": f"موبايل · {kr.OP_LABEL.get(r['operator'], r['operator'])}", "product": r["package__name"],
+            "count": r["count"], "cost": str(show(user, r["cost"] or 0)),
+            "sell": str(show(user, r["sell"] or 0)), "profit": str(show(user, r["profit"] or 0)),
+        })
+    totals = kr.add(totals, kr.sums(kq, cost="sell_price", sell="dealer_sell_price", profit="dealer_profit"))
     return Response({
         "results": results,
         "products": len(results),
@@ -405,6 +469,12 @@ def store_summary_view(request):
     agg = mine.filter(status=Order.Status.SUCCESS).aggregate(
         count=Count("id"), profit=Sum("dealer_profit"), sell=Sum("dealer_sell_price")
     )
+    # الخطوط الناجحة تدخل «طلباتي» و«أرباحي» كالألعاب
+    from kontor.models import KontorOrder
+    k_mine = KontorOrder.objects.filter(tenant=user.tenant, dealer=user)
+    k_agg = k_mine.filter(status=KontorOrder.Status.SUCCESS).aggregate(
+        count=Count("id"), profit=Sum("dealer_profit"), sell=Sum("dealer_sell_price"))
+    agg = {k: (agg[k] or 0) + (k_agg[k] or 0) for k in agg}
     show = currency.to_display
     return Response({
         "balance": str(show(user, wallet.balance)) if wallet else "0.00",
@@ -413,7 +483,8 @@ def store_summary_view(request):
         "orders": agg["count"] or 0,
         "profit": str(show(user, agg["profit"] or 0)),
         "sell": str(show(user, agg["sell"] or 0)),
-        "pending": mine.filter(status__in=dealer_filter(Order.Status.PENDING)).count(),
+        "pending": mine.filter(status__in=dealer_filter(Order.Status.PENDING)).count()
+        + k_mine.filter(status__in=[KontorOrder.Status.PENDING, KontorOrder.Status.PROCESSING]).count(),
         # هويّة المتجر لرأس لوحة الوكيل — تعمل على الباب العام أيضاً لا على عنوان المتجر وحده
         "store": {
             "name": user.tenant.name if user.tenant else "",

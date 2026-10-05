@@ -386,6 +386,24 @@ function GameThumb({ name, img, className = "ag-thumb" }: { name: string; img?: 
   return <span className={className} style={{ background: hueOf(name) }}>{(name || "?").trim().charAt(0)}</span>;
 }
 
+/** صورة الطلب في «طلباتي»: صورة اللعبة، أو شارة هاتف بلون الشركة لطلب الخط. */
+function OrderThumb({ o, img }: { o: any; img?: string }) {
+  if (o.kind === "mobile") {
+    const c = OPS[o.operator];
+    return (
+      <span className="ag-thumb" style={{ background: c ? `linear-gradient(145deg, ${c.c2}, ${c.c1})` : "var(--info)",
+        color: c?.accent || "#fff", display: "grid", placeItems: "center" }}>
+        <Icon name="phone" size={20} />
+      </span>
+    );
+  }
+  return <GameThumb name={o.game_name} img={img} />;
+}
+
+/** 5442199992 ⇐ 544 219 99 92 — للعرض في الطلبات. */
+const gsmView = (d: string) => (d && /^\d{10}$/.test(d)
+  ? [d.slice(0, 3), d.slice(3, 6), d.slice(6, 8), d.slice(8)].join(" ") : d);
+
 /* ═════════════════════════ الرئيسية ═════════════════════════ */
 function HomeTab({ summary, onGo, onGame }: {
   summary: Summary | null; onGo: (t: Tab) => void; onGame: (g: SGame) => void;
@@ -750,6 +768,8 @@ function OrdersTab() {
   const [q, setQ] = useState("");
   const [details, setDetails] = useState<any | null>(null);
   const [copied, copy] = useCopy();
+  // الكل · الألعاب · الموبايل — القائمة واحدة والفلتر اختياري
+  const [kind, setKind] = useState<"" | "games" | "mobile">("");
 
   const imgOf = useMemo(() => {
     const m = new Map<string, string>();
@@ -760,6 +780,7 @@ function OrdersTab() {
   function load(silent = false) {
     if (!silent) setRows(null);
     const params: Record<string, string> = { status };
+    if (kind) params.kind = kind;
     if (from) params.date_from = from;
     if (to) params.date_to = to;
     if (q.trim()) params.q = q.trim();
@@ -769,7 +790,7 @@ function OrdersTab() {
       setTotal(r.data.total_paid || "0");
     }).catch(() => setRows((old) => old ?? []));
   }
-  useEffect(() => { load(); }, [status]);
+  useEffect(() => { load(); }, [status, kind]);
 
   // ما دام في القائمة طلبٌ ينتظر، نتابعه بهدوء حتى تتبدّل حالته أمام الوكيل
   const waiting = rows?.some((o) => o.status === "pending" || o.status === "processing");
@@ -799,7 +820,7 @@ function OrdersTab() {
         <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
           <div className="ag-search" style={{ flex: 1 }}>
             <span className="ico"><Icon name="search" size={18} /></span>
-            <input placeholder="رقم الفيش، معرّف اللاعب، الهاتف..." value={q} onChange={(e) => setQ(e.target.value)} />
+            <input placeholder="رقم الفيش، معرّف اللاعب، رقم الخط، الهاتف..." value={q} onChange={(e) => setQ(e.target.value)} />
           </div>
           {(from || to || q) && (
             <button type="button" className="ag-round ghost" aria-label="إزالة الفلتر"
@@ -809,6 +830,12 @@ function OrdersTab() {
           )}
         </div>
       </form>
+
+      <div className="km-views" style={{ marginTop: 12, marginBottom: 0, gridTemplateColumns: "1fr 1fr 1fr" }}>
+        <button className={kind === "" ? "on" : ""} onClick={() => setKind("")}>الكل</button>
+        <button className={kind === "games" ? "on" : ""} onClick={() => setKind("games")}><Icon name="games" size={15} /> الألعاب</button>
+        <button className={kind === "mobile" ? "on" : ""} onClick={() => setKind("mobile")}><Icon name="phone" size={15} /> الموبايل</button>
+      </div>
 
       <div className="ag-chips">
         {ST_CHIPS.map((c) => (
@@ -838,7 +865,7 @@ function OrdersTab() {
             return (
               <article key={o.id} className="ag-order" style={{ ["--st" as any]: st }} onClick={() => setDetails(o)}>
                 <div className="ag-order-top">
-                  <GameThumb name={o.game_name} img={imgOf.get(o.game_name)} />
+                  <OrderThumb o={o} img={imgOf.get(o.game_name)} />
                   <div className="ag-order-title">
                     <b>{o.product_name}{o.quantity > 1 && <span className="ag-qty-x"> × {fmtQty(o.quantity)}</span>}</b>
                     <span>{o.game_name}</span>
@@ -853,8 +880,12 @@ function OrdersTab() {
 
                 <div className="ag-order-meta">
                   <div className="ag-meta"><Icon name="hash" size={14} /><b>{o.receipt_no}</b></div>
-                  <div className="ag-meta"><Icon name="user" size={14} /><b>{o.player_id || "—"}</b></div>
-                  <div className="ag-meta"><Icon name="phone" size={14} /><b>{o.customer_phone || "—"}</b></div>
+                  {o.kind === "mobile" ? (
+                    <div className="ag-meta"><Icon name="phone" size={14} /><b dir="ltr">{gsmView(o.player_id)}</b></div>
+                  ) : (<>
+                    <div className="ag-meta"><Icon name="user" size={14} /><b>{o.player_id || "—"}</b></div>
+                    <div className="ag-meta"><Icon name="phone" size={14} /><b>{o.customer_phone || "—"}</b></div>
+                  </>)}
                   <div className="ag-meta"><Icon name="tag" size={14} /><span>بيع</span><b>{money(o.dealer_sell_price)}</b></div>
                 </div>
 
@@ -907,7 +938,7 @@ function OrderBody({ order: o, img }: { order: any; img?: string }) {
   return (
     <>
       <div className="ag-row" style={{ background: "var(--surface-2)", ["--st" as any]: st }}>
-        <GameThumb name={o.game_name} img={img} />
+        <OrderThumb o={o} img={img} />
         <div className="ag-row-main">
           <b>{o.product_name}{o.quantity > 1 && <span className="ag-qty-x"> × {fmtQty(o.quantity)}</span>}</b>
           <span>{o.game_name}</span>
@@ -926,12 +957,17 @@ function OrderBody({ order: o, img }: { order: any; img?: string }) {
           </button>
         </div>
       ) : o.status === "success" ? (
-        <div className="ag-msg ok"><Icon name="check" size={15} /> شُحن مباشرةً إلى حساب اللاعب</div>
+        <div className="ag-msg ok"><Icon name="check" size={15} />
+          {o.kind === "mobile" ? " وصل الرصيد إلى الخط" : " شُحن مباشرةً إلى حساب اللاعب"}</div>
       ) : null}
 
       <div style={{ marginTop: 10 }}>
-        <div className="ag-kv"><span>معرّف اللاعب</span><b dir="ltr">{o.player_id || "—"}</b></div>
-        <div className="ag-kv"><span>هاتف الزبون</span><b dir="ltr">{o.customer_phone || "—"}</b></div>
+        {o.kind === "mobile" ? (
+          <div className="ag-kv"><span>رقم الخط</span><b dir="ltr">+90 {gsmView(o.player_id)}</b></div>
+        ) : (<>
+          <div className="ag-kv"><span>معرّف اللاعب</span><b dir="ltr">{o.player_id || "—"}</b></div>
+          <div className="ag-kv"><span>هاتف الزبون</span><b dir="ltr">{o.customer_phone || "—"}</b></div>
+        </>)}
         <div className="ag-kv"><span>سعر الشراء</span><b>{money(o.paid_price)} {cur}</b></div>
         <div className="ag-kv"><span>سعر البيع لزبونك</span><b>{money(o.dealer_sell_price)} {cur}</b></div>
         <div className="ag-kv"><span>ربحك</span>

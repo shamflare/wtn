@@ -101,24 +101,13 @@ def store_packages_view(request):
     })
 
 
-@api_view(["POST"])
-@permission_classes([IsAuthenticated])
-def store_offers_view(request):
+def live_offers(user, gsm: str, op: str) -> list[dict]:
     """
-    العروض الخاصة الحيّة لرقمٍ: {gsm, operator} ⇐ قائمة باقات مع علم «عرض» (وردي).
-    تحتاج إذن استعلام الوكيل لهذه الشركة. تُطابَق بالمعرّف مع الكتالوج للسعر.
+    العروض الحيّة لرقمٍ مطابَقةً مع كتالوجنا وبأسعار هذا الوكيل — العروض الوردية
+    أوّلاً ثم البقية، كلٌّ من الأرخص. يرمي session_client.SessionError عند تعذّر الجلب.
+    تستعملها صفحة الوكيل والواجهة الخارجية معاً.
     """
-    user = request.user
-    gsm = _clean_gsm(request.data.get("gsm", ""))
-    op = request.data.get("operator", "")
-    if not _valid(gsm):
-        return Response({"detail": "رقم غير صحيح"}, status=400)
-    if not dealer_can_query(user, op):
-        return Response({"detail": "استعلام العروض غير مسموح لك لهذه الشركة"}, status=403)
-    try:
-        offers = session_client.fetch_offers(gsm, op)
-    except session_client.SessionError as e:
-        return Response({"detail": str(e)}, status=502)
+    offers = session_client.fetch_offers(gsm, op)
 
     catalog = {p.znet_id: p for p in KontorPackage.objects.filter(
         tenant=user.tenant, operator=op, status=KontorPackage.Status.ACTIVE)}
@@ -138,6 +127,27 @@ def store_offers_view(request):
         })
     # العروض الخاصة (الوردية) أوّلاً، وكلٌّ من المجموعتين من الأرخص
     rows.sort(key=lambda r: (not r["is_offer"], Decimal(r["price"])))
+    return rows
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def store_offers_view(request):
+    """
+    العروض الخاصة الحيّة لرقمٍ: {gsm, operator} ⇐ قائمة باقات مع علم «عرض» (وردي).
+    تحتاج إذن استعلام الوكيل لهذه الشركة. تُطابَق بالمعرّف مع الكتالوج للسعر.
+    """
+    user = request.user
+    gsm = _clean_gsm(request.data.get("gsm", ""))
+    op = request.data.get("operator", "")
+    if not _valid(gsm):
+        return Response({"detail": "رقم غير صحيح"}, status=400)
+    if not dealer_can_query(user, op):
+        return Response({"detail": "استعلام العروض غير مسموح لك لهذه الشركة"}, status=403)
+    try:
+        rows = live_offers(user, gsm, op)
+    except session_client.SessionError as e:
+        return Response({"detail": str(e)}, status=502)
     return Response({"gsm": gsm, "operator": op,
                      "currency": currency.display_currency(user), "offers": rows})
 

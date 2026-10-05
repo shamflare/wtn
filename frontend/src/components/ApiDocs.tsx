@@ -23,6 +23,8 @@ export default function ApiDocs() {
   const [busy, setBusy] = useState(false);
   const [show, setShow] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  // قسما التوثيق: الألعاب (عقد ZDK) والموبايل (شحن الخطوط) — المفتاح واحد لهما
+  const [kind, setKind] = useState<"games" | "mobile">("games");
 
   useEffect(() => {
     api.get("/store/api-token/")
@@ -110,10 +112,41 @@ export default function ApiDocs() {
           جوّال، مكانه خادم الجهة التي تربط معك.
         </div>
 
-        <div style={{ ...lbl, marginTop: 18 }}>الروابط — انسخ ما تحتاجه</div>
+        <div style={{ ...lbl, marginTop: 18 }}>عنوان الخدمة</div>
         <div style={{ display: "grid", gap: 8 }}>
           <LinkRow what="عنوان الخدمة (base URL)" url={base} onCopy={copy} />
           <LinkRow what="الاستعلام عن الرصيد" url={`${base}/client/api/profile`} onCopy={copy} />
+        </div>
+        <div style={{ ...note, marginTop: 12 }}>
+          كل نداء — بلا استثناء — يحمل ترويسة <code style={ic}>api-token</code> بالمفتاح أعلاه؛ المفتاح
+          <b> لا يوضع في الرابط</b> لأن الروابط تُسجَّل في سجلّات الخوادم فيتسرّب. والمفتاح نفسه
+          يعمل للألعاب وللموبايل معاً.
+        </div>
+
+        <div style={{ display: "flex", gap: 22, flexWrap: "wrap", marginTop: 16, fontSize: 13 }}>
+          <span style={{ color: "var(--muted)" }}>أُنشئ: <b style={dir}>{row.created_at}</b></span>
+          <span style={{ color: "var(--muted)" }}>
+            آخر استعمال: <b style={dir}>{row.last_used_at || "لم يُستعمل بعد"}</b>
+          </span>
+          <span style={{ color: "var(--muted)" }}>عدد النداءات: <b style={dir}>{row.calls}</b></span>
+        </div>
+      </div>
+
+      {/* ——— الألعاب أم الموبايل ——— */}
+      <div style={seg}>
+        <button style={kind === "games" ? segOn : segBtn} onClick={() => setKind("games")}>
+          <Icon name="games" size={16} /> ربط الألعاب
+        </button>
+        <button style={kind === "mobile" ? segOn : segBtn} onClick={() => setKind("mobile")}>
+          <Icon name="phone" size={16} /> ربط الموبايل (شحن الخطوط)
+        </button>
+      </div>
+
+      {kind === "mobile" ? <MobileDocs base={base} token={token} onCopy={copy} /> : (<>
+      {/* ——— روابط الألعاب ——— */}
+      <div style={box}>
+        <div style={h}><Icon name="games" size={18} />روابط الألعاب — انسخ ما تحتاجه</div>
+        <div style={{ display: "grid", gap: 8 }}>
           <LinkRow what="قائمة المنتجات" url={`${base}/client/api/products`} onCopy={copy} />
           <LinkRow
             what="إرسال طلب"
@@ -132,17 +165,7 @@ export default function ApiDocs() {
           />
         </div>
         <div style={{ ...note, marginTop: 12 }}>
-          ما بين <code style={ic}>{"{ }"}</code> تملؤه أنت. وكل نداء — بلا استثناء —
-          يحمل ترويسة <code style={ic}>api-token</code> بالمفتاح أعلاه؛ المفتاح
-          <b> لا يوضع في الرابط</b> لأن الروابط تُسجَّل في سجلّات الخوادم فيتسرّب.
-        </div>
-
-        <div style={{ display: "flex", gap: 22, flexWrap: "wrap", marginTop: 16, fontSize: 13 }}>
-          <span style={{ color: "var(--muted)" }}>أُنشئ: <b style={dir}>{row.created_at}</b></span>
-          <span style={{ color: "var(--muted)" }}>
-            آخر استعمال: <b style={dir}>{row.last_used_at || "لم يُستعمل بعد"}</b>
-          </span>
-          <span style={{ color: "var(--muted)" }}>عدد النداءات: <b style={dir}>{row.calls}</b></span>
+          ما بين <code style={ic}>{"{ }"}</code> تملؤه أنت.
         </div>
       </div>
 
@@ -294,6 +317,8 @@ export default function ApiDocs() {
         </div>
       </div>
 
+      </>)}
+
       <div style={{ ...box, background: "var(--surface-2)" }}>
         <div style={h}><Icon name="wallet" size={18} />ملاحظتان على المال</div>
         <p style={p}>
@@ -329,6 +354,187 @@ export default function ApiDocs() {
         )}
       </div>
     </div>
+  );
+}
+
+/* ————————————————— توثيق الموبايل (شحن الخطوط) ————————————————— */
+
+/**
+ * ربط شحن الخطوط التركية. نفس عقد الألعاب (الترويسة · الأخطاء · order_uuid · الحالات)
+ * فمن ربط الألعاب يكمل هنا بدقائق — والفرق أن «المعامل» رقم الخط gsm لا معرّف لاعب.
+ */
+function MobileDocs({ base, token, onCopy }: {
+  base: string; token: string; onCopy: (v: string, w: string) => void;
+}) {
+  const m = `${base}/client/api/mobile`;
+  return (
+    <>
+      <div style={box}>
+        <div style={h}><Icon name="phone" size={18} />روابط الموبايل — انسخ ما تحتاجه</div>
+        <p style={p}>
+          شحن رصيد وباقات الخطوط التركية: <b>Turkcell · Vodafone · Türk Telekom</b> والدولي.
+          نفس المفتاح ونفس شكل الردود والأخطاء الذي في ربط الألعاب — فإن كنت ربطت الألعاب فأنت
+          تعرف هذا كلّه تقريباً.
+        </p>
+        <div style={{ display: "grid", gap: 8 }}>
+          <LinkRow what="قائمة الباقات" url={`${m}/packages`} onCopy={onCopy} />
+          <LinkRow what="كشف شركة الرقم" url={`${m}/detect?gsm={رقم الخط}`} onCopy={onCopy} />
+          <LinkRow what="عروض هذا الرقم" url={`${m}/offers?gsm={رقم الخط}&operator={الشركة}`} onCopy={onCopy} />
+          <LinkRow what="إرسال شحنة" url={`${m}/newOrder/{packageId}/params?gsm={رقم الخط}&order_uuid={UUID}`} onCopy={onCopy} />
+          <LinkRow what="استعلام حالة الشحنة" url={`${m}/check?orders={رقم الطلب}`} onCopy={onCopy} />
+          <LinkRow what="استعلام بمعرّفك أنت" url={`${m}/check?orders={UUID}&uuid=1`} onCopy={onCopy} />
+        </div>
+        <div style={{ ...note, marginTop: 12 }}>
+          <b>رقم الخط (gsm)</b>: عشر خانات تبدأ بـ5 مثل <code style={ic}>5442199992</code>. نقبل أيضاً
+          <code style={ic}>05442199992</code> و<code style={ic}>905442199992</code> ونصحّحها بأنفسنا.
+          <br />
+          <b>packageId</b> هو <b>رقم الربط</b> — الحقل <code style={ic}>id</code> في قائمة الباقات، وهو نفسه
+          عمود «رقم الربط» في «موبايل ⟵ قائمة الأسعار» في لوحتك.
+        </div>
+      </div>
+
+      {/* ——— المسار المعتاد ——— */}
+      <div style={box}>
+        <div style={h}><Icon name="link" size={18} />المسار المعتاد — ثلاث خطوات</div>
+        <ol style={{ ...p, paddingInlineStart: 20, margin: 0 }}>
+          <li><b>مرّةً واحدة</b> (أو كل بضع ساعات): اجلب <code style={ic}>packages</code> واحفظ أرقام الربط والأسعار عندك.</li>
+          <li>الزبون يكتب رقمه ويختار الشركة والباقة. إن لم تعرف الشركة استعمل <code style={ic}>detect</code>.</li>
+          <li>أرسل <code style={ic}>newOrder</code> بالرقم ومعرّف <code style={ic}>order_uuid</code> ثابت، ثم تابع بـ <code style={ic}>check</code> حتى <code style={ic}>accept</code> أو <code style={ic}>reject</code>.</li>
+        </ol>
+        <Snippet
+          label="مثال كامل — شحن باقة لرقم"
+          code={`UUID=$(uuidgen)   # ولّده مرّة واحدة لكل شحنة واحفظه\n\ncurl -H "api-token: ${token}" \\\n  "${m}/newOrder/123/params?gsm=5442199992&order_uuid=$UUID"\n\n# ثم كل 5–10 ثوانٍ حتى تنتهي:\ncurl -H "api-token: ${token}" \\\n  "${m}/check?orders=$UUID&uuid=1"`}
+          onCopy={onCopy}
+        />
+        <div style={note}>
+          ⚠️ <b>الباقة يجب أن تكون من شركة الرقم نفسه.</b> باقة Turkcell لرقم Vodafone يرفضها
+          المشغّل فتصلك <code style={ic}>reject</code> ويعود المبلغ — لكنها رحلة ضائعة. إن لم تكن
+          متأكّداً من الشركة (الأرقام تنتقل بين الشركات) فاسأل <code style={ic}>detect</code> أوّلاً.
+        </div>
+      </div>
+
+      {/* ——— العناوين ——— */}
+      <div style={box}>
+        <div style={h}><Icon name="excel" size={18} />العناوين الخمسة</div>
+
+        <Endpoint
+          n="١" title="قائمة الباقات" method="GET" url={`${m}/packages`} onCopy={onCopy}
+          desc="الباقات المتاحة لك بأسعار شرائك أنت (price) والسعر المقترح لبيعها لزبونك (recommended_price). مرتّبة: الشركة، ثم العروض أوّلاً، ثم الأرخص. اختياري: operator=Turkcell · packages_id=1,2 · base=1 لردّ مختصر."
+          res={`{ "status": "OK",
+  "data": [ { "id": 123, "name": "Fırsat 30GB İndirimli",
+              "operator": "Turkcell", "operator_label": "Turkcell",
+              "category_name": "Ses*", "line_type": "Ses", "is_offer": true,
+              "details": "30 Gün, 1000 Dk, 30 GB",
+              "days": 30, "gb": 30, "minutes": 1000,
+              "price": "20.69", "recommended_price": "22.00",
+              "available": true, "params": ["gsm"], "currency": "USD" } ] }`}
+        />
+
+        <Endpoint
+          n="٢" title="كشف شركة الرقم" method="GET" url={`${m}/detect?gsm=5442199992`} onCopy={onCopy}
+          desc="يسأل المشغّل مباشرةً عن شركة الرقم الآن (يستغرق بضع ثوانٍ). الشركات: Turkcell · Vodafone · Avea (= Türk Telekom) · Callback (دولي)."
+          res={`{ "status": "OK",
+  "data": { "gsm": "5442199992", "operator": "Turkcell",
+            "operator_label": "Turkcell" } }`}
+        />
+
+        <Endpoint
+          n="٣" title="عروض هذا الرقم" method="GET" url={`${m}/offers?gsm=5442199992&operator=Turkcell`} onCopy={onCopy}
+          desc="الباقات المتاحة لهذا الرقم تحديداً الآن — ومنها عروض خاصة بالرقم (is_offer: true) أرخص من العامّة. يحتاج إذن الاستعلام من صاحب المتجر؛ بدونه تصلك 113."
+          res={`{ "status": "OK",
+  "data": [ { "id": 123, "name": "Fırsat 30GB İndirimli",
+              "is_offer": true, "details": "…",
+              "days": 30, "gb": 30, "minutes": 1000,
+              "price": "20.69", "recommended_price": "22.00",
+              "currency": "USD" } ] }`}
+        />
+
+        <Endpoint
+          n="٤" title="إرسال شحنة" method="GET" onCopy={onCopy}
+          url={`${m}/newOrder/{packageId}/params?gsm={رقم الخط}&order_uuid={UUID}`}
+          desc="المعاملات: gsm (مطلوب) · order_uuid=UUIDv4 (مطلوب) · dealer_sell_price (اختياري — سعر بيعك لزبونك لتقاريرك؛ فارغ = المقترح). يُخصم السعر من محفظتك لحظة الإنشاء."
+          res={`{ "status": "wait",
+  "data": { "order_id": "4821", "order_uuid": "…",
+            "status": "wait", "package_id": 123,
+            "package_name": "Fırsat 30GB İndirimli",
+            "operator": "Turkcell", "gsm": "5442199992",
+            "price": "20.69", "dealer_sell_price": "22.00",
+            "currency": "USD", "replay_api": ["…"] } }`}
+        />
+
+        <Endpoint
+          n="٥" title="استعلام الحالة" method="GET" url={`${m}/check?orders={ids}`} onCopy={onCopy}
+          desc="orders=رقم أو أرقام مفصولة بفواصل (حتى 50). أضف uuid=1 لتستعلم بمعرّفاتك أنت — وهو ما تحتاجه إن انقطع الردّ فلم يصلك رقم الطلب."
+          res={`{ "status": "OK",
+  "data": [ { "order_id": "4821", "status": "accept",
+              "gsm": "5442199992", "price": "20.69",
+              "replay_api": ["…"] } ] }`}
+        />
+      </div>
+
+      {/* ——— الحالات ——— */}
+      <div style={box}>
+        <div style={h}><Icon name="check" size={18} />الحالات الثلاث</div>
+        <table style={tbl}>
+          <thead><tr><th style={th}>status</th><th style={th}>المعنى</th><th style={th}>ماذا تفعل</th></tr></thead>
+          <tbody>
+            <tr>
+              <td style={td}><code style={ic}>wait</code></td>
+              <td style={td}>أُرسلت إلى المشغّل وتُنفَّذ</td>
+              <td style={td}>الحالة الطبيعية بعد الإرسال مباشرةً. استعلم بـ <code style={ic}>check</code> كل 5–10 ثوانٍ. <b>لا تُعِد الإرسال.</b></td>
+            </tr>
+            <tr>
+              <td style={td}><code style={ic}>accept</code></td>
+              <td style={td}>وصل الرصيد إلى الخط</td>
+              <td style={td}>انتهت الشحنة بنجاح. لا كود هنا — الشحن مباشرةً على الرقم.</td>
+            </tr>
+            <tr>
+              <td style={td}><code style={ic}>reject</code></td>
+              <td style={td}>رفضها المشغّل</td>
+              <td style={td}>المبلغ رُدَّ إلى محفظتك تلقائياً. السبب في <code style={ic}>replay_api</code> (رقم خاطئ، باقة لا تناسب الخط…).</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {/* ——— منع التكرار ——— */}
+      <div style={{ ...box, borderInlineStartWidth: 4, borderInlineStartColor: "var(--danger)" }}>
+        <div style={h}><Icon name="warning" size={18} />منع الشحن المزدوج — نفس قاعدة الألعاب</div>
+        <p style={p}>
+          ولّد <b>UUIDv4 واحداً لكل شحنة</b> واحفظه، وأعِد إرساله <b>نفسه</b> إن انقطع الاتصال. نفس
+          المعرّف لا يُنشئ شحنتين أبداً: يعيد لك الأولى بحالتها ومعها <code style={ic}>duplicate: true</code>.
+          شحنة الخط لا تُسترجع بعد وصولها — فهذه القاعدة هنا أهمّ منها في أيّ مكان.
+        </p>
+      </div>
+
+      {/* ——— أخطاء الموبايل ——— */}
+      <div style={box}>
+        <div style={h}><Icon name="warning" size={18} />الأخطاء</div>
+        <p style={p}>
+          نفس الشكل: <code style={ic}>{`{"status":"error","code":111,"message":"…"}`}</code> — وأخطاء المفتاح
+          والرصيد نفسها (120 · 121 · 122 · 100 · 107 · 110).
+        </p>
+        <table style={tbl}>
+          <thead><tr><th style={th}>code</th><th style={th}>المعنى</th></tr></thead>
+          <tbody>
+            {[
+              ["100", "الرصيد لا يكفي (بعد احتساب حدّك الائتماني)"],
+              ["105", "رقم الربط (packageId) غير موجود"],
+              ["106", "الباقة غير متاحة للبيع الآن"],
+              ["107", "order_uuid ناقص أو ليس UUID صالحاً"],
+              ["110", "رُفضت الشحنة قبل الإرسال — الرسالة تشرح السبب (مثل باقة غير مسعّرة)"],
+              ["111", "رقم الخط غير صحيح — 10 خانات تبدأ بـ5"],
+              ["112", "الشركة غير صحيحة — Turkcell · Vodafone · Avea · Callback"],
+              ["113", "استعلام العروض غير مسموح لحسابك على هذه الشركة — راسل صاحب المتجر"],
+              ["114", "الاستعلام الحيّ من المشغّل متعذّر مؤقتاً — أعد المحاولة بعد قليل (HTTP 502)"],
+              ["115", "تعذّر كشف شركة هذا الرقم"],
+            ].map(([c, t]) => (
+              <tr key={c}><td style={td}><code style={ic}>{c}</code></td><td style={td}>{t}</td></tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }
 
@@ -430,3 +636,13 @@ const th: React.CSSProperties = {
 const td: React.CSSProperties = {
   padding: "9px 10px", borderBottom: "1px solid var(--border)", lineHeight: 1.8,
 };
+const seg: React.CSSProperties = {
+  display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, padding: 4,
+  background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12,
+};
+const segBtn: React.CSSProperties = {
+  height: 42, border: 0, borderRadius: 9, background: "transparent", color: "var(--muted)",
+  font: "inherit", fontWeight: 800, fontSize: 13.5, cursor: "pointer",
+  display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7,
+};
+const segOn: React.CSSProperties = { ...segBtn, background: "var(--primary)", color: "var(--on-primary, #fff)" };

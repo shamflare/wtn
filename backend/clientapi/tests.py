@@ -427,3 +427,94 @@ class ClientApiAmountTest(APITestCase):
         body = self.get(self.order_url(), qty="3",
                         order_uuid="8d1a0e0b-6b67-4b0b-9a0e-1f6b1a2c3d4e", playerId="5").json()
         self.assertEqual(body.get("status"), "error")
+
+
+class MobileClientApiTest(APITestCase):
+    """واجهة شحن الخطوط: نفس عقد الألعاب — ونفس القاعدة: uuid واحد لا يخصم مرّتين."""
+
+    def setUp(self):
+        from kontor.models import KontorCategory, KontorPackage
+        from providers.models import Provider
+        self.tenant = Tenant.objects.create(subdomain="t1", name="متجر", base_currency="USD",
+                                            exchange_rates={"TRY": "40"})
+        self.dealer = User.objects.create(login_id="d1", name="وكيل", tenant=self.tenant,
+                                          role=User.Role.BAYI, dealer_no=1, api_access_allowed=True)
+        self.wallet = Wallet.objects.create(tenant=self.tenant, user=self.dealer, balance=Decimal("100"))
+        self.token = ApiToken.objects.create(user=self.dealer)
+        Provider.objects.create(tenant=self.tenant, name="ZNET", type=Provider.Type.SAME_SYSTEM,
+                                config={"code": "znet", "base_url": "http://z", "kod": "k", "sifre": "s"})
+        cat = KontorCategory.objects.create(tenant=self.tenant, operator="Turkcell", line_type="Ses", name="Ses")
+        self.pkg = KontorPackage.objects.create(
+            tenant=self.tenant, operator="Turkcell", category=cat, znet_id="476647",
+            name="Fırsat 30GB", kind="offer", provider_cost=Decimal("970"),
+            cost_price=Decimal("24.25"), recommended_price=Decimal("26"))
+        KontorPackage.objects.create(
+            tenant=self.tenant, operator="Turkcell", category=cat, znet_id="9",
+            name="Normal", provider_cost=Decimal("400"), cost_price=Decimal("10"),
+            recommended_price=Decimal("12"))
+
+    def get(self, path, **params):
+        return self.client.get(path, params, HTTP_API_TOKEN=self.token.token)
+
+    def order(self, uid, gsm="5442199992", **extra):
+        with mock.patch("kontor.execution.requests.get", return_value=mock.Mock(text="OK|1|ok|970")):
+            return self.get(f"/client/api/mobile/newOrder/{self.pkg.id}/params",
+                            gsm=gsm, order_uuid=str(uid), **extra)
+
+    def test_packages_list_offers_first_with_link_id(self):
+        r = self.get("/client/api/mobile/packages", operator="Turkcell").json()
+        self.assertEqual(r["status"], "OK")
+        self.assertEqual(r["data"][0]["id"], self.pkg.id)
+        self.assertEqual(r["data"][0]["category_name"], "Ses*")
+        self.assertEqual(r["data"][0]["price"], "26.00")
+        self.assertEqual(r["data"][0]["params"], ["gsm"])
+        self.assertEqual(self.get("/client/api/mobile/packages", operator="X").json()["code"], 112)
+
+    def test_new_order_debits_once_per_uuid(self):
+        uid = uuid4()
+        a = self.order(uid).json()
+        b = self.order(uid).json()
+        self.assertEqual(a["status"], "wait")
+        self.assertTrue(b["duplicate"])
+        self.assertEqual(a["data"]["order_id"], b["data"]["order_id"])
+        self.wallet.refresh_from_db()
+        self.assertEqual(self.wallet.balance, Decimal("74.00"))  # خُصم مرّة واحدة
+
+    def test_insufficient_balance_is_100_and_not_debited(self):
+        self.wallet.balance = Decimal("5"); self.wallet.save()
+        self.assertEqual(self.order(uuid4()).json()["code"], 100)
+        self.wallet.refresh_from_db()
+        self.assertEqual(self.wallet.balance, Decimal("5"))
+
+    def test_validation_errors(self):
+        self.assertEqual(self.order(uuid4(), gsm="123").json()["code"], 111)
+        self.assertEqual(self.get(f"/client/api/mobile/newOrder/{self.pkg.id}/params",
+                                  gsm="5442199992").json()["code"], 107)
+        self.assertEqual(self.get("/client/api/mobile/newOrder/99999/params", gsm="5442199992",
+                                  order_uuid=str(uuid4())).status_code, 404)
+
+    def test_rejected_order_refunds_and_reports_reject(self):
+        with mock.patch("kontor.execution.requests.get", return_value=mock.Mock(text="OK|3|bakiye yok|")):
+            r = self.get(f"/client/api/mobile/newOrder/{self.pkg.id}/params",
+                         gsm="5442199992", order_uuid=str(uuid4())).json()
+        self.assertEqual(r["status"], "reject")
+        self.wallet.refresh_from_db()
+        self.assertEqual(self.wallet.balance, Decimal("100.00"))
+
+    def test_check_by_id_and_uuid(self):
+        uid = uuid4()
+        oid = self.order(uid).json()["data"]["order_id"]
+        by_id = self.get("/client/api/mobile/check", orders=oid).json()["data"]
+        by_uuid = self.get("/client/api/mobile/check", orders=str(uid), uuid="1").json()["data"]
+        self.assertEqual(by_id[0]["order_id"], oid)
+        self.assertEqual(by_uuid[0]["order_uuid"], str(uid))
+
+    def test_detect_and_offers(self):
+        with mock.patch("kontor.session_client.detect_operator", return_value="Vodafone"):
+            d = self.get("/client/api/mobile/detect", gsm="05442199992").json()
+        self.assertEqual(d["data"]["operator"], "Vodafone")
+        offers = [{"znet_id": "476647", "is_offer": True}]
+        with mock.patch("kontor.session_client.fetch_offers", return_value=offers):
+            o = self.get("/client/api/mobile/offers", gsm="5442199992", operator="Turkcell").json()
+        self.assertEqual(o["data"][0]["id"], self.pkg.id)
+        self.assertNotIn("znet_id", o["data"][0])

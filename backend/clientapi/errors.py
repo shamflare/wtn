@@ -23,6 +23,13 @@ PLAYER_ID_REQUIRED = (108, "playerId is required for this product")
 QTY_UNSUPPORTED = (109, "Only qty=1 is supported")
 ORDER_REJECTED = (110, "Order rejected")
 
+# شحن الخطوط (موبايل) — أرقامنا نحن، لا مقابل لها في ZDK
+GSM_INVALID = (111, "gsm must be a Turkish mobile number: 10 digits starting with 5")
+OPERATOR_INVALID = (112, "operator must be one of: Turkcell, Vodafone, Avea, Callback")
+QUERY_NOT_ALLOWED = (113, "Live offers query is not allowed for this account on this operator")
+LIVE_UNAVAILABLE = (114, "Operator lookup is temporarily unavailable — retry shortly")
+OPERATOR_UNKNOWN = (115, "Could not detect the operator for this number")
+
 SERVER_ERROR = (500, "Server error")
 
 

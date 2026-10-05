@@ -243,6 +243,8 @@ class KontorOrder(models.Model):
         related_name="kontor_orders",
     )
     tekil = models.CharField(max_length=40, blank=True, default="", db_index=True)  # معرّفنا الفريد لدى ZNET
+    # معرّف العميل الخارجي (order_uuid) — يمنع الشحن المزدوج عند إعادة المحاولة عبر الـ API
+    client_uuid = models.UUIDField(null=True, blank=True, db_index=True)
     provider_note = models.CharField(max_length=300, blank=True, default="")
     balance_before = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
     balance_after = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
@@ -253,6 +255,13 @@ class KontorOrder(models.Model):
     class Meta:
         db_table = "kontor_orders"
         ordering = ["-id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["dealer", "client_uuid"],
+                condition=models.Q(client_uuid__isnull=False),
+                name="uniq_kontor_order_client_uuid_per_dealer",
+            )
+        ]
 
     def __str__(self):
         return f"#{self.id} {self.gsm} · {self.package.name} [{self.status}]"

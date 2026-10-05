@@ -1559,11 +1559,12 @@ function PriceList({ sym }: { sym: string }) {
             <div className="km-pl-head">
               <span>★ {c.name} ★</span><small>{c.packages.length} باقة</small>
             </div>
-            <div className="km-pl-cols"><span>الباقة</span><span>كلفتك</span><span>المقترح</span></div>
+            <div className="km-pl-cols"><span>رقم الربط</span><span>الباقة</span><span>كلفتك</span><span>المقترح</span></div>
             {c.packages.map((p) => {
               const cost = Number(p.price), rec = Number(p.recommended_price || 0);
               return (
                 <div key={p.id} className={`km-pl-row${p.kind === "offer" ? " offer" : ""}`}>
+                  <code className="km-pl-id" title="رقم الباقة في الربط الخارجي (API)">{p.id}</code>
                   <div className="km-pl-name">
                     <b>{p.name}</b>
                     {p.details && <small>{p.details}</small>}

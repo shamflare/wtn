@@ -56,7 +56,8 @@ def _parse_place(text: str):
 
 
 @transaction.atomic
-def create_order(dealer, package: KontorPackage, gsm: str, dealer_sell_price=None) -> KontorOrder:
+def create_order(dealer, package: KontorPackage, gsm: str, dealer_sell_price=None,
+                 client_uuid=None) -> KontorOrder:
     """
     ينشئ الطلب ويخصم المحفظة (قيد الإرسال). لا ينفّذ بعد — يليه execute().
     `dealer_sell_price` (بعملة الدفتر): ما باع به الوكيل لزبونه؛ فارغ ⇐ السعر المقترح.
@@ -103,7 +104,7 @@ def create_order(dealer, package: KontorPackage, gsm: str, dealer_sell_price=Non
         tenant_id=dealer.tenant_id, dealer=dealer, package=package,
         operator=package.operator, gsm=gsm,
         cost_price=cost, sell_price=sell, profit=sell - cost,
-        dealer_sell_price=retail, dealer_profit=retail - sell,
+        dealer_sell_price=retail, dealer_profit=retail - sell, client_uuid=client_uuid,
         status=KontorOrder.Status.PENDING,
         balance_before=txn.balance_before, balance_after=txn.balance_after,
     )

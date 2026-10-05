@@ -18,6 +18,8 @@ class KontorCategorySerializer(serializers.ModelSerializer):
 
 
 class KontorPackageSerializer(serializers.ModelSerializer):
+    # فارغٌ مسموح هنا ليصل إلى validate_name فيعيده إلى اسم ZNET (لا خطأ «لا يكون فارغاً»)
+    name = serializers.CharField(max_length=160, allow_blank=True, trim_whitespace=True, required=False)
     operator_label = serializers.CharField(source="get_operator_display", read_only=True)
     category_name = serializers.CharField(source="category.name", read_only=True, default="")
     kind_label = serializers.CharField(source="get_kind_display", read_only=True)
@@ -28,14 +30,19 @@ class KontorPackageSerializer(serializers.ModelSerializer):
         model = KontorPackage
         fields = [
             "id", "operator", "operator_label", "category", "category_name",
-            "znet_id", "link_code", "name", "details", "days", "gb", "minutes",
+            "znet_id", "link_code", "name", "provider_name", "details", "days", "gb", "minutes",
             "provider_cost", "cost_price", "recommended_price", "profit",
             "kind", "kind_label", "status", "status_label",
             "provider", "provider_alt1", "provider_alt2", "provider_package_id",
             "sort_order", "updated_at",
         ]
         # المعرّف والكلفة والمشغّل يأتون من الاستيراد؛ المالك يملك الباقي
-        read_only_fields = ["tenant", "operator", "znet_id", "provider_cost", "cost_price", "updated_at"]
+        read_only_fields = ["tenant", "operator", "znet_id", "provider_name", "provider_cost", "cost_price", "updated_at"]
+
+    def validate_name(self, value):
+        """الاسم شكليّ يسمّيه المالك كما يشاء — فارغٌ يعيده إلى اسم ZNET."""
+        value = (value or "").strip()
+        return value or (self.instance.provider_name if self.instance else value)
 
     def validate_link_code(self, value):
         """رقم الربط: حروف لاتينية وأرقام و - _ فقط، وفريد في المتجر."""

@@ -90,6 +90,12 @@ class KontorSession:
         return bool(html) and "location.href" in html and len(html) < 120
 
     # ─────────── العمليات ───────────
+    def check(self) -> bool:
+        """اختبار الحساب: يدخل (إن لزم) ويتأكّد أن صفحة Kontor جاهزة. يرمي الخطأ كما هو."""
+        with self._lock:
+            self._ensure_login()
+            return True
+
     def detect(self, gsm: str) -> str:
         """رد كشف الشركة (HTML) — يعيد الدخول تلقائياً إن انتهت الجلسة."""
         with self._lock:

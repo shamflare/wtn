@@ -37,16 +37,18 @@ const SUB_TONE: Record<string, { bg: string; fg: string; label: string }> = {
   blocked: { bg: "#fee2e2", fg: "#7f1d1d", label: "متوقّف — الشراء ممنوع" },
 };
 
-type Tab = "tenants" | "library" | "sources" | "invoices" | "messages" | "announce" | "cards";
-const TABS: Tab[] = ["tenants", "library", "sources", "invoices", "messages", "announce", "cards"];
+type Tab = "tenants" | "library" | "sources" | "invoices" | "messages" | "announce" | "cards" | "sorgula";
+const TABS: Tab[] = ["tenants", "library", "sources", "invoices", "messages", "announce", "cards", "sorgula"];
 
-export default function Platform() {
+export default function Platform({ section: forced }: { section?: Tab } = {}) {
   const { user, logout } = useAuth();
-  // كل قسمٍ رابطه (/platform/library …) — فالتحديث يُبقيك حيث كنت، والرابط يُنسخ ويُفتح مباشرةً
-  const { section } = useParams();
+  // كل قسمٍ رابطه (/platform/library …) — فالتحديث يُبقيك حيث كنت، والرابط يُنسخ ويُفتح مباشرةً.
+  // و/sorgula رابطٌ قصير يفتح قسم كشف الخطوط مباشرةً.
+  const params = useParams();
+  const section = forced || params.section;
   const navigate = useNavigate();
   const tab: Tab = (TABS as string[]).includes(section || "") ? (section as Tab) : "tenants";
-  const setTab = (t: Tab) => navigate(t === "tenants" ? "/platform" : `/platform/${t}`);
+  const setTab = (t: Tab) => navigate(t === "tenants" ? "/platform" : t === "sorgula" ? "/sorgula" : `/platform/${t}`);
 
   return (
     <div style={{ minHeight: "100vh", background: "#0f172a", color: "#e2e8f0" }}>
@@ -69,6 +71,7 @@ export default function Platform() {
         <button onClick={() => setTab("messages")} style={{ ...tabBtn, ...(tab === "messages" ? tabActive : {}) }}>💬 الرسائل</button>
         <button onClick={() => setTab("announce")} style={{ ...tabBtn, ...(tab === "announce" ? tabActive : {}) }}>📢 الإعلان العام</button>
         <button onClick={() => setTab("cards")} style={{ ...tabBtn, ...(tab === "cards" ? tabActive : {}) }}>🗂️ بطاقات المتاجر</button>
+        <button onClick={() => setTab("sorgula")} style={{ ...tabBtn, ...(tab === "sorgula" ? tabActive : {}) }}>📱 كشف الخطوط</button>
       </div>
 
       <div style={{ maxWidth: 1150, margin: "0 auto", padding: 24 }}>
@@ -77,6 +80,7 @@ export default function Platform() {
         {tab === "sources" && <LibrarySources />}
         {tab === "invoices" && <BillingTab />}
         {tab === "announce" && <AnnounceTab />}
+        {tab === "sorgula" && <SorgulaTab />}
         {tab === "cards" && (
           <div style={{ background: "#fff", color: "var(--text)", borderRadius: 12, padding: 20 }}>
             <CardsEditor
@@ -527,6 +531,134 @@ function AnnounceTab() {
       <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 16 }}>
         <button style={addBtn} onClick={save} disabled={busy}>{busy ? "جارٍ الحفظ..." : "حفظ ونشر"}</button>
         {saved && <span style={{ color: "#4ade80", fontSize: 13 }}>✓ نُشر — سيظهر فوراً في لوحات المتاجر</span>}
+      </div>
+    </div>
+  );
+}
+
+/* ===== كشف الخطوط (sorgula) ===== */
+interface SorgulaCfg {
+  base_url: string; username: string; has_password: boolean; security_image: string;
+  enabled: boolean; configured: boolean; last_ok_at: string; last_error: string; updated_at: string;
+}
+
+/**
+ * حساب لوحة ZNET الذي تكشف به **كل المتاجر** شركةَ الرقم وعروضه الخاصة.
+ * عامّ للمنصّة لا للمتجر: يُضبط هنا مرّة فيخدم كل نسخة مبيعة.
+ */
+function SorgulaTab() {
+  const [cfg, setCfg] = useState<SorgulaCfg | null>(null);
+  const [f, setF] = useState({ base_url: "", username: "", password: "", security_image: "D", enabled: true });
+  const [busy, setBusy] = useState<"" | "save" | "test">("");
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [gsm, setGsm] = useState("");
+  const [steps, setSteps] = useState<{ ok: boolean; step: string; detail?: string }[] | null>(null);
+
+  function fill(c: SorgulaCfg) {
+    setCfg(c);
+    setF({ base_url: c.base_url, username: c.username, password: "", security_image: c.security_image || "D", enabled: c.enabled });
+  }
+  useEffect(() => { api.get("/platform/sorgula/").then((r) => fill(r.data)).catch(() => {}); }, []);
+  const set = (k: keyof typeof f, v: any) => setF((o) => ({ ...o, [k]: v }));
+
+  async function save() {
+    setBusy("save"); setMsg(null);
+    try {
+      fill((await api.put("/platform/sorgula/", f)).data);
+      setMsg({ ok: true, text: "✓ حُفظ — تستعمله كل المتاجر من الطلب التالي" });
+    } catch (e: any) { setMsg({ ok: false, text: e?.response?.data?.detail || "تعذّر الحفظ" }); }
+    finally { setBusy(""); }
+  }
+
+  async function test() {
+    setBusy("test"); setSteps(null); setMsg(null);
+    try {
+      const r = await api.post("/platform/sorgula/test/", { gsm });
+      setSteps(r.data.steps); setCfg(r.data.config);
+    } catch (e: any) { setMsg({ ok: false, text: e?.response?.data?.detail || "تعذّر الاختبار" }); }
+    finally { setBusy(""); }
+  }
+
+  const darkInp: React.CSSProperties = {
+    width: "100%", height: 40, padding: "0 12px", borderRadius: 8, border: "1px solid #334155",
+    background: "#0f172a", color: "#e2e8f0", fontSize: 14,
+  };
+  const lbl: React.CSSProperties = { fontSize: 13, color: "#94a3b8", margin: "14px 0 5px" };
+  const state = !cfg ? null : !cfg.configured ? ["#78350f", "#fef3c7", "غير مضبوط — تعمل الخدمة على إعداد الخادم القديم إن وُجد"]
+    : !cfg.enabled ? ["#7f1d1d", "#fee2e2", "موقوف — لا كشف ولا عروض في كل المتاجر"]
+    : cfg.last_error ? ["#7c2d12", "#ffedd5", `آخر محاولة فشلت: ${cfg.last_error}`]
+    : ["#14532d", "#e7f6ec", cfg.last_ok_at ? `يعمل — آخر نجاح ${cfg.last_ok_at}` : "مضبوط — لم يُستعمل بعد"];
+
+  return (
+    <div style={{ maxWidth: 760 }}>
+      <h2 style={{ fontSize: 18, marginBottom: 6 }}>كشف الخطوط والعروض الخاصة</h2>
+      <p style={{ color: "#94a3b8", fontSize: 13, lineHeight: 1.9, marginBottom: 14 }}>
+        حساب لوحة ZNET الذي يكشف به <b style={{ color: "#e2e8f0" }}>كل متجر على المنصّة</b> شركةَ رقم الزبون
+        وعروضه الخاصة (ما لا يعطيه API الرسمي). يُضبط هنا مرّة فيخدم كل النسخ المبيعة — صاحب المتجر لا يحتاج
+        حساباً لذلك. أمّا <b style={{ color: "#e2e8f0" }}>الشحن نفسه</b> فيبقى عبر مزوّدي كل متجر (حسابه ورصيده).
+      </p>
+
+      {state && (
+        <div style={{ background: state[1], color: state[0], borderRadius: 8, padding: "10px 14px", fontSize: 13, fontWeight: 700, marginBottom: 16 }}>
+          {state[2]}
+        </div>
+      )}
+
+      <div style={{ background: "#131c31", border: "1px solid #1e293b", borderRadius: 12, padding: 18 }}>
+        <div style={lbl}>رابط اللوحة</div>
+        <input dir="ltr" value={f.base_url} onChange={(e) => set("base_url", e.target.value)} style={darkInp}
+          placeholder="https://bayi.example.com" />
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <div>
+            <div style={lbl}>اسم المستخدم</div>
+            <input dir="ltr" value={f.username} onChange={(e) => set("username", e.target.value)} style={darkInp} autoComplete="off" />
+          </div>
+          <div>
+            <div style={lbl}>كلمة المرور {cfg?.has_password && <span style={{ color: "#4ade80" }}>(محفوظة — اتركها فارغة لإبقائها)</span>}</div>
+            <input dir="ltr" type="password" value={f.password} onChange={(e) => set("password", e.target.value)} style={darkInp}
+              autoComplete="new-password" placeholder={cfg?.has_password ? "••••••••" : ""} />
+          </div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, alignItems: "end" }}>
+          <div>
+            <div style={lbl}>الصورة الأمنية (اسم ملفها: حرف مثل D)</div>
+            <input dir="ltr" value={f.security_image} onChange={(e) => set("security_image", e.target.value.toUpperCase())}
+              style={{ ...darkInp, width: 120, textAlign: "center", fontWeight: 800 }} maxLength={20} />
+          </div>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, cursor: "pointer", height: 40 }}>
+            <input type="checkbox" checked={f.enabled} onChange={(e) => set("enabled", e.target.checked)} />
+            الكشف مفعّل لكل المتاجر
+          </label>
+        </div>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 18 }}>
+          <button style={addBtn} onClick={save} disabled={busy !== ""}>{busy === "save" ? "جارٍ الحفظ..." : "حفظ"}</button>
+          {msg && <span style={{ color: msg.ok ? "#4ade80" : "#f87171", fontSize: 13 }}>{msg.text}</span>}
+        </div>
+      </div>
+
+      <div style={{ background: "#131c31", border: "1px solid #1e293b", borderRadius: 12, padding: 18, marginTop: 16 }}>
+        <b>اختبار حيّ</b>
+        <p style={{ color: "#94a3b8", fontSize: 13, margin: "6px 0 10px" }}>
+          يدخل باللوحة ويجتاز الصورة الأمنية، ثم — إن كتبت رقماً — يكشف شركته ويعدّ عروضه. الدخول الأوّل يأخذ نصف دقيقة تقريباً.
+        </p>
+        <div style={{ display: "flex", gap: 10 }}>
+          <input dir="ltr" value={gsm} onChange={(e) => setGsm(e.target.value)} placeholder="5XXXXXXXXX (اختياري)"
+            style={{ ...darkInp, maxWidth: 240 }} />
+          <button style={{ ...addBtn, background: "#0f766e" }} onClick={test} disabled={busy !== ""}>
+            {busy === "test" ? "جارٍ الاختبار..." : "اختبر الآن"}
+          </button>
+        </div>
+        {steps && (
+          <div style={{ marginTop: 14, display: "grid", gap: 6 }}>
+            {steps.map((s, i) => (
+              <div key={i} style={{ display: "flex", gap: 10, alignItems: "baseline", fontSize: 13.5 }}>
+                <span style={{ color: s.ok ? "#4ade80" : "#f87171", fontWeight: 800 }}>{s.ok ? "✓" : "✗"}</span>
+                <span style={{ fontWeight: 700 }}>{s.step}</span>
+                {s.detail && <span style={{ color: "#94a3b8" }}>— {s.detail}</span>}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

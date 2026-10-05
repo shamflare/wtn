@@ -544,3 +544,81 @@ def platform_announcement_view(request):
         a.ticker = (request.data.get("ticker") or "").strip()
         a.save(update_fields=["message", "ticker", "updated_at"])
     return Response({"message": a.message, "ticker": a.ticker})
+
+
+# ─────────────────── كشف الخطوط (sorgula) — حساب ZNET عامّ لكل المتاجر ───────────────────
+
+def _sorgula_row(cfg) -> dict:
+    """كلمة السر لا تخرج أبداً — يكفي أن يعرف المالك أنها محفوظة."""
+    return {
+        "base_url": cfg.base_url, "username": cfg.username,
+        "has_password": bool(cfg.password), "security_image": cfg.security_image or "D",
+        "enabled": cfg.enabled, "configured": cfg.configured,
+        "last_ok_at": cfg.last_ok_at.strftime("%Y-%m-%d %H:%M") if cfg.last_ok_at else "",
+        "last_error": cfg.last_error,
+        "updated_at": cfg.updated_at.strftime("%Y-%m-%d %H:%M") if cfg.updated_at else "",
+    }
+
+
+@api_view(["GET", "PUT"])
+@permission_classes([IsAuthenticated, IsPlatformOwner])
+def sorgula_view(request):
+    """
+    حساب لوحة ZNET الذي يكشف به كل متجر شركةَ الرقم والعروض الخاصة.
+    PUT: {base_url, username, password?, security_image, enabled} — كلمة سر فارغة تُبقي القديمة.
+    """
+    from kontor.models import KontorSessionConfig
+    cfg = KontorSessionConfig.get()
+    if request.method == "PUT":
+        d = request.data
+        base = (d.get("base_url") or "").strip().rstrip("/")
+        if base and not base.startswith(("http://", "https://")):
+            return Response({"detail": "الرابط يبدأ بـ http:// أو https://"}, status=400)
+        cfg.base_url = base
+        cfg.username = (d.get("username") or "").strip()
+        if (d.get("password") or "").strip():
+            cfg.password = d["password"].strip()
+        cfg.security_image = ((d.get("security_image") or "D").strip().upper())[:20]
+        cfg.enabled = bool(d.get("enabled", True))
+        cfg.last_error = ""
+        cfg.save()
+    return Response(_sorgula_row(cfg))
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated, IsPlatformOwner])
+def sorgula_test_view(request):
+    """
+    اختبار حيّ: الدخول باللوحة، ثم — إن أُعطي رقم — كشف شركته وعدد عروضه.
+    يعيد خطوات مفصّلة فيعرف المالك أين تعطّل بالضبط.
+    """
+    from kontor import session_client
+    from kontor.models import KontorSessionConfig
+    from kontor.views_store import _clean_gsm, _valid
+
+    steps = []
+    try:
+        session_client.check_login()
+        steps.append({"ok": True, "step": "الدخول إلى اللوحة واجتياز الصورة الأمنية"})
+    except session_client.SessionError as e:
+        steps.append({"ok": False, "step": "الدخول إلى اللوحة", "detail": str(e)})
+        return Response({"ok": False, "steps": steps, "config": _sorgula_row(KontorSessionConfig.get())})
+
+    gsm = _clean_gsm(request.data.get("gsm", ""))
+    if gsm:
+        if not _valid(gsm):
+            steps.append({"ok": False, "step": "رقم التجربة", "detail": "10 خانات تبدأ بـ5"})
+        else:
+            try:
+                op = session_client.detect_operator(gsm)
+                steps.append({"ok": bool(op), "step": "كشف الشركة",
+                              "detail": op or "لم تُعرف الشركة"})
+                if op:
+                    offers = session_client.fetch_offers(gsm, op)
+                    pink = sum(1 for o in offers if o.get("is_offer"))
+                    steps.append({"ok": bool(offers), "step": "جلب العروض",
+                                  "detail": f"{len(offers)} باقة · منها {pink} عرض خاص"})
+            except session_client.SessionError as e:
+                steps.append({"ok": False, "step": "الاستعلام", "detail": str(e)})
+    ok = all(s["ok"] for s in steps)
+    return Response({"ok": ok, "steps": steps, "config": _sorgula_row(KontorSessionConfig.get())})

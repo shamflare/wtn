@@ -12,7 +12,7 @@ import {
 interface Pkg {
   id: number; operator: string; operator_label: string;
   category: number | null; category_name: string;
-  znet_id: string; link_code: string; name: string; details: string;
+  znet_id: string; link_code: string; name: string; provider_name: string; details: string;
   days: number; gb: number; minutes: number;
   provider_cost: string; cost_price: string; recommended_price: string; profit: string;
   kind: "general" | "offer"; kind_label: string;
@@ -42,12 +42,17 @@ export default function Kontor() {
   const [draft, setDraft] = useState("");
   const [modal, setModal] = useState<Pkg | null>(null);
   const ledger = useLedger();
+  const [provs, setProvs] = useState<{ id: number; name: string }[]>([]);
+  const [importFrom, setImportFrom] = useState<number | "">("");
 
   async function load() {
     const p = await api.get("/kontor/packages/");
     setPkgs(p.data);
   }
   useEffect(() => { load().catch(() => {}).finally(() => setLoading(false)); }, []);
+  useEffect(() => {
+    api.get("/kontor/providers/").then((r) => { setProvs(r.data); setImportFrom(r.data[0]?.id ?? ""); }).catch(() => {});
+  }, []);
 
   function say(t: string) { setToast(t); setTimeout(() => setToast(""), 5000); }
   function switchOp(code: string) { setOp(code); setCat(""); setPicked([]); }
@@ -133,8 +138,8 @@ export default function Kontor() {
   async function importNow() {
     setBusy(true);
     try {
-      const r = await api.post("/kontor/import/");
-      say(`✅ استُلم ${r.data.received} · جديد ${r.data.created} · محدّث ${r.data.updated}`);
+      const r = await api.post("/kontor/import/", importFrom ? { provider: importFrom } : {});
+      say(`✅ من ${r.data.provider}: استُلم ${r.data.received} · جديد ${r.data.created} · محدّث ${r.data.updated}`);
       await load();
     } catch (e: any) {
       say(e?.response?.data?.detail || "تعذّر الاستيراد");
@@ -156,7 +161,14 @@ export default function Kontor() {
       <ScrollTop />
       <h2 style={pageTitle}>
         <Icon name="phone" size={20} /> باقات الخطوط
-        <button className="btn g" onClick={importNow} disabled={busy} style={{ marginInlineStart: "auto", fontSize: 13.5 }}>
+        {provs.length > 1 && (
+          <select value={importFrom} onChange={(e) => setImportFrom(Number(e.target.value))} title="الاستيراد من أيّ لوحة"
+            style={{ ...input, width: 170, marginInlineStart: "auto", fontSize: 13 }}>
+            {provs.map((p) => <option key={p.id} value={p.id}>من: {p.name}</option>)}
+          </select>
+        )}
+        <button className="btn g" onClick={importNow} disabled={busy}
+          style={{ marginInlineStart: provs.length > 1 ? 0 : "auto", fontSize: 13.5 }}>
           <Icon name="refresh" size={15} style={ib} />{busy ? "جارٍ الاستيراد..." : "استيراد من ZNET"}
         </button>
       </h2>
@@ -256,7 +268,12 @@ export default function Kontor() {
                             </>)}
                           </td>
                           <td className="cell-start">
-                            <div style={{ fontWeight: 700 }}>{p.name}</div>
+                            <div style={{ fontWeight: 700 }}>
+                              {p.name}
+                              {p.provider_name && p.name !== p.provider_name && (
+                                <span title={`اسمها في ZNET: ${p.provider_name}`} style={renamedTag}>معدَّل</span>
+                              )}
+                            </div>
                             <Specs p={p} />
                           </td>
                           <td className="num">
@@ -351,7 +368,7 @@ function Stat({ label, value, sub, icon, tone }: { label: string; value: string;
 function PackageModal({ pkg, onClose, onSaved }: { pkg: Pkg; onClose: () => void; onSaved: (p: Pkg) => void }) {
   const ledger = useLedger();
   const [f, setF] = useState({
-    details: pkg.details, days: String(pkg.days || ""), gb: String(pkg.gb || ""),
+    name: pkg.name, details: pkg.details, days: String(pkg.days || ""), gb: String(pkg.gb || ""),
     minutes: String(pkg.minutes || ""), sort_order: String(pkg.sort_order || ""),
     recommended_price: Number(pkg.recommended_price) ? pkg.recommended_price : "", status: pkg.status,
   });
@@ -363,7 +380,7 @@ function PackageModal({ pkg, onClose, onSaved }: { pkg: Pkg; onClose: () => void
     setBusy(true); setErr("");
     try {
       const r = await api.patch(`/kontor/packages/${pkg.id}/`, {
-        details: f.details, days: Number(f.days) || 0, gb: Number(f.gb) || 0,
+        name: f.name.trim(), details: f.details, days: Number(f.days) || 0, gb: Number(f.gb) || 0,
         minutes: Number(f.minutes) || 0, sort_order: Number(f.sort_order) || 0,
         recommended_price: f.recommended_price || "0", status: f.status,
       });
@@ -382,8 +399,17 @@ function PackageModal({ pkg, onClose, onSaved }: { pkg: Pkg; onClose: () => void
       <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 12 }}>
         {pkg.category_name} · رقم الربط <b className="num">{pkg.link_code}</b> · رقم ZNET <b className="num">{pkg.znet_id}</b> · الكلفة <b className="num">{money(pkg.cost_price)} {ledger.sym}</b>
         {ledger.base !== "TRY" && <> (<span className="num">{money(pkg.provider_cost)} ₺</span> لدى ZNET)</>}
-        <div style={{ fontSize: 11.5 }}>الاسم والكلفة يأتيان من ZNET ويتحدّثان مع كل استيراد.</div>
+        <div style={{ fontSize: 11.5 }}>الكلفة تأتي من ZNET وتتحدّث مع كل استيراد.</div>
       </div>
+      <Field label="اسم الباقة" hint={`الاسم شكليّ تسمّيه كما تشاء — الشحن يعتمد رقم الربط لا الاسم. اسمها في ZNET: «${pkg.provider_name || pkg.name}». الاسم المعدَّل لا يمسّه الاستيراد، واتركه فارغاً ليعود إلى اسم ZNET.`}>
+        <div style={{ display: "flex", gap: 6 }}>
+          <input value={f.name} onChange={(e) => set("name", e.target.value)} style={input} />
+          {pkg.provider_name && f.name !== pkg.provider_name && (
+            <button type="button" className="btn" style={{ flex: "none", fontSize: 12 }}
+              onClick={() => set("name", pkg.provider_name)}>اسم ZNET</button>
+          )}
+        </div>
+      </Field>
       <Field label="التفاصيل" hint="سطر قصير يراه الوكيل تحت اسم الباقة — مثل: 30 يوم · 10GB · 1000 دقيقة">
         <input value={f.details} onChange={(e) => set("details", e.target.value)} style={input} />
       </Field>
@@ -412,6 +438,10 @@ function PackageModal({ pkg, onClose, onSaved }: { pkg: Pkg; onClose: () => void
   );
 }
 
+const renamedTag: React.CSSProperties = {
+  marginInlineStart: 6, fontSize: 10, fontWeight: 700, color: "var(--info)", background: "color-mix(in srgb, var(--info) 12%, transparent)",
+  borderRadius: 999, padding: "1px 7px", verticalAlign: 2,
+};
 const codeTag: React.CSSProperties = {
   fontFamily: "ui-monospace, Consolas, monospace", fontWeight: 800, fontSize: 12.5, direction: "ltr",
   background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 6, padding: "2px 8px",

@@ -4,7 +4,10 @@
 - الإرسال:  servis/tl_servis.php  ⇐ OK|كود|شرح|كلفة   (1 مقبول · 3 مرفوض · 8 يحتاج تحقّقاً)
 - المتابعة: servis/tl_kontrol.php ⇐ 1:... نجح · 2:... قيد التنفيذ · 3:... أُلغي
 
-القرار المالي عند الإنشاء: يُخصم من الوكيل، فإن رفض ZNET فوراً يُعاد المبلغ.
+التوجيه كالألعاب: لكل باقة مزوّد رئيسي وبديلان (لوحات ZNET مختلفة)، ولكلٍّ منها
+رقم الباقة لديه (KontorPackageLink). الرفض الصريح ينقل إلى البديل التالي.
+
+القرار المالي عند الإنشاء: يُخصم من الوكيل، فإن رفضه كل المزوّدين يُعاد المبلغ.
 """
 from decimal import Decimal, InvalidOperation
 
@@ -126,45 +129,138 @@ def _refund(order: KontorOrder, note: str):
     )
 
 
-def execute(order: KontorOrder) -> KontorOrder:
-    """يرسل الطلب إلى ZNET. يُرجع المال فوراً عند الرفض (3) أو خطأ الاتصال."""
-    prov = znet_provider(order.tenant)
-    cfg = (prov.config if prov else {}) or {}
-    base, kod, sifre = cfg.get("base_url"), cfg.get("kod"), cfg.get("sifre")
-    if not (base and kod and sifre):
-        order.status = KontorOrder.Status.FAILED
-        order.provider_note = "إعداد ZNET ناقص"
-        order.save(update_fields=["status", "provider_note", "updated_at"])
-        _refund(order, f"إرجاع — إعداد ZNET ناقص (طلب #{order.id})")
-        order.status = KontorOrder.Status.REFUNDED
-        order.save(update_fields=["status", "updated_at"])
-        return order
+# ─────────────────────── التوجيه: سلسلة المزوّدين ───────────────────────
 
-    order.provider = prov
+def provider_chain(package: KontorPackage) -> list:
+    """
+    مزوّدو الباقة بالترتيب: الرئيسي ثم API 1 ثم API 2 (كالألعاب)، بلا تكرار
+    وبلا معطّل. بلا توجيه على الباقة ⇐ مزوّد ZNET الافتراضي للمتجر (السلوك القديم).
+    """
+    seen, chain = set(), []
+    for p in (package.provider, package.provider_alt1, package.provider_alt2):
+        if p is not None and p.id not in seen and p.status == Provider.Status.ACTIVE:
+            seen.add(p.id)
+            chain.append(p)
+    if not chain:
+        fallback = znet_provider(package.tenant)
+        if fallback is not None:
+            chain.append(fallback)
+    return chain
+
+
+def _code_for(package: KontorPackage, provider) -> str | None:
+    """
+    رقم الباقة لدى هذا المزوّد. بلا ربط ⇐ None فلا يُرسَل إليه — إلا باقة لا ربط
+    لها أصلاً (قديمة) فيُرسَل رقم ZNET كما كان قبل التوجيه.
+    """
+    link = package.links.filter(provider=provider).first()
+    if link is not None:
+        return link.code
+    if not package.links.exists():
+        return package.znet_id
+    return None
+
+
+# نتائج محاولة الإرسال إلى مزوّد واحد
+SENT, REJECTED, UNKNOWN = "sent", "rejected", "unknown"
+
+
+def _send(order: KontorOrder, provider) -> tuple[str, str]:
+    """
+    يرسل الطلب إلى مزوّد واحد ⇐ (النتيجة، الملاحظة).
+
+    REJECTED آمنٌ للانتقال إلى البديل: رفضٌ صريح، أو لم يغادر الطلب أصلاً
+    (تعذّر الاتصال). أمّا UNKNOWN (انقطع الردّ بعد الإرسال) فقد يكون نُفّذ —
+    فلا بديل ولا إرجاع، بل متابعة بـ tl_kontrol حتى يُحسم. هكذا لا يُشحن رقمٌ مرّتين.
+    """
+    from .services import provider_creds
+    creds = provider_creds(provider)
+    if not creds:
+        return REJECTED, f"{provider.name}: إعداد ناقص"
+    code = _code_for(order.package, provider)
+    if not code:
+        return REJECTED, f"{provider.name}: الباقة غير مربوطة لديه"
+    base, kod, sifre = creds
     params = {
         "bayi_kodu": kod, "sifre": sifre,
         "operator": order.operator, "tip": _tip(order.package),
-        "kontor": order.package.znet_id, "gsmno": order.gsm, "tekilnumara": order.tekil,
+        "kontor": code, "gsmno": order.gsm, "tekilnumara": order.tekil,
     }
     try:
         resp = requests.get(f"{base.rstrip('/')}/servis/tl_servis.php", params=params, timeout=(5, 40))
-        code, note, _cost = _parse_place(resp.text)
     except requests.RequestException as e:
-        code, note = None, f"تعذّر الاتصال: {e}"
+        if _never_sent(e):
+            return REJECTED, f"{provider.name}: تعذّر الاتصال"
+        return UNKNOWN, f"{provider.name}: انقطع الردّ بعد الإرسال — يُتابَع"
+    status, note, _cost = _parse_place(resp.text)
+    if status in (1, 8):  # 8: أُرسل سابقاً بنفس المعرّف — يُتحقَّق بالمتابعة
+        return SENT, note
+    return REJECTED, f"{provider.name}: {note}"[:280]
 
+
+def _never_sent(e: Exception) -> bool:
+    """
+    هل فشل الاتصال **قبل** أن يصل الطلب إلى المزوّد؟ (مهلة الاتصال، اسم لا يُحَلّ،
+    اتصال مرفوض). وحدها تُجيز الانتقال إلى البديل. أمّا انقطاع بعد الإرسال
+    (مهلة القراءة، إغلاق الخادم للاتصال) فقد يكون نُفّذ — فيُتابَع لا يُعاد.
+    """
+    if isinstance(e, requests.ConnectTimeout):
+        return True
+    if isinstance(e, requests.ConnectionError):
+        text = str(e)
+        return any(k in text for k in ("NewConnectionError", "Failed to establish",
+                                        "NameResolutionError", "Name or service not known",
+                                        "getaddrinfo failed", "Connection refused"))
+    return False
+
+
+def _adopt(order: KontorOrder, provider, note: str):
+    """الطلب صار عند هذا المزوّد: نسجّله وكلفته الفعلية لديه (إن عُرفت)."""
+    from core import currency
+    order.provider = provider
+    order.status = KontorOrder.Status.PROCESSING
     order.provider_note = note[:300]
-    if code == 1:
-        order.status = KontorOrder.Status.PROCESSING
-    elif code == 8:
-        order.status = KontorOrder.Status.PROCESSING  # أُرسل سابقاً — يُتحقّق بالمتابعة
-    else:  # 3 أو خطأ ⇐ رفض فوري ⇐ إرجاع
-        order.status = KontorOrder.Status.FAILED
-        order.save(update_fields=["status", "provider", "provider_note", "updated_at"])
-        _refund(order, f"إرجاع — رفض ZNET: {note[:120]} (طلب #{order.id})")
-        order.status = KontorOrder.Status.REFUNDED
-        order.save(update_fields=["status", "updated_at"])
+    link = order.package.links.filter(provider=provider).first()
+    if link is not None and link.cost:
+        real = currency.from_provider(order.tenant, link.cost, provider)
+        if real:
+            order.cost_price = real
+            order.profit = order.sell_price - real
+    order.save(update_fields=["provider", "status", "provider_note", "cost_price", "profit", "updated_at"])
+
+
+def _try_chain(order: KontorOrder, chain: list, trail: list) -> bool:
+    """يجرّب المزوّدين بالترتيب. True إن التقطه أحدهم (أُرسل أو حالته مجهولة فتُتابَع)."""
+    for prov in chain:
+        result, note = _send(order, prov)
+        if result in (SENT, UNKNOWN):
+            _adopt(order, prov, note)
+            return True
+        trail.append(note)
+    return False
+
+
+def _fail_and_refund(order: KontorOrder, trail: list, why: str):
+    order.status = KontorOrder.Status.FAILED
+    order.provider_note = (" | ".join(trail) or why)[:300]
+    order.save(update_fields=["status", "provider_note", "updated_at"])
+    _refund(order, f"إرجاع — {why}: {order.provider_note[:120]} (طلب #{order.id})")
+    order.status = KontorOrder.Status.REFUNDED
+    order.save(update_fields=["status", "updated_at"])
+
+
+def execute(order: KontorOrder) -> KontorOrder:
+    """
+    يرسل الطلب عبر سلسلة مزوّدي الباقة (الرئيسي ثم البدائل). يُرجع المال فوراً
+    إن رفضه الجميع صراحةً — ولا يُرجعه ما دام أحدهم قد يكون نفّذه.
+    """
+    chain = provider_chain(order.package)
+    if not chain:
+        _fail_and_refund(order, [], "لا مزوّد خطوط مُعدّ")
         return order
-    order.save(update_fields=["status", "provider", "provider_note", "updated_at"])
+    trail: list = []
+    if not _try_chain(order, chain, trail):
+        _fail_and_refund(order, trail, "رفضه كل المزوّدين")
     return order
 
 
@@ -181,14 +277,18 @@ def _parse_status(text: str):
 
 
 def poll(order: KontorOrder) -> KontorOrder:
-    """يتابع حالة طلبٍ قيد التنفيذ، ويُرجع المال إن أُلغي."""
+    """
+    يتابع طلباً قيد التنفيذ لدى **مزوّده هو**. إن ألغاه المزوّد: تُجرَّب بقيّة
+    السلسلة **من بعده** (لا من رأسها، فلا يُعاد إلى من رفض)، وإلا يُرجع المال.
+    """
+    from .services import provider_creds
     if order.status != KontorOrder.Status.PROCESSING:
         return order
-    prov = znet_provider(order.tenant)
-    cfg = (prov.config if prov else {}) or {}
-    base, kod, sifre = cfg.get("base_url"), cfg.get("kod"), cfg.get("sifre")
-    if not (base and kod and sifre):
+    prov = order.provider or znet_provider(order.tenant)
+    creds = provider_creds(prov)
+    if not creds:
         return order
+    base, kod, sifre = creds
     try:
         resp = requests.get(f"{base.rstrip('/')}/servis/tl_kontrol.php",
                             params={"bayi_kodu": kod, "sifre": sifre, "tekilnumara": order.tekil},
@@ -202,11 +302,12 @@ def poll(order: KontorOrder) -> KontorOrder:
         order.provider_note = note[:300]
         order.save(update_fields=["status", "provider_note", "updated_at"])
     elif code == 3:
-        order.provider_note = note[:300]
-        order.save(update_fields=["provider_note", "updated_at"])
-        _refund(order, f"إرجاع — ألغى ZNET: {note[:120]} (طلب #{order.id})")
-        order.status = KontorOrder.Status.REFUNDED
-        order.save(update_fields=["status", "updated_at"])
+        trail = [f"{prov.name}: {note}"[:280]]
+        chain = provider_chain(order.package)
+        ids = [p.id for p in chain]
+        rest = chain[ids.index(prov.id) + 1:] if prov.id in ids else [p for p in chain if p.id != prov.id]
+        if not _try_chain(order, rest, trail):
+            _fail_and_refund(order, trail, "ألغاه المزوّد ولا بديل")
     return order
 
 

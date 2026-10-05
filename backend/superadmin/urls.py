@@ -19,6 +19,8 @@ urlpatterns = [
     path("tenants/<int:tenant_id>/", views.tenant_detail_view, name="platform-tenant-detail"),
     path("tenants/<int:tenant_id>/<str:action>/", views.tenant_status_view, name="platform-tenant-status"),
     path("announcement/", views.platform_announcement_view, name="platform-announcement"),
+    path("sorgula/", views.sorgula_view, name="platform-sorgula"),
+    path("sorgula/test/", views.sorgula_test_view, name="platform-sorgula-test"),
     path("invoices/", views.invoices_view, name="platform-invoices"),
     path("invoices/<int:invoice_id>/<str:action>/", views.invoice_status_view, name="platform-invoice-status"),
 ] + router.urls

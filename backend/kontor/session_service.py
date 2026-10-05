@@ -1,11 +1,15 @@
 """
 خدمة HTTP صغيرة تمسك جلسة ZNET واحدة (متصفّح خفيّ) وتُجيب عن الكشف والعروض.
 
-تعمل في حاوية مستقلّة (انظر deploy). تقرأ الإعداد من البيئة:
-  KONTOR_BASE_URL · KONTOR_USER · KONTOR_PASS · KONTOR_SECURITY_IMAGE · KONTOR_SESSION_PORT
+تعمل في حاوية مستقلّة (انظر deploy). الحساب يأتي مع كل طلب في ترويسات من Django
+(X-Kontor-Base/User/Pass/Image) — يضبطه مالك المنصّة من /sorgula فيُخزَّن في القاعدة.
+بلا ترويسات ⇐ متغيّرات البيئة القديمة: KONTOR_BASE_URL · KONTOR_USER · KONTOR_PASS ·
+KONTOR_SECURITY_IMAGE. تغيّر الحساب ⇐ تُغلق الجلسة القديمة ويُدخَل بالجديد.
+المنفذ داخليّ (expose لا ports) فلا يصل إليه أحد من خارج شبكة الحاويات.
 
 نقاط:
   GET /health                      ⇐ {"ok": true}
+  GET /login                       ⇐ {"ok": true} بعد التأكّد من الدخول (اختبار الحساب)
   GET /detect?gsm=NNNNNNNNNN       ⇐ {"html": "..."}
   GET /offers?gsm=NN&operator=XX   ⇐ {"html": "..."}   (operator بصيغة ZNET)
 
@@ -19,17 +23,27 @@ from urllib.parse import parse_qs, urlparse
 from kontor.session_playwright import KontorSession
 
 _session: KontorSession | None = None
+_key: tuple | None = None
 
 
-def _get_session() -> KontorSession:
-    global _session
-    if _session is None:
-        _session = KontorSession(
-            base_url=os.environ["KONTOR_BASE_URL"],
-            user=os.environ["KONTOR_USER"],
-            password=os.environ["KONTOR_PASS"],
-            security_image=os.environ.get("KONTOR_SECURITY_IMAGE", "D"),
-        )
+def _get_session(headers) -> KontorSession:
+    """الجلسة للحساب المطلوب — تُعاد كما هي ما دام الحساب نفسه، وتُبدَّل إن تغيّر."""
+    global _session, _key
+    base = headers.get("X-Kontor-Base") or os.environ.get("KONTOR_BASE_URL", "")
+    user = headers.get("X-Kontor-User") or os.environ.get("KONTOR_USER", "")
+    pwd = headers.get("X-Kontor-Pass") or os.environ.get("KONTOR_PASS", "")
+    img = headers.get("X-Kontor-Image") or os.environ.get("KONTOR_SECURITY_IMAGE", "D")
+    if not (base and user and pwd):
+        raise RuntimeError("حساب لوحة الكشف غير مضبوط — اضبطه من /sorgula في لوحة المنصّة")
+    key = (base, user, pwd, img)
+    if _session is None or key != _key:
+        if _session is not None:
+            try:
+                _session.close()
+            except Exception:  # noqa: BLE001
+                pass
+        _session = KontorSession(base_url=base, user=user, password=pwd, security_image=img)
+        _key = key
     return _session
 
 
@@ -48,17 +62,19 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if u.path == "/health":
                 return self._send(200, {"ok": True})
+            if u.path == "/login":
+                return self._send(200, {"ok": _get_session(self.headers).check()})
             if u.path == "/detect":
                 gsm = (q.get("gsm") or [""])[0]
                 if not gsm.isdigit():
                     return self._send(400, {"detail": "gsm غير صحيح"})
-                return self._send(200, {"html": _get_session().detect(gsm)})
+                return self._send(200, {"html": _get_session(self.headers).detect(gsm)})
             if u.path == "/offers":
                 gsm = (q.get("gsm") or [""])[0]
                 op = (q.get("operator") or [""])[0]
                 if not gsm.isdigit() or not op:
                     return self._send(400, {"detail": "gsm/operator مطلوب"})
-                return self._send(200, {"html": _get_session().offers(gsm, op)})
+                return self._send(200, {"html": _get_session(self.headers).offers(gsm, op)})
             return self._send(404, {"detail": "not found"})
         except Exception as e:  # noqa: BLE001 — نُعيد الخطأ لا نُسقط الخدمة
             return self._send(500, {"detail": str(e)})

@@ -49,6 +49,25 @@ def looks_like_offer(name: str) -> bool:
 OP_SUFFIX = {"Turkcell": "T", "Vodafone": "V", "Avea": "A", "Callback": "C"}
 
 
+def is_kontor_provider(provider) -> bool:
+    """مزوّد يصلح لشحن الخطوط: لوحة ZNET (نفس النظام) — ترسل tl_servis وتجيب tl_kontrol."""
+    return ((provider.config or {}).get("code") or "").lower() == "znet"
+
+
+def kontor_providers(tenant):
+    """مزوّدو الخطوط في المتجر (لوحات ZNET) — بالترتيب الذي تظهر به في «مزوّدو API»."""
+    from providers.models import Provider
+    return [p for p in Provider.objects.filter(tenant=tenant).order_by("sort_order", "id")
+            if is_kontor_provider(p)]
+
+
+def provider_creds(provider):
+    """(base_url, kod, sifre) لمزوّد — أو None إن نقص شيء منها."""
+    cfg = provider.config or {} if provider else {}
+    base, kod, sifre = cfg.get("base_url"), cfg.get("kod"), cfg.get("sifre")
+    return (base, kod, sifre) if (base and kod and sifre) else None
+
+
 def free_link_code(tenant, znet_id: str, operator: str, exclude_pk=None) -> str:
     """
     رقم ربط لباقة جديدة: رقم ZNET نفسه إن كان حرّاً في المتجر، وإلا مع لاحقة
@@ -109,25 +128,91 @@ def upsert_packages(tenant, rows, *, dry_run=False, provider=None) -> dict:
             tenant=tenant, operator=r["operator"], znet_id=r["znet_id"]).first()
         cost = _cost_in_base(tenant, r["cost"], provider)
         if obj:
-            obj.name = r["name"]
+            # الاسم يتبع ZNET ما لم يعدّله المالك (name == provider_name)
+            if not obj.provider_name or obj.name == obj.provider_name:
+                obj.name = r["name"]
+            obj.provider_name = r["name"]
             obj.provider_cost = r["cost"]
             obj.cost_price = cost
             if obj.category_id is None:
                 obj.category = cat
             if not obj.link_code:
                 obj.link_code = free_link_code(tenant, obj.znet_id, obj.operator, exclude_pk=obj.pk)
-            obj.save(update_fields=["name", "provider_cost", "cost_price", "category",
-                                    "link_code", "updated_at"])
+            if obj.provider_id is None and provider is not None:
+                obj.provider = provider
+            obj.save(update_fields=["name", "provider_name", "provider_cost", "cost_price", "category",
+                                    "link_code", "provider", "updated_at"])
+            _link(tenant, obj, provider, r["znet_id"], r["cost"])
             updated += 1
         else:
-            KontorPackage.objects.create(
+            new = KontorPackage.objects.create(
                 tenant=tenant, operator=r["operator"], category=cat,
-                znet_id=r["znet_id"], name=r["name"], provider_cost=r["cost"], cost_price=cost,
+                znet_id=r["znet_id"], name=r["name"], provider_name=r["name"],
+                provider_cost=r["cost"], cost_price=cost, provider=provider,
                 link_code=free_link_code(tenant, r["znet_id"], r["operator"]),
                 kind=KontorPackage.Kind.OFFER if looks_like_offer(r["name"]) else KontorPackage.Kind.GENERAL,
             )
+            _link(tenant, new, provider, r["znet_id"], r["cost"])
             created += 1
     return {"received": len(rows), "created": created, "updated": updated}
+
+
+def _link(tenant, package, provider, code, cost):
+    """يسجّل/يحدّث ربط الباقة بالمزوّد الذي استوردت منه: رقمها وكلفتها عنده."""
+    if provider is None:
+        return
+    from .models import KontorPackageLink
+    KontorPackageLink.objects.update_or_create(
+        package=package, provider=provider,
+        defaults={"tenant": tenant, "code": str(code), "cost": cost})
+
+
+_TR_FOLD = str.maketrans({"ı": "i", "ç": "c", "ğ": "g", "ö": "o", "ş": "s", "ü": "u"})
+
+
+def _norm_name(s: str) -> str:
+    """
+    اسم للمطابقة بين لوحتين: بلا رموز ولا مسافات، والحروف التركية مطويّة
+    (✅ Fırsat 30GB İndirimli ⇐ firsat30gbindirimli = FIRSAT 30GB INDIRIMLI).
+    """
+    import re
+    s = (s or "").replace("İ", "i").replace("I", "i").lower().translate(_TR_FOLD)
+    return re.sub(r"[^0-9a-z]", "", s)
+
+
+def auto_link(tenant, provider) -> dict:
+    """
+    يربط باقات المتجر بمزوّد ZNET آخر من قائمة باقاته: بالرقم أوّلاً (نفس الشركة
+    ونفس رقم ZNET)، وإلا بالاسم. لا يُنشئ باقات — يربط القائم فقط ويحدّث الكلفة
+    والرقم لدى هذا المزوّد. يعيد تقريراً بما رُبط وما بقي.
+    """
+    from .models import KontorPackageLink
+    creds = provider_creds(provider)
+    if not creds:
+        raise ValueError("إعداد المزوّد ناقص (base_url/kod/sifre)")
+    rows = parse_feed(fetch_feed(*creds))
+    if not rows:
+        raise ValueError("لا باقات في رد المزوّد — تحقّق من بيانات الدخول وتفعيل API وثبات الـ IP.")
+    by_id = {(r["operator"], r["znet_id"]): r for r in rows}
+    by_name: dict = {}
+    for r in rows:
+        by_name.setdefault((r["operator"], _norm_name(r["name"])), r)
+
+    report = {"by_id": 0, "by_name": 0, "unmatched": [], "received": len(rows)}
+    for p in KontorPackage.objects.filter(tenant=tenant):
+        r = by_id.get((p.operator, p.znet_id))
+        how = "by_id"
+        if r is None:
+            r = by_name.get((p.operator, _norm_name(p.provider_name or p.name)))
+            how = "by_name"
+        if r is None:
+            report["unmatched"].append(f"{p.link_code} · {p.name}")
+            continue
+        KontorPackageLink.objects.update_or_create(
+            package=p, provider=provider,
+            defaults={"tenant": tenant, "code": r["znet_id"], "cost": r["cost"]})
+        report[how] += 1
+    return report
 
 
 def fetch_feed(base_url: str, kod: str, sifre: str) -> str:

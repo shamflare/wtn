@@ -85,23 +85,29 @@ def package_update_view(request, pk):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def import_view(request):
-    """يستورد الباقات من ZNET مستعملاً بيانات مزوّد ZNET المحفوظة."""
+    """
+    يستورد الباقات من مزوّد خطوط (لوحة ZNET). {provider?} — افتراضاً أوّل مزوّد ZNET.
+    الباقات الجديدة تُوجَّه إليه وتُربط برقمها لديه.
+    """
     if not _require_admin(request):
         return Response({"detail": "مخصّص لصاحب المتجر"}, status=403)
+    from .services import kontor_providers, provider_creds
     tenant = request.user.tenant
-    prov = _znet_provider(tenant)
+    want = request.data.get("provider") if hasattr(request, "data") else None
+    provs = kontor_providers(tenant)
+    prov = next((p for p in provs if want and p.id == int(want)), None) if want else (provs[0] if provs else None)
     if not prov:
-        return Response({"detail": "لا مزوّد ZNET مُعدّ — أضِفه أولاً في المزوّدين."}, status=400)
-    cfg = prov.config or {}
-    base_url, kod, sifre = cfg.get("base_url"), cfg.get("kod"), cfg.get("sifre")
-    if not (base_url and kod and sifre):
+        return Response({"detail": "لا مزوّد خطوط (ZNET) مُعدّ — أضِفه أولاً في «مزوّدو API»."}, status=400)
+    creds = provider_creds(prov)
+    if not creds:
         return Response({"detail": "إعداد ZNET ناقص (base_url/kod/sifre)."}, status=400)
     try:
-        res = import_from_znet(tenant, base_url, kod, sifre, provider=prov)
+        res = import_from_znet(tenant, *creds, provider=prov)
     except requests.RequestException as e:
         return Response({"detail": f"تعذّر الاتصال بـ ZNET: {e}"}, status=502)
     except ValueError as e:
         return Response({"detail": str(e)}, status=400)
+    res["provider"] = prov.name
     return Response(res, status=status.HTTP_200_OK)
 
 

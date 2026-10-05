@@ -23,15 +23,54 @@ class SessionError(Exception):
     """تعذّر الوصول إلى خدمة الجلسة أو فشلها."""
 
 
+def _account_headers() -> dict:
+    """
+    حساب لوحة الكشف من إعداد المنصّة (/sorgula) — يُمرَّر إلى الخدمة في ترويسات.
+    غير مضبوط ⇐ لا ترويسات فتستعمل الخدمة متغيّرات البيئة القديمة. معطَّل ⇐ خطأ صريح.
+    """
+    from .models import KontorSessionConfig
+    cfg = KontorSessionConfig.objects.first()
+    if cfg is None or not cfg.configured:
+        return {}
+    if not cfg.enabled:
+        raise SessionError("كشف الشركة والعروض موقوف من إدارة المنصّة")
+    return {"X-Kontor-Base": cfg.base_url.rstrip("/"), "X-Kontor-User": cfg.username,
+            "X-Kontor-Pass": cfg.password, "X-Kontor-Image": (cfg.security_image or "D").strip()}
+
+
+def _record(ok: bool, error: str = ""):
+    """آخر نجاح/خطأ — يراه مالك المنصّة في /sorgula فيعرف حال الخدمة بنظرة."""
+    from django.utils import timezone
+
+    from .models import KontorSessionConfig
+    cfg = KontorSessionConfig.objects.first()
+    if cfg is None:
+        return
+    if ok:
+        KontorSessionConfig.objects.filter(pk=cfg.pk).update(last_ok_at=timezone.now(), last_error="")
+    else:
+        KontorSessionConfig.objects.filter(pk=cfg.pk).update(last_error=error[:300])
+
+
 def _get(path: str, params: dict) -> dict:
+    headers = _account_headers()
     try:
-        r = requests.get(f"{_base()}{path}", params=params, timeout=(5, 60))
+        r = requests.get(f"{_base()}{path}", params=params, headers=headers, timeout=(5, 90))
     except requests.RequestException as e:
+        _record(False, f"تعذّر الاتصال بخدمة الجلسة: {e}")
         raise SessionError(f"تعذّر الاتصال بخدمة الجلسة: {e}")
     if r.status_code != 200:
         detail = (r.json().get("detail") if r.headers.get("content-type", "").startswith("application/json") else r.text)
+        _record(False, detail or f"HTTP {r.status_code}")
         raise SessionError(detail or f"HTTP {r.status_code}")
+    if path != "/health":
+        _record(True)
     return r.json()
+
+
+def check_login() -> bool:
+    """اختبار حساب الكشف: تدخل الخدمة باللوحة وتتأكّد أن صفحة Kontor جاهزة."""
+    return bool(_get("/login", {}).get("ok"))
 
 
 def detect_operator(gsm: str) -> str | None:

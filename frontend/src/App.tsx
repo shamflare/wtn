@@ -20,6 +20,7 @@ import KontorPrices from "./pages/KontorPrices";
 import KontorDealers from "./pages/KontorDealers";
 import KontorOrders from "./pages/KontorOrders";
 import KontorCategories from "./pages/KontorCategories";
+import KontorRouting from "./pages/KontorRouting";
 import Orders from "./pages/Orders";
 import Pool from "./pages/Pool";
 import SiteSettings from "./pages/SiteSettings";
@@ -75,6 +76,8 @@ export default function App() {
           {/* لوحات مستقلة (بحسب الدور) */}
           <Route path="/platform" element={<Guard roles={["platform_owner"]} bare><Platform /></Guard>} />
           <Route path="/platform/:section" element={<Guard roles={["platform_owner"]} bare><Platform /></Guard>} />
+          {/* كشف الخطوط — حساب ZNET عامّ لكل المتاجر، برابطٍ قصير خاصّ به */}
+          <Route path="/sorgula" element={<Guard roles={["platform_owner"]} bare><Platform section="sorgula" /></Guard>} />
           {/* لوحة الوكيل الكبير — هيكل لوحة صاحب المتجر نفسه بأقسام ثلاثة */}
           <Route path="/bigagent" element={Agent(<AgentHome />)} />
           <Route path="/bigagent/dealers" element={Agent(<AgentDealers />)} />
@@ -99,6 +102,7 @@ export default function App() {
           {/* رصيد الموبايل (kontör) */}
           <Route path="/kontor" element={Admin(<Kontor />)} />
           <Route path="/kontor/categories" element={Admin(<KontorCategories />)} />
+          <Route path="/kontor/routing" element={Admin(<KontorRouting />)} />
           <Route path="/kontor/prices" element={Admin(<KontorPrices />)} />
           <Route path="/kontor/dealers" element={Admin(<KontorDealers />)} />
           <Route path="/kontor/orders" element={Admin(<KontorOrders />)} />

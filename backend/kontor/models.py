@@ -92,7 +92,10 @@ class KontorPackage(models.Model):
     # رقم الربط الذي يراه الوكيل ويرسله في الـ API — افتراضه رقم ZNET نفسه (فمن ربط
     # مع ZNET يبقى على أرقامه)، ويعدّله المالك. فريد في المتجر كله لا في الشركة وحدها.
     link_code = models.CharField(max_length=40, blank=True, default="", db_index=True)
-    name = models.CharField(max_length=160)
+    name = models.CharField(max_length=160)  # الاسم المعروض — يعدّله المالك كما يشاء
+    # اسم الباقة كما في ZNET — يتحدّث مع كل استيراد. حين يطابق name فالاسم لم يُعدَّل
+    # فيتبع ZNET؛ وحين يختلف فالمالك سمّاها بنفسه فلا يمسّه الاستيراد.
+    provider_name = models.CharField(max_length=160, blank=True, default="")
     details = models.CharField(max_length=300, blank=True, default="")  # 30 Gün, 1000 Dk…
 
     # لفلاتر «المدة/الإنترنت/الدقائق» — تُملأ لاحقاً من صفحات اللوحة (0 = غير معروف)
@@ -150,6 +153,62 @@ class KontorPackage(models.Model):
     @property
     def profit(self) -> Decimal:
         return self.recommended_price - self.cost_price
+
+
+class KontorPackageLink(models.Model):
+    """
+    ربط باقة بمزوّد: رقمها لديه وكلفتها عنده (بعملته) — كربط باقات الألعاب.
+
+    لكل مزوّد ZNET (لوحة) أرقامه؛ فالباقة نفسها قد تكون 732 هنا و1450 هناك.
+    التنفيذ يرسل إلى كل مزوّد في سلسلة الباقة رقمَها **لديه**، ولا يرسل إلى مزوّد
+    ليست مربوطة عنده — كي لا يُشحن رقمٌ بباقة غير المقصودة.
+    """
+
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="kontor_links")
+    package = models.ForeignKey(KontorPackage, on_delete=models.CASCADE, related_name="links")
+    provider = models.ForeignKey("providers.Provider", on_delete=models.CASCADE, related_name="kontor_links")
+    code = models.CharField(max_length=40)                    # رقم الباقة لدى هذا المزوّد (kontor=)
+    cost = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"))  # بعملة المزوّد
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "kontor_package_links"
+        constraints = [
+            models.UniqueConstraint(fields=["package", "provider"], name="uniq_kontor_package_link")
+        ]
+
+    def __str__(self):
+        return f"{self.package.name} @ {self.provider.name} = {self.code}"
+
+
+class KontorSessionConfig(models.Model):
+    """
+    حساب لوحة ZNET لكشف الشركة والعروض الخاصة — **على مستوى المنصّة** لا المتجر.
+
+    يضبطه مالك المنصّة من /sorgula مرّةً فيخدم كل المتاجر (كل نسخة مبيعة).
+    صفّ واحد (singleton). فارغٌ ⇐ تعود الخدمة إلى متغيّرات البيئة KONTOR_* كما كانت.
+    """
+
+    base_url = models.CharField(max_length=200, blank=True, default="")
+    username = models.CharField(max_length=120, blank=True, default="")
+    password = models.CharField(max_length=200, blank=True, default="")
+    security_image = models.CharField(max_length=20, blank=True, default="D")
+    enabled = models.BooleanField(default=True)
+    last_ok_at = models.DateTimeField(null=True, blank=True)
+    last_error = models.CharField(max_length=300, blank=True, default="")
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "kontor_session_config"
+
+    @classmethod
+    def get(cls):
+        obj = cls.objects.first()
+        return obj if obj else cls.objects.create()
+
+    @property
+    def configured(self) -> bool:
+        return bool(self.base_url and self.username and self.password)
 
 
 class KontorPriceGroup(models.Model):

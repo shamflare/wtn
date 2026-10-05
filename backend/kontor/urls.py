@@ -7,6 +7,7 @@ from .views import (
 from .views_store import (
     buy_view, detect_view, my_orders_view, store_offers_view, store_packages_view,
 )
+from .views_routing import auto_link_view, link_view, providers_view, routing_view
 from .views_pricing import (
     admin_orders_view, bulk_price_view, dealer_settings_view, price_group_delete_view,
     price_groups_view, price_matrix_view, set_price_view,
@@ -18,6 +19,11 @@ urlpatterns = [
     path("packages/bulk/", packages_bulk_view, name="kontor-packages-bulk"),
     path("packages/<int:pk>/", package_update_view, name="kontor-package-update"),
     path("import/", import_view, name="kontor-import"),
+    # المزوّدون والتوجيه (كالألعاب)
+    path("providers/", providers_view, name="kontor-providers"),
+    path("routing/", routing_view, name="kontor-routing"),
+    path("links/", link_view, name="kontor-links"),
+    path("auto-link/", auto_link_view, name="kontor-auto-link"),
     # المرحلة 2 — الأسعار وربط الوكلاء
     path("price-groups/", price_groups_view, name="kontor-price-groups"),
     path("price-groups/<int:pk>/", price_group_delete_view, name="kontor-price-group-delete"),

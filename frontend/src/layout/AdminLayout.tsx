@@ -52,6 +52,7 @@ const SUBNAV_KONTOR = [
   { label: "الباقات", to: "/kontor" },
   { label: "الفئات", to: "/kontor/categories" },
   { label: "مجموعات الأسعار", to: "/kontor/prices" },
+  { label: "التوجيه والمزوّدون", to: "/kontor/routing" },
   { label: "إعدادات الوكلاء", to: "/kontor/dealers" },
 ];
 // قسم الوكلاء — كل ما يخصّ الوكيل وماله

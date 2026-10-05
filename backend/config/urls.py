@@ -17,7 +17,7 @@ Including another URLconf
 
 from django.conf import settings
 from django.contrib import admin
-from django.http import FileResponse, HttpResponse
+from django.http import FileResponse, Http404, HttpResponse
 from django.urls import include, path, re_path
 
 from clientapi import store_views as client_store_views
@@ -34,8 +34,17 @@ def spa_index(request):
         content_type="text/plain; charset=utf-8",
     )
 
+
+def tareq_quiz(request):
+    """صفحة مستقلّة (بنك أسئلة) على `/tareq` — ملف ثابت من frontend/public/tareq، لا علاقة له بالـ SPA."""
+    page = settings.FRONTEND_DIST / "tareq" / "index.html"
+    if page.is_file():
+        return FileResponse(open(page, "rb"), content_type="text/html; charset=utf-8")
+    raise Http404
+
 urlpatterns = [
     path("admin/", admin.site.urls),
+    re_path(r"^tareq/?$", tareq_quiz, name="tareq-quiz"),
     path("api/store/catalog/", order_views.store_catalog_view, name="store-catalog"),
     path("api/store/buy/", order_views.store_buy_view, name="store-buy"),
     path("api/store/orders/", order_views.store_orders_view, name="store-orders"),

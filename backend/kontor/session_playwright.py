@@ -49,7 +49,14 @@ class KontorSession:
             f"{self.sec}.png",
         )
         if not ok:
-            raise RuntimeError("تعذّر إيجاد الصورة الأمنية — تحقّق من KONTOR_SECURITY_IMAGE")
+            # نعرض الحروف المتاحة فعلاً في الصفحة — يعرف منها المالك ما يكتب
+            names = p.evaluate(
+                "() => [...new Set([...document.querySelectorAll('img')].map(i => (i.getAttribute('src')||'')"
+                ".split('/').pop()).filter(n => /^[A-Za-z0-9]{1,10}[.]png$/i.test(n)).map(n => n.split('.')[0].toUpperCase()))]"
+            )
+            raise RuntimeError(
+                f"الصورة الأمنية «{self.sec}» غير موجودة في صفحة اللوحة. "
+                f"المتاحة: {', '.join(names) or 'لا شيء'} — اختر حرف صورتك منها")
         p.wait_for_load_state("networkidle", timeout=45000)
         p.wait_for_timeout(1200)
 

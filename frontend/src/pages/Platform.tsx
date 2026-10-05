@@ -605,6 +605,26 @@ function SorgulaTab() {
       )}
 
       <div style={{ background: "#131c31", border: "1px solid #1e293b", borderRadius: 12, padding: 18 }}>
+        <button type="button" onClick={() => set("enabled", !f.enabled)} style={{
+          width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderRadius: 10,
+          cursor: "pointer", textAlign: "start", font: "inherit",
+          border: `1px solid ${f.enabled ? "#166534" : "#991b1b"}`,
+          background: f.enabled ? "#052e1a" : "#2a0d0d", color: "#e2e8f0",
+        }}>
+          <span style={{
+            width: 46, height: 26, borderRadius: 999, padding: 3, flex: "none", display: "flex",
+            justifyContent: f.enabled ? "flex-end" : "flex-start", background: f.enabled ? "#22c55e" : "#64748b",
+          }}><span style={{ width: 20, height: 20, borderRadius: "50%", background: "#fff" }} /></span>
+          <span>
+            <b style={{ color: f.enabled ? "#4ade80" : "#f87171" }}>
+              {f.enabled ? "الكشف مفعّل لكل المتاجر" : "الكشف موقوف — لا كشف ولا عروض في أيّ متجر"}
+            </b>
+            <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 2 }}>
+              اضغط للتبديل ثم «حفظ». الإيقاف للطوارئ فقط (مثل تغيير الحساب) — زرّ الاختبار يعمل في الحالتين.
+            </div>
+          </span>
+        </button>
+
         <div style={lbl}>رابط اللوحة</div>
         <input dir="ltr" value={f.base_url} onChange={(e) => set("base_url", e.target.value)} style={darkInp}
           placeholder="https://bayi.example.com" />
@@ -619,16 +639,16 @@ function SorgulaTab() {
               autoComplete="new-password" placeholder={cfg?.has_password ? "••••••••" : ""} />
           </div>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, alignItems: "end" }}>
-          <div>
-            <div style={lbl}>الصورة الأمنية (اسم ملفها: حرف مثل D)</div>
-            <input dir="ltr" value={f.security_image} onChange={(e) => set("security_image", e.target.value.toUpperCase())}
-              style={{ ...darkInp, width: 120, textAlign: "center", fontWeight: 800 }} maxLength={20} />
+        <div style={lbl}>حرف الصورة الأمنية</div>
+        <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
+          <input dir="ltr" value={f.security_image} maxLength={10}
+            onChange={(e) => set("security_image", e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))}
+            style={{ ...darkInp, width: 90, textAlign: "center", fontWeight: 800, fontSize: 18, flex: "none" }} />
+          <div style={{ fontSize: 12.5, color: "#94a3b8", lineHeight: 1.8 }}>
+            بعد كلمة المرور تعرض لوحة ZNET عدّة صور وتطلب الضغط على الصورة التي اخترتها عند إعداد الحساب.
+            كل صورة ملفٌّ اسمه حرف (A.png · B.png · D.png…) — اكتب هنا <b style={{ color: "#e2e8f0" }}>حرف صورتك</b> فقط
+            ليضغطها النظام بدلاً منك. لا تعرفه؟ اضغط «اختبر الآن» وسيعرض لك الحروف المتاحة في اللوحة.
           </div>
-          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, cursor: "pointer", height: 40 }}>
-            <input type="checkbox" checked={f.enabled} onChange={(e) => set("enabled", e.target.checked)} />
-            الكشف مفعّل لكل المتاجر
-          </label>
         </div>
         <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 18 }}>
           <button style={addBtn} onClick={save} disabled={busy !== ""}>{busy === "save" ? "جارٍ الحفظ..." : "حفظ"}</button>

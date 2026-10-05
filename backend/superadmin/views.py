@@ -578,7 +578,11 @@ def sorgula_view(request):
         cfg.username = (d.get("username") or "").strip()
         if (d.get("password") or "").strip():
             cfg.password = d["password"].strip()
-        cfg.security_image = ((d.get("security_image") or "D").strip().upper())[:20]
+        img = (d.get("security_image") or "D").strip().upper()
+        if not re.fullmatch(r"[A-Z0-9]{1,10}", img):
+            return Response({"detail": "الصورة الأمنية: حرف واحد أو أكثر بلا رموز (مثل D) — اسم ملف صورتك في اللوحة"},
+                            status=400)
+        cfg.security_image = img
         cfg.enabled = bool(d.get("enabled", True))
         cfg.last_error = ""
         cfg.save()
@@ -610,15 +614,19 @@ def sorgula_test_view(request):
             steps.append({"ok": False, "step": "رقم التجربة", "detail": "10 خانات تبدأ بـ5"})
         else:
             try:
-                op = session_client.detect_operator(gsm)
+                op = session_client.detect_operator(gsm, ignore_switch=True)
                 steps.append({"ok": bool(op), "step": "كشف الشركة",
                               "detail": op or "لم تُعرف الشركة"})
                 if op:
-                    offers = session_client.fetch_offers(gsm, op)
+                    offers = session_client.fetch_offers(gsm, op, ignore_switch=True)
                     pink = sum(1 for o in offers if o.get("is_offer"))
                     steps.append({"ok": bool(offers), "step": "جلب العروض",
                                   "detail": f"{len(offers)} باقة · منها {pink} عرض خاص"})
             except session_client.SessionError as e:
                 steps.append({"ok": False, "step": "الاستعلام", "detail": str(e)})
+    cfg = KontorSessionConfig.get()
+    if not cfg.enabled:
+        steps.append({"ok": False, "step": "التفعيل للمتاجر",
+                      "detail": "الحساب سليم لكن الكشف موقوف — فعّله واحفظ ليعمل في المتاجر"})
     ok = all(s["ok"] for s in steps)
-    return Response({"ok": ok, "steps": steps, "config": _sorgula_row(KontorSessionConfig.get())})
+    return Response({"ok": ok, "steps": steps, "config": _sorgula_row(cfg)})

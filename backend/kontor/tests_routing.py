@@ -188,6 +188,24 @@ class SorgulaTest(APITestCase):
                         format="json")
         self.assertEqual(KontorSessionConfig.get().password, "secret")
 
+    def test_bad_image_letter_rejected(self):
+        self.client.force_authenticate(self.owner)
+        r = self.client.put("/api/platform/sorgula/", {"base_url": "https://p", "username": "u",
+                                                       "security_image": "D=D"}, format="json")
+        self.assertEqual(r.status_code, 400)
+
+    def test_live_test_ignores_switch_but_reports_it(self):
+        self.client.force_authenticate(self.owner)
+        cfg = KontorSessionConfig.get()
+        cfg.base_url, cfg.username, cfg.password, cfg.enabled = "https://p", "u", "pw", False
+        cfg.save()
+        with mock.patch("kontor.session_client.requests.get",
+                        return_value=mock.Mock(status_code=200, json=lambda: {"ok": True})):
+            r = self.client.post("/api/platform/sorgula/test/", {}, format="json").json()
+        self.assertTrue(r["steps"][0]["ok"])                # الدخول جُرِّب رغم الإيقاف
+        self.assertEqual(r["steps"][-1]["step"], "التفعيل للمتاجر")
+        self.assertFalse(r["ok"])
+
     def test_store_admin_forbidden(self):
         t = Tenant.objects.create(subdomain="z", name="z")
         admin = User.objects.create(login_id="a", name="a", tenant=t, role=User.Role.TENANT_ADMIN)

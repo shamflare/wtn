@@ -759,6 +759,8 @@ function PackagesTab() {
 function OrdersTab() {
   const cur = useCur();
   const games = useContext(GamesCtx);
+  const { user } = useAuth();
+  const storeName = user?.tenant?.name || "";
   const [rows, setRows] = useState<any[] | null>(null);
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [total, setTotal] = useState("0");
@@ -908,6 +910,10 @@ function OrdersTab() {
                     {o.status_label}
                   </span>
                   <span className="ag-when">{o.created_at}</span>
+                  <button className="ag-print" title="طباعة إيصال" aria-label="طباعة إيصال"
+                    onClick={(e) => { e.stopPropagation(); printReceipt(o, storeName, cur); }}>
+                    <Icon name="print" size={16} />
+                  </button>
                 </div>
               </article>
             );
@@ -917,6 +923,62 @@ function OrdersTab() {
       {details && <OrderDetails order={details} img={imgOf.get(details.game_name)} onClose={() => setDetails(null)} />}
     </div>
   );
+}
+
+/**
+ * إيصال طلبٍ للزبون — بعرض الطابعة الحرارية (80مم) ويصلح لـA4. يُطبع من إطار مخفيّ
+ * فلا تُغادَر الصفحة. فيه ما يخصّ الزبون وحده: لا كلفة الوكيل ولا ربحه.
+ */
+function printReceipt(o: any, storeName: string, cur: string) {
+  const esc = (v: unknown) => String(v ?? "").replace(/[&<>"]/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));
+  const mobile = o.kind === "mobile";
+  const [date, time] = String(o.created_at || "").split(" ");
+  const pkg = o.quantity > 1 ? `${o.product_name} × ${o.quantity}` : o.product_name;
+  const color = o.status === "success" ? "#1a7f37" : o.status === "cancelled" ? "#c62828" : "#9a6700";
+  const rows: [string, string][] = [
+    ["رقم الطلب", `#${o.receipt_no}`],
+    [mobile ? "الشركة" : "المنتج", o.game_name],
+    ["الباقة", pkg],
+    ...(mobile ? [] : [["الأيدي", o.player_id || "—"] as [string, string]]),
+    ["رقم الجوال", mobile ? gsmView(o.player_id) : (o.customer_phone || "—")],
+    ["السعر", `${money(o.dealer_sell_price)} ${symbolOf(cur)}`],
+    ["التاريخ", date || "—"],
+    ["الوقت", time || "—"],
+  ];
+  const html = `<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>إيصال #${esc(o.receipt_no)}</title>
+<style>
+  @page { margin: 6mm; }
+  * { box-sizing: border-box; }
+  body { font-family: Tahoma, "Segoe UI", Arial, sans-serif; margin: 0; color: #111; }
+  .r { width: 72mm; margin: 0 auto; padding: 4mm 0; }
+  h1 { font-size: 17px; text-align: center; margin: 0 0 2mm; }
+  .sub { text-align: center; font-size: 11px; color: #555; margin-bottom: 3mm; }
+  .st { text-align: center; font-weight: 700; font-size: 15px; border: 2px solid ${color}; color: ${color};
+        border-radius: 6px; padding: 1.5mm; margin: 0 0 3mm; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  td { padding: 1.6mm 0; border-bottom: 1px dashed #bbb; vertical-align: top; }
+  td:first-child { color: #555; white-space: nowrap; padding-inline-end: 3mm; }
+  td:last-child { font-weight: 700; text-align: left; direction: ltr; unicode-bidi: plaintext; word-break: break-word; }
+  .end { text-align: center; font-size: 11px; color: #666; margin-top: 4mm; }
+</style></head><body><div class="r">
+  ${storeName ? `<h1>${esc(storeName)}</h1>` : ""}
+  <div class="sub">إيصال طلب</div>
+  <div class="st">${esc(o.status_label)}</div>
+  <table>${rows.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join("")}</table>
+  <div class="end">شكراً لتعاملكم معنا</div>
+</div></body></html>`;
+
+  const frame = document.createElement("iframe");
+  frame.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;";
+  document.body.appendChild(frame);
+  const doc = frame.contentWindow!.document;
+  doc.open(); doc.write(html); doc.close();
+  setTimeout(() => {
+    frame.contentWindow!.focus();
+    frame.contentWindow!.print();
+    setTimeout(() => frame.remove(), 1000);
+  }, 150);
 }
 
 /* تفاصيل الطلب للوكيل — بياناته هو فقط: زبونه وأسعاره وحالة طلبه. */

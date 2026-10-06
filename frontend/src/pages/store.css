@@ -503,6 +503,11 @@ button.ag-stat:active { transform: scale(.98); }
 }
 .ag-status .stspin { width: 12px !important; height: 12px !important; border-width: 2px; }
 .ag-when { margin-inline-start: auto; font-size: 11.5px; color: var(--faint); font-variant-numeric: tabular-nums; direction: ltr; }
+.ag-print {
+  width: 32px; height: 28px; display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--muted); cursor: pointer;
+}
+.ag-print:hover { color: var(--primary); border-color: var(--primary); }
 
 .ag-pin {
   display: flex; align-items: center; gap: 10px; margin-top: 10px;

@@ -135,6 +135,39 @@ export function LedgerNote({ ledger }: { ledger: ReturnType<typeof useLedger> })
   );
 }
 
+/** أنواع الشحن (Tür في ZNET) — يُرسَل النوع مع كل شحنة، وعليه تقوم الفئة. */
+export const LINE_TYPES = [
+  { k: "Ses", l: "Ses — باقات" }, { k: "Tam", l: "Tam — رصيد ليرة" }, { k: "3gCep", l: "3gCep — إنترنت" },
+  { k: "3gPc", l: "Wifi — إنترنت PC" }, { k: "Sms", l: "Sms — رسائل" }, { k: "Yds", l: "Yds — دولي" },
+  { k: "BimCell", l: "BiP (BimCell)" }, { k: "Mtn", l: "MTN سوري" }, { k: "Syriatel", l: "Syriatel سوري" },
+];
+
+/** فئة كما يعيدها الخادم (/kontor/categories/). */
+export interface KCategory {
+  id: number; operator: string; operator_label: string;
+  line_type: string; line_type_label: string;
+  name: string; logo_url: string; is_query: boolean;
+  status: "active" | "passive"; sort_order: number; is_custom: boolean; package_count: number;
+}
+
+/** حقلا الفئة الجديدة: اسمها ونوع الشحن الذي يُرسَل إلى ZNET لباقاتها. */
+export function NewCategoryFields({ name, lineType, onName, onLineType }: {
+  name: string; lineType: string; onName: (v: string) => void; onLineType: (v: string) => void;
+}) {
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+      <Field label="اسم الفئة الجديدة" hint="الاسم الذي يراه الوكيل على الكرة">
+        <input autoFocus value={name} onChange={(e) => onName(e.target.value)} style={input} placeholder="مثال: باقات الطلاب" />
+      </Field>
+      <Field label="نوع الشحن" hint="يُرسَل إلى المزوّد مع كل شحنة من باقاتها">
+        <select value={lineType} onChange={(e) => onLineType(e.target.value)} style={input}>
+          {LINE_TYPES.map((t) => <option key={t.k} value={t.k}>{t.l}</option>)}
+        </select>
+      </Field>
+    </div>
+  );
+}
+
 /**
  * نافذة «من أيّ مزوّد ZNET؟»: تعرض مزوّدي الخطوط في «مزوّدو API» ليختار المالك أحدهم،
  * ثم تشغّل `run(id)` وتعرض ما يعيده (تقرير النتيجة) داخلها.

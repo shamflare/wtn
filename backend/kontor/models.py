@@ -53,6 +53,9 @@ class KontorCategory(models.Model):
     is_query = models.BooleanField(default=True)            # Sorgu — تُستعلَم ضمن العروض
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.ACTIVE)
     sort_order = models.PositiveIntegerField(default=0)
+    # أضافها المالك بنفسه — قد تتكرّر مع فئة ZNET في النوع (line_type = Tür الذي
+    # يُرسَل عند الشحن)، فالتفرّد للفئات المستوردة وحدها.
+    is_custom = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -61,6 +64,7 @@ class KontorCategory(models.Model):
         constraints = [
             models.UniqueConstraint(
                 fields=["tenant", "operator", "line_type"],
+                condition=models.Q(is_custom=False),
                 name="uniq_kontor_category",
             )
         ]

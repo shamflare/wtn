@@ -129,7 +129,7 @@ def upsert_packages(tenant, rows, *, dry_run=False, provider=None, only_new=Fals
         cat = cats.get(key)
         if cat is None:
             cat, _ = KontorCategory.objects.get_or_create(
-                tenant=tenant, operator=r["operator"], line_type=r["line_type"],
+                tenant=tenant, operator=r["operator"], line_type=r["line_type"], is_custom=False,
                 defaults={"name": SHORT_NAME.get(r["line_type"], r["line_type"])},
             )
             cats[key] = cat

@@ -26,10 +26,13 @@ def _znet_provider(tenant):
     return None
 
 
-@api_view(["GET", "PATCH"])
+@api_view(["GET", "POST", "PATCH", "DELETE"])
 @permission_classes([IsAuthenticated])
 def categories_view(request):
-    """GET: كل الفئات. PATCH: تحديث مجموعة (الاسم/الحالة/الاستعلام/الترتيب/الشعار)."""
+    """
+    GET: كل الفئات. PATCH: تحديث مجموعة (الاسم/الحالة/الاستعلام/الترتيب/الشعار).
+    POST {operator, name, line_type}: فئة يضيفها المالك. DELETE {id}: حذف فئة فارغة.
+    """
     if not _require_admin(request):
         return Response({"detail": "مخصّص لصاحب المتجر"}, status=403)
     tenant = request.user.tenant
@@ -37,6 +40,34 @@ def categories_view(request):
     if request.method == "GET":
         qs = KontorCategory.objects.filter(tenant=tenant)
         return Response(KontorCategorySerializer(qs, many=True).data)
+
+    if request.method == "POST":
+        from django.db.models import Max
+
+        from .models import LineType, Operator
+        op, lt = request.data.get("operator"), request.data.get("line_type")
+        name = (request.data.get("name") or "").strip()[:120]
+        if op not in Operator.values or lt not in LineType.values:
+            return Response({"detail": "اختر الشركة ونوع الشحن"}, status=400)
+        if not name:
+            return Response({"detail": "اسم الفئة مطلوب"}, status=400)
+        if KontorCategory.objects.filter(tenant=tenant, operator=op, name__iexact=name).exists():
+            return Response({"detail": f"لدى هذه الشركة فئة باسم «{name}» أصلاً"}, status=400)
+        top = KontorCategory.objects.filter(tenant=tenant, operator=op).aggregate(m=Max("sort_order"))["m"] or 0
+        logo = (KontorCategory.objects.filter(tenant=tenant, operator=op).exclude(logo_url="")
+                .values_list("logo_url", flat=True).first() or "")
+        cat = KontorCategory.objects.create(tenant=tenant, operator=op, line_type=lt, name=name,
+                                            is_custom=True, sort_order=top + 10, logo_url=logo)
+        return Response(KontorCategorySerializer(cat).data, status=status.HTTP_201_CREATED)
+
+    if request.method == "DELETE":
+        cat = KontorCategory.objects.filter(pk=request.data.get("id"), tenant=tenant).first()
+        if not cat:
+            return Response({"detail": "غير موجودة"}, status=404)
+        if cat.packages.exists():
+            return Response({"detail": "في الفئة باقات — انقلها أو احذفها أولاً"}, status=400)
+        cat.delete()
+        return Response({"deleted": True})
 
     # PATCH: قائمة {id, ...حقول قابلة للتعديل}
     rows = request.data if isinstance(request.data, list) else [request.data]
@@ -197,7 +228,12 @@ def _create_manual(request):
     d = request.data
     op, lt = d.get("operator"), d.get("line_type")
     name = (d.get("name") or "").strip()
-    if op not in Operator.values or lt not in LineType.values:
+    cat = None
+    if d.get("category"):
+        cat = KontorCategory.objects.filter(pk=d.get("category"), tenant=tenant, operator=op).first()
+        if not cat:
+            return Response({"detail": "الفئة لا تتبع هذه الشركة"}, status=400)
+    elif op not in Operator.values or lt not in LineType.values:
         return Response({"detail": "اختر الشركة والفئة"}, status=400)
     if not name:
         return Response({"detail": "اسم الباقة مطلوب"}, status=400)
@@ -209,8 +245,10 @@ def _create_manual(request):
     if cost < 0 or rec < 0:
         return Response({"detail": "الأسعار لا تكون سالبة"}, status=400)
 
-    cat, _ = KontorCategory.objects.get_or_create(
-        tenant=tenant, operator=op, line_type=lt, defaults={"name": SHORT_NAME.get(lt, lt)})
+    if cat is None:
+        cat, _ = KontorCategory.objects.get_or_create(
+            tenant=tenant, operator=op, line_type=lt, is_custom=False,
+            defaults={"name": SHORT_NAME.get(lt, lt)})
     n = 1
     while KontorPackage.objects.filter(tenant=tenant, operator=op, znet_id=f"M{n}").exists():
         n += 1

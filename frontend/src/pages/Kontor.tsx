@@ -5,7 +5,7 @@ import ScrollTop from "../components/ScrollTop";
 import { matches } from "../search";
 import {
   empty, Field, groupHead, ib, input, LedgerNote, Modal, money, note, OperatorTabs, OPERATORS, pageTitle,
-  pageWrap, preview, ProviderPickModal, Switch, Toast, errText, useLedger,
+  pageWrap, preview, ProviderPickModal, Switch, Toast, errText, useLedger, NewCategoryFields, type KCategory,
 } from "./kontorUi";
 
 /* باقة خطّ كما يعرضها الخادم */
@@ -19,13 +19,6 @@ interface Pkg {
   status: "active" | "passive" | "sale_paused"; status_label: string;
   sort_order: number; is_manual: boolean;
 }
-
-/* الفئات (Tür في ZNET) لنافذة «إضافة باقة» — بأسمائها القصيرة كما تظهر للوكيل */
-const LINE_TYPES = [
-  { k: "Ses", l: "Ses — باقات" }, { k: "Tam", l: "Tam — رصيد ليرة" }, { k: "3gCep", l: "3gCep — إنترنت" },
-  { k: "3gPc", l: "Wifi — إنترنت PC" }, { k: "Sms", l: "Sms — رسائل" }, { k: "Yds", l: "Yds — دولي" },
-  { k: "BimCell", l: "BiP (BimCell)" }, { k: "Mtn", l: "MTN سوري" }, { k: "Syriatel", l: "Syriatel سوري" },
-];
 
 // المعطّلة لا تظهر هنا — لها عرضها الخاص بزر «إظهار المعطّلة»
 const STATUS = [
@@ -515,18 +508,39 @@ function PackageModal({ pkg, onClose, onSaved }: { pkg: Pkg; onClose: () => void
 function AddPackageModal({ op, onClose, onSaved }: { op: string; onClose: () => void; onSaved: (p: Pkg) => void }) {
   const ledger = useLedger();
   const [f, setF] = useState({
-    operator: op, line_type: "Ses", name: "", details: "", cost: "", recommended_price: "",
-    link_code: "", kind: "general",
+    operator: op, name: "", details: "", cost: "", recommended_price: "", link_code: "", kind: "general",
   });
+  const [cats, setCats] = useState<KCategory[]>([]);
+  const [cat, setCat] = useState<number | "new" | "">("");
+  const [newCat, setNewCat] = useState({ name: "", line_type: "Ses" });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const set = (k: keyof typeof f, v: string) => setF((o) => ({ ...o, [k]: v }));
-  const ok = f.name.trim() && f.cost !== "";
+
+  useEffect(() => { api.get("/kontor/categories/").then((r) => setCats(r.data)).catch(() => {}); }, []);
+  // فئات الشركة المختارة وحدها — وتتبدّل معها
+  const opCats = useMemo(
+    () => cats.filter((c) => c.operator === f.operator).sort((a, b) => a.sort_order - b.sort_order || a.id - b.id),
+    [cats, f.operator]);
+  useEffect(() => {
+    setCat((cur) => (typeof cur === "number" && opCats.some((c) => c.id === cur) ? cur : (opCats[0]?.id ?? "new")));
+  }, [opCats]);
+
+  const ok = f.name.trim() && f.cost !== "" && (cat === "new" ? newCat.name.trim() : cat !== "");
 
   async function save() {
     setBusy(true); setErr("");
     try {
-      const r = await api.post("/kontor/packages/", { ...f, name: f.name.trim(), link_code: f.link_code.trim() });
+      let category = cat;
+      if (cat === "new") {
+        const c = await api.post("/kontor/categories/", { operator: f.operator, name: newCat.name.trim(), line_type: newCat.line_type });
+        // تُحفظ مختارةً فلا تُنشأ مرّتين إن فشلت الباقة وأُعيدت المحاولة
+        category = c.data.id;
+        setCat(c.data.id); setCats((l) => [...l, c.data]);
+      }
+      const r = await api.post("/kontor/packages/", {
+        ...f, category, name: f.name.trim(), link_code: f.link_code.trim(),
+      });
       onSaved(r.data);
     } catch (e: any) {
       setErr(e?.response?.data?.detail || "تعذّر الإضافة — تحقّق من القيم");
@@ -546,11 +560,19 @@ function AddPackageModal({ op, onClose, onSaved }: { op: string; onClose: () => 
           </select>
         </Field>
         <Field label="الفئة">
-          <select value={f.line_type} onChange={(e) => set("line_type", e.target.value)} style={input}>
-            {LINE_TYPES.map((t) => <option key={t.k} value={t.k}>{t.l}</option>)}
+          <select value={cat} onChange={(e) => setCat(e.target.value === "new" ? "new" : Number(e.target.value))} style={input}>
+            {opCats.map((c) => <option key={c.id} value={c.id}>{c.name}{c.status !== "active" ? " (مخفيّة)" : ""}</option>)}
+            <option value="new">➕ فئة جديدة…</option>
           </select>
         </Field>
       </div>
+      {cat === "new" && (
+        <div style={{ ...preview, marginBottom: 14, paddingBottom: 0 }}>
+          <NewCategoryFields name={newCat.name} lineType={newCat.line_type}
+            onName={(v) => setNewCat((o) => ({ ...o, name: v }))}
+            onLineType={(v) => setNewCat((o) => ({ ...o, line_type: v }))} />
+        </div>
+      )}
       <Field label="اسم الباقة">
         <input autoFocus value={f.name} onChange={(e) => set("name", e.target.value)} style={input} placeholder="مثال: 20GB شهري" />
       </Field>

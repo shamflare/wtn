@@ -168,3 +168,37 @@ class ManualPackageTest(Base):
         self.assertIsNone(_code_for(p, self.a))
         KontorPackageLink.objects.create(tenant=self.tenant, package=p, provider=self.a, code="555")
         self.assertEqual(_code_for(p, self.a), "555")
+
+
+class CustomCategoryTest(Base):
+    def test_add_category_then_package_in_it(self):
+        from .models import KontorCategory
+        r = self.client.post("/api/kontor/categories/", {
+            "operator": "Turkcell", "name": "باقات الطلاب", "line_type": "Ses"}, format="json")
+        self.assertEqual(r.status_code, 201, r.content)
+        cat = KontorCategory.objects.get(pk=r.json()["id"])
+        self.assertTrue(cat.is_custom)
+        # الاسم مكرّر في الشركة نفسها ⇐ مرفوض
+        r = self.client.post("/api/kontor/categories/", {
+            "operator": "Turkcell", "name": "باقات الطلاب", "line_type": "Ses"}, format="json")
+        self.assertEqual(r.status_code, 400)
+
+        r = self.client.post("/api/kontor/packages/", {
+            "operator": "Turkcell", "category": cat.id, "name": "طالب 10GB", "cost": "50"}, format="json")
+        self.assertEqual(r.status_code, 201, r.content)
+        self.assertEqual(r.json()["category"], cat.id)
+        # فئة شركة أخرى ⇐ مرفوض
+        r = self.client.post("/api/kontor/packages/", {
+            "operator": "Vodafone", "category": cat.id, "name": "x", "cost": "1"}, format="json")
+        self.assertEqual(r.status_code, 400)
+        # الاستيراد لا يتعثّر بالفئة المخصّصة ذات النوع نفسه
+        upsert_packages(self.tenant, parse_feed("Turkcell|Ses|777|10.00|Yeni|^"), provider=self.a)
+        self.assertFalse(KontorPackage.objects.get(znet_id="777").category.is_custom)
+
+    def test_delete_only_empty(self):
+        from .models import KontorCategory
+        full = KontorCategory.objects.filter(tenant=self.tenant).first()
+        self.assertEqual(self.client.delete("/api/kontor/categories/", {"id": full.id}, format="json").status_code, 400)
+        r = self.client.post("/api/kontor/categories/", {
+            "operator": "Avea", "name": "فارغة", "line_type": "Tam"}, format="json")
+        self.assertEqual(self.client.delete("/api/kontor/categories/", {"id": r.json()["id"]}, format="json").status_code, 200)

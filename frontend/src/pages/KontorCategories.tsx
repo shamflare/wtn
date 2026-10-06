@@ -3,20 +3,19 @@ import { api } from "../api";
 import Icon from "../components/Icon";
 import ImageUpload from "../components/ImageUpload";
 import ScrollTop from "../components/ScrollTop";
-import { empty, input, note, OpBadge, OPERATORS, pageTitle, pageWrap, Switch, Toast } from "./kontorUi";
+import {
+  empty, errText, Field, ib, input, Modal, NewCategoryFields, note, OpBadge, OPERATORS, pageTitle, pageWrap,
+  Switch, Toast, type KCategory,
+} from "./kontorUi";
 
 /** فئة = شركة + نوع — هي «الكرة» التي يراها الوكيل بعد كشف شركة الرقم. */
-interface Category {
-  id: number; operator: string; operator_label: string;
-  line_type: string; line_type_label: string;
-  name: string; logo_url: string; is_query: boolean;
-  status: "active" | "passive"; sort_order: number; package_count: number;
-}
+type Category = KCategory;
 
 export default function KontorCategories() {
   const [cats, setCats] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState("");
+  const [adding, setAdding] = useState(false);
 
   useEffect(() => {
     api.get("/kontor/categories/").then((r) => setCats(r.data)).catch(() => {}).finally(() => setLoading(false));
@@ -52,6 +51,15 @@ export default function KontorCategories() {
       .then(() => say("✅ حُفظ الترتيب")).catch(() => say("تعذّر الحفظ"));
   }
 
+  async function remove(c: Category) {
+    if (!confirm(`حذف فئة «${c.name}»؟`)) return;
+    try {
+      await api.delete("/kontor/categories/", { data: { id: c.id } });
+      setCats((l) => l.filter((x) => x.id !== c.id));
+      say("🗑 حُذفت الفئة");
+    } catch (e: any) { say(e?.response?.data?.detail || "تعذّر الحذف"); }
+  }
+
   const byOp = useMemo(() => OPERATORS.map((o) => ({
     op: o, list: cats.filter((c) => c.operator === o.code).sort(bySort),
   })).filter((g) => g.list.length), [cats]);
@@ -59,7 +67,12 @@ export default function KontorCategories() {
   return (
     <div style={pageWrap}>
       <ScrollTop />
-      <h2 style={pageTitle}><Icon name="grid" size={20} /> فئات الخطوط</h2>
+      <h2 style={pageTitle}>
+        <Icon name="grid" size={20} /> فئات الخطوط
+        <button className="btn g" style={{ marginInlineStart: "auto", fontSize: 13.5 }} onClick={() => setAdding(true)}>
+          <Icon name="plus" size={15} style={ib} />إضافة فئة
+        </button>
+      </h2>
       <div style={note}>
         كل فئة مربّعٌ بلون الشركة يراه الوكيل بعد كشف الرقم. الأسماء قصيرة كما في ZNET (Ses · Tam · 3gCep · Wifi · Yds)
         لأن <b>شعار الشركة</b> يدلّ عليها — ارفعه مرّة واحدة بجانب اسم الشركة فيظهر على كل فئاتها.
@@ -91,12 +104,17 @@ export default function KontorCategories() {
                         onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()} />
                       <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 4 }}>
                         {c.line_type_label} · {c.package_count} باقة
+                        {c.is_custom && <span style={customTag}>مضافة</span>}
                       </div>
                     </div>
                   </div>
                   <div style={tileFoot}>
                     <label style={sw}><Switch on={c.status === "active"} onChange={(v) => save(c.id, { status: v ? "active" : "passive" })} /> ظاهرة</label>
                     <span style={{ marginInlineStart: "auto", display: "inline-flex", gap: 4 }}>
+                      {c.package_count === 0 && (
+                        <button className="btn r" style={arrow} onClick={() => remove(c)} title="حذف الفئة (فارغة)">
+                          <Icon name="trash" size={12} /></button>
+                      )}
                       <button className="btn" style={arrow} disabled={i === 0} onClick={() => move(c, -1)} title="أعلى">▲</button>
                       <button className="btn" style={arrow} disabled={i === list.length - 1} onClick={() => move(c, 1)} title="أسفل">▼</button>
                     </span>
@@ -106,10 +124,53 @@ export default function KontorCategories() {
             </div>
           </div>
         ))}
+      {adding && (
+        <AddCategoryModal onClose={() => setAdding(false)}
+          onSaved={(c) => { setCats((l) => [...l, c]); setAdding(false); say(`✅ أُضيفت فئة «${c.name}»`); }} />
+      )}
       <Toast text={toast} />
     </div>
   );
 }
+
+function AddCategoryModal({ onClose, onSaved }: { onClose: () => void; onSaved: (c: Category) => void }) {
+  const [op, setOp] = useState<string>(OPERATORS[0].code);
+  const [name, setName] = useState("");
+  const [lineType, setLineType] = useState("Ses");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  async function save() {
+    setBusy(true); setErr("");
+    try {
+      const r = await api.post("/kontor/categories/", { operator: op, name: name.trim(), line_type: lineType });
+      onSaved(r.data);
+    } catch (e: any) { setErr(e?.response?.data?.detail || "تعذّرت الإضافة"); }
+    finally { setBusy(false); }
+  }
+  return (
+    <Modal title="إضافة فئة" onClose={onClose} width={500} footer={<>
+      {err && <span style={errText}>{err}</span>}
+      <button className="btn" style={{ marginInlineStart: "auto" }} onClick={onClose}>إلغاء</button>
+      <button className="btn g" disabled={busy || !name.trim()} onClick={save}>{busy ? "جارٍ الإضافة..." : "إضافة"}</button>
+    </>}>
+      <Field label="الشركة">
+        <select value={op} onChange={(e) => setOp(e.target.value)} style={input}>
+          {OPERATORS.map((o) => <option key={o.code} value={o.code}>{o.label}</option>)}
+        </select>
+      </Field>
+      <NewCategoryFields name={name} lineType={lineType} onName={setName} onLineType={setLineType} />
+      <div style={{ fontSize: 12, color: "var(--muted)" }}>
+        تظهر الفئة للوكيل كرةً حين تضع فيها باقات (من «إضافة باقة» في صفحة الباقات). تأخذ شعار الشركة تلقائياً،
+        وتُحذف وهي فارغة فقط.
+      </div>
+    </Modal>
+  );
+}
+
+const customTag: React.CSSProperties = {
+  marginInlineStart: 6, fontSize: 10, fontWeight: 700, color: "var(--info)",
+  background: "color-mix(in srgb, var(--info) 12%, transparent)", borderRadius: 999, padding: "1px 7px",
+};
 
 const bySort = (a: Category, b: Category) => a.sort_order - b.sort_order || a.id - b.id;
 

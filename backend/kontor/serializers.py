@@ -12,7 +12,7 @@ class KontorCategorySerializer(serializers.ModelSerializer):
         model = KontorCategory
         fields = [
             "id", "operator", "operator_label", "line_type", "line_type_label",
-            "name", "logo_url", "is_query", "status", "sort_order", "package_count",
+            "name", "logo_url", "is_query", "status", "sort_order", "is_custom", "package_count",
         ]
         read_only_fields = ["tenant", "operator", "line_type"]
 

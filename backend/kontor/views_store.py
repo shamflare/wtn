@@ -135,9 +135,11 @@ def live_offers(user, gsm: str, op: str) -> list[dict]:
         _learn_specs(p, o)
         rows.append({
             "id": p.id, "link_code": p.link_code, "znet_id": p.znet_id, "name": p.name,
-            "details": o.get("details") or p.details,
-            "days": o.get("days") or p.days, "gb": o.get("gb") or p.gb,
-            "minutes": o.get("minutes") or p.minutes,
+            # الكشف يحدّد أيّ الباقات متاحة للرقم فقط؛ ما يُعرض منها فمن الكتالوج كما
+            # حفظه المالك أو عدّله (_learn_specs ملأ الفارغ منه من ZNET قبل سطر)
+            "details": p.details or o.get("details") or "",
+            "days": p.days or o.get("days") or 0, "gb": p.gb or o.get("gb") or 0,
+            "minutes": p.minutes or o.get("minutes") or 0,
             "is_offer": o.get("is_offer", False),
             "price": str(currency.to_display(user, dealer_price(user, p))),
             "recommended_price": str(currency.to_display(user, p.recommended_price)),

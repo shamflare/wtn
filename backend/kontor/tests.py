@@ -350,9 +350,11 @@ class StoreTest(APITestCase):
         # وما كتبه المالك لا يُمسّ
         p.details = "وصف المالك"; p.save()
         with patch("kontor.session_client.fetch_offers", return_value=fake):
-            self.client.post("/api/kontor/store/offers/", {"gsm": "5442199992", "operator": "Turkcell"}, format="json")
+            r = self.client.post("/api/kontor/store/offers/", {"gsm": "5442199992", "operator": "Turkcell"}, format="json")
         p.refresh_from_db()
         self.assertEqual(p.details, "وصف المالك")
+        # والعروض تُعرض بتفاصيل الكتالوج لا بتفاصيل ZNET
+        self.assertEqual(r.json()["offers"][0]["details"], "وصف المالك")
 
     def test_offers_denied_when_not_allowed(self):
         from kontor.models import KontorDealerSetting

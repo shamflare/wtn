@@ -437,12 +437,12 @@ def store_report_view(request):
     kq = kr.dealer_orders(user, {"date_from": p.get("date_from"), "date_to": p.get("date_to")})
     if not p.get("include_cancelled"):
         kq = kq.filter(status__in=kr.SPENT)
-    for r in (kq.values("operator", "package__name")
+    for r in (kq.values("operator", "package_name")
               .annotate(count=Count("id"), cost=Sum("sell_price"),
                         sell=Sum("dealer_sell_price"), profit=Sum("dealer_profit"))
               .order_by("operator", "-count")):
         results.append({
-            "game": f"موبايل · {kr.OP_LABEL.get(r['operator'], r['operator'])}", "product": r["package__name"],
+            "game": f"موبايل · {kr.OP_LABEL.get(r['operator'], r['operator'])}", "product": r["package_name"],
             "count": r["count"], "cost": str(show(user, r["cost"] or 0)),
             "sell": str(show(user, r["sell"] or 0)), "profit": str(show(user, r["profit"] or 0)),
         })

@@ -6,7 +6,7 @@ import ScrollTop from "../components/ScrollTop";
 import { matches } from "../search";
 import {
   empty, errText, Field, groupHead, ib, input, LedgerNote, Modal, money, note, OperatorTabs, opOf, pageTitle,
-  pageWrap, preview, Toast, useLedger,
+  pageWrap, preview, ProviderPickModal, Toast, useLedger,
 } from "./kontorUi";
 
 interface Group { id: number; name: string; dealer_count?: number }
@@ -35,7 +35,7 @@ export default function KontorPrices() {
   const [q, setQ] = useState("");
   const [editing, setEditing] = useState<{ p: number; g: Col } | null>(null);
   const [draft, setDraft] = useState("");
-  const [dialog, setDialog] = useState<"new" | "bulk" | "rec" | "delete" | null>(null);
+  const [dialog, setDialog] = useState<"new" | "bulk" | "rec" | "delete" | "costs" | null>(null);
   const [toast, setToast] = useState("");
   const ledger = useLedger();
 
@@ -104,6 +104,35 @@ export default function KontorPrices() {
     );
   }
 
+  /** كلفة الباقات = كلفتها لدى المزوّد المختار؛ غير المربوطة به تُذكر مجمّعة ولا تُمسّ. */
+  async function refreshCosts(provider: number) {
+    const r = await api.post("/kontor/refresh-costs/", { provider });
+    await load();
+    const d = r.data as {
+      provider: string; updated: number; unchanged: number; skipped_total: number;
+      skipped: { operator: string; operator_label: string; category: string; count: number }[];
+    };
+    return (<>
+      <div style={preview}>
+        من <b>{d.provider}</b>:
+        <div>✅ تغيّرت كلفة <b className="num">{d.updated}</b> باقة{d.updated > 0 && " — وأُعيد حساب الخلايا المرتبطة بها"}.</div>
+        <div>= <b className="num">{d.unchanged}</b> باقة كلفتها كما هي.</div>
+      </div>
+      {d.skipped_total > 0 && (
+        <div style={{ ...preview, marginTop: 10, background: "#fff8e6", borderColor: "#f0dca0", color: "#7a5a00" }}>
+          ⚠️ <b className="num">{d.skipped_total}</b> باقة <b>لم تُحدَّث</b> — ليست مربوطة بهذا المزوّد أو لم يعد
+          رقمها في قائمته، فبقيت كلفتها كما كانت:
+          <ul style={{ margin: "6px 0 0", paddingInlineStart: 20 }}>
+            {d.skipped.map((s) => (
+              <li key={s.operator + s.category}><b className="num">{s.count}</b> باقة من {s.operator_label} نوع <b>{s.category}</b></li>
+            ))}
+          </ul>
+          <div style={{ marginTop: 6 }}>اربطها بأرقامها لدى هذا المزوّد من «التوجيه» إن أردت أن تتبع كلفته.</div>
+        </div>
+      )}
+    </>);
+  }
+
   const cols = 4 + groups.length;
 
   return (
@@ -116,6 +145,7 @@ export default function KontorPrices() {
         <button className="btn" onClick={() => setDialog("bulk")} disabled={!groups.length}>
           <Icon name="chart" size={15} style={ib} />تسعير جماعي</button>
         <button className="btn" onClick={() => setDialog("rec")}><Icon name="chart" size={15} style={ib} />تحديد السعر الموصى</button>
+        <button className="btn" onClick={() => setDialog("costs")}><Icon name="refresh" size={15} style={ib} />تحديث التكلفة</button>
         <button className="btn r" onClick={() => setDialog("delete")} disabled={!groups.length}>
           <Icon name="trash" size={15} style={ib} />حذف مجموعة</button>
         <input placeholder="بحث سريع: باقة أو فئة أو رقم ربط..." value={q} onChange={(e) => setQ(e.target.value)}
@@ -130,7 +160,7 @@ export default function KontorPrices() {
         للمجموعة، والرمادية = تتبع <b>السعر الموصى</b>. عمود الموصى قابل للتعديل هنا أيضاً.
         <div style={{ marginTop: 4 }}>
           الخلية التي عليها وسم مثل <sup style={{ ...linkTag, position: "static" }}>10%</sup>{" "}
-          <b>مرتبطة بالكلفة</b>: يُعاد حسابها تلقائياً مع كل استيراد يغيّر كلفة ZNET.
+          <b>مرتبطة بالكلفة</b>: يُعاد حسابها تلقائياً مع كل «تحديث التكلفة» يغيّر كلفة ZNET.
           ويُفكّ الارتباط بتسعير جماعي جديد أو بتعديل الخلية بيدك.
         </div>
       </div>
@@ -208,6 +238,13 @@ export default function KontorPrices() {
           onClose={() => setDialog(null)} onDone={done} />
       )}
       {dialog === "delete" && <DeleteGroupModal groups={groups} onClose={() => setDialog(null)} onDone={done} />}
+      {dialog === "costs" && (
+        <ProviderPickModal title="تحديث التكلفة من ZNET" action="تحديث التكلفة" busyText="جارٍ التحديث..."
+          hint={<>اختر مزوّد ZNET الذي تُؤخذ منه الكلفة. تصير كلفة كل باقة <b>كلفتها لدى هذا المزوّد</b> (لكل
+            الشركات)، وتتبعها الخلايا المرتبطة بالكلفة. الباقة تُطابَق برقمها لديه — والتي ليست مربوطة به
+            لا تُمسّ وتُذكر لك بعد التحديث.</>}
+          run={refreshCosts} onClose={() => setDialog(null)} />
+      )}
       <Toast text={toast} />
     </div>
   );
@@ -342,7 +379,7 @@ function BulkModal({ op, groups, products, costOf, initial, onClose, onDone }: {
         {toRec ? <>✍️ السعر الموصى يُكتب <b>مرّة واحدة</b> ولا يرتبط بالكلفة: إن تغيّرت لاحقاً بقي كما هو حتى تعيد التطبيق.</>
           : follow ? <>📋 تُنسخ قيمة الموصى الحالية إلى خلايا المجموعة كسعر يدوي ثابت.</>
           : <>🔗 الباقات تبقى <b>مرتبطة</b> بهذه القاعدة{round && " وتقريبها"}: كلّما تغيّرت كلفتها في ZNET
-            أُعيد حساب سعرها في هذه المجموعة تلقائياً عند الاستيراد.</>}
+            أُعيد حساب سعرها في هذه المجموعة تلقائياً عند «تحديث التكلفة».</>}
       </div>
     </Modal>
   );

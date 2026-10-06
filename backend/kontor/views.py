@@ -86,8 +86,8 @@ def package_update_view(request, pk):
 @permission_classes([IsAuthenticated])
 def import_view(request):
     """
-    يستورد الباقات من مزوّد خطوط (لوحة ZNET). {provider?} — افتراضاً أوّل مزوّد ZNET.
-    الباقات الجديدة تُوجَّه إليه وتُربط برقمها لديه.
+    يستورد الباقات **الجديدة** من مزوّد خطوط يختاره المالك (لوحة ZNET). {provider?} —
+    افتراضاً أوّل مزوّد ZNET. الجديدة تُوجَّه إليه وتُربط برقمها لديه، والموجودة لا تُمسّ.
     """
     if not _require_admin(request):
         return Response({"detail": "مخصّص لصاحب المتجر"}, status=403)
@@ -102,7 +102,7 @@ def import_view(request):
     if not creds:
         return Response({"detail": "إعداد ZNET ناقص (base_url/kod/sifre)."}, status=400)
     try:
-        res = import_from_znet(tenant, *creds, provider=prov)
+        res = import_from_znet(tenant, *creds, provider=prov, only_new=True)
     except requests.RequestException as e:
         return Response({"detail": f"تعذّر الاتصال بـ ZNET: {e}"}, status=502)
     except ValueError as e:
@@ -127,3 +127,56 @@ def packages_bulk_view(request):
         return Response({"detail": "حدّد باقات وتعديلاً"}, status=400)
     n = KontorPackage.objects.filter(tenant=request.user.tenant, pk__in=ids).update(**changes)
     return Response({"updated": n})
+
+
+def _pick_provider(request):
+    from .services import kontor_providers
+    want = request.data.get("provider")
+    try:
+        want = int(want)
+    except (TypeError, ValueError):
+        return None
+    return next((p for p in kontor_providers(request.user.tenant) if p.id == want), None)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def refresh_costs_view(request):
+    """{provider}: كلفة الباقات = كلفتها لدى هذا المزوّد؛ غير المربوطة به تبقى وتُذكر."""
+    if not _require_admin(request):
+        return Response({"detail": "مخصّص لصاحب المتجر"}, status=403)
+    from .services import refresh_costs
+    prov = _pick_provider(request)
+    if not prov:
+        return Response({"detail": "اختر مزوّد خطوط (ZNET)"}, status=400)
+    try:
+        return Response(refresh_costs(request.user.tenant, prov))
+    except requests.RequestException as e:
+        return Response({"detail": f"تعذّر الاتصال بالمزوّد: {e}"}, status=502)
+    except ValueError as e:
+        return Response({"detail": str(e)}, status=400)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def packages_delete_view(request):
+    """
+    {ids}: حذف نهائي — للباقات **المعطّلة** وحدها. الطلبات السابقة لا تتأثّر: صفّها
+    مجمَّد (الاسم والأرقام والمبالغ محفوظة فيه). وتُرفض باقة لها طلب لم ينتهِ بعد.
+    """
+    if not _require_admin(request):
+        return Response({"detail": "مخصّص لصاحب المتجر"}, status=403)
+    from .models import KontorOrder
+    ids = request.data.get("ids") or []
+    qs = KontorPackage.objects.filter(tenant=request.user.tenant, pk__in=ids)
+    active = qs.exclude(status=KontorPackage.Status.PASSIVE).count()
+    if active:
+        return Response({"detail": f"عطّل الباقات أولاً — {active} منها غير معطّلة"}, status=400)
+    busy = list(KontorOrder.objects.filter(
+        package__in=qs, status__in=[KontorOrder.Status.PENDING, KontorOrder.Status.PROCESSING])
+        .values_list("package__name", flat=True).distinct())
+    if busy:
+        return Response({"detail": "لها طلبات قيد التنفيذ — انتظر انتهاءها: " + "، ".join(busy)}, status=400)
+    n = qs.count()
+    qs.delete()
+    return Response({"deleted": n})

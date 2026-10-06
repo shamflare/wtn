@@ -236,7 +236,7 @@ def admin_orders_view(request):
     from django.db.models import Count, Q, Sum
     from .models import KontorOrder
     qs = (KontorOrder.objects.filter(tenant=request.user.tenant)
-          .select_related("package", "dealer", "provider"))
+          .select_related("dealer", "provider"))
     qp = request.query_params
     if qp.get("operator"):
         qs = qs.filter(operator=qp["operator"])
@@ -244,7 +244,7 @@ def admin_orders_view(request):
         qs = qs.filter(dealer_id=qp["dealer"])
     if qp.get("q"):
         t = qp["q"].strip()
-        qs = qs.filter(Q(gsm__icontains=t) | Q(package__name__icontains=t) | Q(tekil__icontains=t))
+        qs = qs.filter(Q(gsm__icontains=t) | Q(package_name__icontains=t) | Q(tekil__icontains=t))
     if qp.get("date_from"):
         qs = qs.filter(created_at__date__gte=qp["date_from"])
     if qp.get("date_to"):
@@ -259,7 +259,7 @@ def admin_orders_view(request):
     rows = [{
         "id": o.id, "gsm": o.gsm, "operator": o.operator,
         "dealer": o.dealer.name, "dealer_id": o.dealer_id,
-        "package_name": o.package.name, "znet_id": o.package.znet_id,
+        "package_name": o.package_name, "znet_id": o.znet_id,
         "cost_price": str(o.cost_price), "sell_price": str(o.sell_price), "profit": str(o.profit),
         "status": o.status, "status_label": o.get_status_display(),
         "provider": o.provider.name if o.provider else "", "note": o.provider_note,

@@ -2,7 +2,8 @@
 from django.urls import path
 
 from .views import (
-    categories_view, import_view, package_update_view, packages_bulk_view, packages_view,
+    categories_view, import_view, package_update_view, packages_bulk_view, packages_delete_view,
+    packages_view, refresh_costs_view,
 )
 from .views_store import (
     buy_view, detect_view, my_orders_view, store_offers_view, store_packages_view,
@@ -17,8 +18,10 @@ urlpatterns = [
     path("categories/", categories_view, name="kontor-categories"),
     path("packages/", packages_view, name="kontor-packages"),
     path("packages/bulk/", packages_bulk_view, name="kontor-packages-bulk"),
+    path("packages/delete/", packages_delete_view, name="kontor-packages-delete"),
     path("packages/<int:pk>/", package_update_view, name="kontor-package-update"),
     path("import/", import_view, name="kontor-import"),
+    path("refresh-costs/", refresh_costs_view, name="kontor-refresh-costs"),
     # المزوّدون والتوجيه (كالألعاب)
     path("providers/", providers_view, name="kontor-providers"),
     path("routing/", routing_view, name="kontor-routing"),

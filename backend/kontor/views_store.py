@@ -162,7 +162,7 @@ from .models import KontorOrder  # noqa: E402
 def _order_row(user, o: KontorOrder) -> dict:
     return {
         "id": o.id, "gsm": o.gsm, "operator": o.operator,
-        "package_name": o.package.name, "znet_id": o.package.znet_id,
+        "package_name": o.package_name, "znet_id": o.znet_id,
         "price": str(currency.to_display(user, o.sell_price)),
         "dealer_sell_price": str(currency.to_display(user, o.dealer_sell_price)),
         "dealer_profit": str(currency.to_display(user, o.dealer_profit)),

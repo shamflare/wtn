@@ -5,7 +5,7 @@ import ScrollTop from "../components/ScrollTop";
 import { matches } from "../search";
 import {
   empty, Field, groupHead, ib, input, LedgerNote, Modal, money, note, OperatorTabs, OPERATORS, pageTitle,
-  pageWrap, Switch, Toast, errText, useLedger,
+  pageWrap, preview, ProviderPickModal, Switch, Toast, errText, useLedger,
 } from "./kontorUi";
 
 /* باقة خطّ كما يعرضها الخادم */
@@ -20,9 +20,9 @@ interface Pkg {
   sort_order: number;
 }
 
+// المعطّلة لا تظهر هنا — لها عرضها الخاص بزر «إظهار المعطّلة»
 const STATUS = [
-  { k: "", l: "كل الحالات" }, { k: "active", l: "نشطة" },
-  { k: "passive", l: "معطّلة" }, { k: "sale_paused", l: "بيع موقوف" },
+  { k: "", l: "كل الحالات" }, { k: "active", l: "نشطة" }, { k: "sale_paused", l: "بيع موقوف" },
 ];
 
 export default function Kontor() {
@@ -42,35 +42,37 @@ export default function Kontor() {
   const [draft, setDraft] = useState("");
   const [modal, setModal] = useState<Pkg | null>(null);
   const ledger = useLedger();
-  const [provs, setProvs] = useState<{ id: number; name: string }[]>([]);
-  const [importFrom, setImportFrom] = useState<number | "">("");
+  const [importing, setImporting] = useState(false);
+  const [showOff, setShowOff] = useState(false);  // عرض المعطّلة وحدها
+  const [confirmDel, setConfirmDel] = useState(false);
 
   async function load() {
     const p = await api.get("/kontor/packages/");
     setPkgs(p.data);
   }
   useEffect(() => { load().catch(() => {}).finally(() => setLoading(false)); }, []);
-  useEffect(() => {
-    api.get("/kontor/providers/").then((r) => { setProvs(r.data); setImportFrom(r.data[0]?.id ?? ""); }).catch(() => {});
-  }, []);
 
   function say(t: string) { setToast(t); setTimeout(() => setToast(""), 5000); }
   function switchOp(code: string) { setOp(code); setCat(""); setPicked([]); }
+  function switchView(off: boolean) { setShowOff(off); setCat(""); setSt(""); setPicked([]); }
 
   const opPkgs = useMemo(() => pkgs.filter((p) => p.operator === op), [pkgs, op]);
+  const offCount = useMemo(() => opPkgs.filter((p) => p.status === "passive").length, [opPkgs]);
+  const viewPkgs = useMemo(
+    () => opPkgs.filter((p) => (p.status === "passive") === showOff), [opPkgs, showOff]);
   const counts = useMemo(
     () => Object.fromEntries(OPERATORS.map((o) => [o.code, pkgs.filter((p) => p.operator === o.code).length])),
     [pkgs],
   );
   const cats = useMemo(() => {
     const m = new Map<string, number>();
-    for (const p of opPkgs) m.set(p.category_name || "—", (m.get(p.category_name || "—") ?? 0) + 1);
+    for (const p of viewPkgs) m.set(p.category_name || "—", (m.get(p.category_name || "—") ?? 0) + 1);
     return [...m.entries()];
-  }, [opPkgs]);
+  }, [viewPkgs]);
 
-  const shown = useMemo(() => opPkgs.filter((p) =>
+  const shown = useMemo(() => viewPkgs.filter((p) =>
     (!cat || (p.category_name || "—") === cat) && (!st || p.status === st) && (!kind || p.kind === kind) &&
-    (!q || matches(q, p.name, p.znet_id, p.link_code, p.details))), [opPkgs, cat, st, kind, q]);
+    (!q || matches(q, p.name, p.znet_id, p.link_code, p.details))), [viewPkgs, cat, st, kind, q]);
 
   // الباقات مجمّعة تحت فئاتها — كالألعاب تحت أسمائها في مجموعات الأسعار
   const grouped = useMemo(() => {
@@ -99,6 +101,7 @@ export default function Kontor() {
     try {
       const r = await api.patch(`/kontor/packages/${id}/`, body);
       setPkgs((list) => list.map((p) => (p.id === id ? r.data : p)));
+      if (body.status === "passive") say("عُطّلت الباقة — تجدها في «إظهار المعطّلة»");
     } catch (e: any) {
       say(e?.response?.data?.detail || "تعذّر الحفظ");
       load().catch(() => {});
@@ -135,14 +138,30 @@ export default function Kontor() {
     } catch (e: any) { say(e?.response?.data?.detail || "تعذّر التعديل"); }
   }
 
-  async function importNow() {
+  /** يستورد الجديد وحده من المزوّد المختار — الموجود لا يُمسّ. يعيد تقريراً للنافذة. */
+  async function importFrom(provider: number) {
+    const r = await api.post("/kontor/import/", { provider });
+    await load();
+    const d = r.data;
+    return (
+      <div style={preview}>
+        من <b>{d.provider}</b>: وصلت <b className="num">{d.received}</b> باقة.
+        <div>✅ أُضيفت <b className="num">{d.created}</b> باقة جديدة.</div>
+        <div>↩️ <b className="num">{d.existing ?? 0}</b> موجودة أصلاً فلم تُمسّ.</div>
+        {d.created > 0 && <div style={{ marginTop: 6 }}>الجديدة بلا سعر موصى — سعّرها قبل أن يراها وكلاؤك.</div>}
+      </div>
+    );
+  }
+
+  async function removePicked() {
     setBusy(true);
     try {
-      const r = await api.post("/kontor/import/", importFrom ? { provider: importFrom } : {});
-      say(`✅ من ${r.data.provider}: استُلم ${r.data.received} · جديد ${r.data.created} · محدّث ${r.data.updated}`);
+      const r = await api.post("/kontor/packages/delete/", { ids: picked });
+      say(`🗑 حُذفت ${r.data.deleted} باقة نهائياً — الطلبات السابقة بقيت كما هي`);
+      setPicked([]); setConfirmDel(false);
       await load();
     } catch (e: any) {
-      say(e?.response?.data?.detail || "تعذّر الاستيراد");
+      say(e?.response?.data?.detail || "تعذّر الحذف");
     } finally { setBusy(false); }
   }
 
@@ -161,15 +180,9 @@ export default function Kontor() {
       <ScrollTop />
       <h2 style={pageTitle}>
         <Icon name="phone" size={20} /> باقات الخطوط
-        {provs.length > 1 && (
-          <select value={importFrom} onChange={(e) => setImportFrom(Number(e.target.value))} title="الاستيراد من أيّ لوحة"
-            style={{ ...input, width: 170, marginInlineStart: "auto", fontSize: 13 }}>
-            {provs.map((p) => <option key={p.id} value={p.id}>من: {p.name}</option>)}
-          </select>
-        )}
-        <button className="btn g" onClick={importNow} disabled={busy}
-          style={{ marginInlineStart: provs.length > 1 ? 0 : "auto", fontSize: 13.5 }}>
-          <Icon name="refresh" size={15} style={ib} />{busy ? "جارٍ الاستيراد..." : "استيراد من ZNET"}
+        <button className="btn g" onClick={() => setImporting(true)}
+          style={{ marginInlineStart: "auto", fontSize: 13.5 }}>
+          <Icon name="refresh" size={15} style={ib} />استيراد من ZNET
         </button>
       </h2>
 
@@ -192,15 +205,29 @@ export default function Kontor() {
             <option value="">كل الفئات</option>
             {cats.map(([n, c]) => <option key={n} value={n}>{n} ({c})</option>)}
           </select>
-          <select value={st} onChange={(e) => setSt(e.target.value)} style={{ ...input, width: 130 }}>
-            {STATUS.map((s) => <option key={s.k} value={s.k}>{s.l}</option>)}
-          </select>
+          {!showOff && (
+            <select value={st} onChange={(e) => setSt(e.target.value)} style={{ ...input, width: 130 }}>
+              {STATUS.map((s) => <option key={s.k} value={s.k}>{s.l}</option>)}
+            </select>
+          )}
           <select value={kind} onChange={(e) => setKind(e.target.value)} style={{ ...input, width: 120 }}>
             <option value="">كل الأنواع</option><option value="general">عامة</option><option value="offer">عروض</option>
           </select>
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="بحث: اسم أو رقم ربط أو تفاصيل..."
             style={{ ...input, width: 230, marginInlineStart: "auto" }} />
+          <button className={showOff ? "btn r" : "btn"} onClick={() => switchView(!showOff)}
+            title={showOff ? "العودة إلى الباقات" : "الباقات المعطّلة — منها تُحذف"}>
+            <Icon name={showOff ? "grid" : "trash"} size={14} style={ib} />
+            {showOff ? "العودة إلى الباقات" : `إظهار المعطّلة (${offCount})`}
+          </button>
         </div>
+
+        {showOff && (
+          <div style={{ ...note, background: "#fdf3f3", borderColor: "#f0caca", color: "#8a3535" }}>
+            أنت في <b>الباقات المعطّلة</b>. حدّد باقات لتفعيلها من جديد أو <b>حذفها نهائياً</b>.
+            الحذف لا يمسّ الطلبات السابقة: كل طلب مجمَّد باسم باقته وسعره وقت إنشائه.
+          </div>
+        )}
 
         <LedgerNote ledger={ledger} />
         <div style={note}>
@@ -215,11 +242,16 @@ export default function Kontor() {
           <div className="toolbar" style={{ background: "var(--primary-tint)", borderColor: "var(--primary)" }}>
             <b>حُدّدت {picked.length} باقة:</b>
             <button className="btn g" onClick={() => bulk({ status: "active" }, "فُعّلت")}>تفعيل</button>
-            <button className="btn r" onClick={() => bulk({ status: "passive" }, "عُطّلت")}>تعطيل</button>
-            <button className="btn" onClick={() => bulk({ status: "sale_paused" }, "أوقف بيعها")}>إيقاف البيع</button>
-            <span style={{ width: 1, height: 22, background: "var(--border-strong)" }} />
-            <button className="btn" onClick={() => bulk({ kind: "general" }, "صارت عامة")}>عامة</button>
-            <button className="btn" onClick={() => bulk({ kind: "offer" }, "صارت عروضاً")}>عرض</button>
+            {showOff ? (
+              <button className="btn r" onClick={() => setConfirmDel(true)}>
+                <Icon name="trash" size={14} style={ib} />حذف نهائي</button>
+            ) : (<>
+              <button className="btn r" onClick={() => bulk({ status: "passive" }, "عُطّلت")}>تعطيل</button>
+              <button className="btn" onClick={() => bulk({ status: "sale_paused" }, "أوقف بيعها")}>إيقاف البيع</button>
+              <span style={{ width: 1, height: 22, background: "var(--border-strong)" }} />
+              <button className="btn" onClick={() => bulk({ kind: "general" }, "صارت عامة")}>عامة</button>
+              <button className="btn" onClick={() => bulk({ kind: "offer" }, "صارت عروضاً")}>عرض</button>
+            </>)}
             <button className="btn" style={{ marginInlineStart: "auto" }} onClick={() => setPicked([])}>إلغاء التحديد</button>
           </div>
         )}
@@ -236,7 +268,8 @@ export default function Kontor() {
               </tr>
             </thead>
             <tbody>
-              {grouped.length === 0 && <tr><td colSpan={9} style={empty}>لا باقات تطابق الفلترة</td></tr>}
+              {grouped.length === 0 && <tr><td colSpan={9} style={empty}>
+                {showOff && !viewPkgs.length ? "لا باقات معطّلة لهذه الشركة" : "لا باقات تطابق الفلترة"}</td></tr>}
               {grouped.map(([name, rows]) => {
                 const ids = rows.map((r) => r.id);
                 return (
@@ -334,6 +367,25 @@ export default function Kontor() {
         <PackageModal pkg={modal} onClose={() => setModal(null)}
           onSaved={(p) => { setPkgs((l) => l.map((x) => (x.id === p.id ? p : x))); setModal(null); say("✅ حُفظت الباقة"); }} />
       )}
+      {importing && (
+        <ProviderPickModal title="استيراد الباقات من ZNET" action="استيراد" busyText="جارٍ الاستيراد..."
+          hint={<>اختر مزوّد ZNET الذي تُستورد منه الباقات. تُضاف <b>الجديدة وحدها</b> وتُوجَّه إليه —
+            والباقات الموجودة عندك أصلاً لا تُمسّ (لا اسمها ولا كلفتها). لتحديث الكلفة استعمل
+            «تحديث التكلفة» في «مجموعات الأسعار».</>}
+          run={importFrom} onClose={() => setImporting(false)} />
+      )}
+      {confirmDel && (
+        <Modal title="حذف الباقات نهائياً" onClose={() => setConfirmDel(false)} footer={<>
+          <button className="btn" style={{ marginInlineStart: "auto" }} onClick={() => setConfirmDel(false)}>إلغاء</button>
+          <button className="btn r" disabled={busy} onClick={removePicked}>{busy ? "جارٍ الحذف..." : `حذف ${picked.length} باقة`}</button>
+        </>}>
+          <div style={{ ...preview, background: "#fdf3f3", borderColor: "#f0caca", color: "#8a3535" }}>
+            تُحذف <b>{picked.length} باقة</b> مع أسعارها في المجموعات وربطها بالمزوّدين. لا رجعة في هذا —
+            وإن استوردتها لاحقاً من ZNET عادت باقةً جديدة بلا سعر.
+            <div style={{ marginTop: 6 }}>✅ الطلبات السابقة لا تتغيّر: كل طلب محفوظ باسم باقته ورقمها وسعره وقت إنشائه.</div>
+          </div>
+        </Modal>
+      )}
       <Toast text={toast} />
     </div>
   );
@@ -399,7 +451,7 @@ function PackageModal({ pkg, onClose, onSaved }: { pkg: Pkg; onClose: () => void
       <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 12 }}>
         {pkg.category_name} · رقم الربط <b className="num">{pkg.link_code}</b> · رقم ZNET <b className="num">{pkg.znet_id}</b> · الكلفة <b className="num">{money(pkg.cost_price)} {ledger.sym}</b>
         {ledger.base !== "TRY" && <> (<span className="num">{money(pkg.provider_cost)} ₺</span> لدى ZNET)</>}
-        <div style={{ fontSize: 11.5 }}>الكلفة تأتي من ZNET وتتحدّث مع كل استيراد.</div>
+        <div style={{ fontSize: 11.5 }}>الكلفة تأتي من ZNET وتتحدّث بزر «تحديث التكلفة» في «مجموعات الأسعار».</div>
       </div>
       <Field label="اسم الباقة" hint={`الاسم شكليّ تسمّيه كما تشاء — الشحن يعتمد رقم الربط لا الاسم. اسمها في ZNET: «${pkg.provider_name || pkg.name}». الاسم المعدَّل لا يمسّه الاستيراد، واتركه فارغاً ليعود إلى اسم ZNET.`}>
         <div style={{ display: "flex", gap: 6 }}>

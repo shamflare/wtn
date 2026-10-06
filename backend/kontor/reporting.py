@@ -46,7 +46,7 @@ def receipt_of(o: KontorOrder) -> str:
 
 def dealer_orders(user, params) -> "QuerySet":
     """طلبات خطوط الوكيل بنفس فلاتر «طلباتي» (التاريخ · البحث) — قبل فلتر الحالة."""
-    qs = KontorOrder.objects.filter(tenant=user.tenant, dealer=user).select_related("package")
+    qs = KontorOrder.objects.filter(tenant=user.tenant, dealer=user)
     if params.get("date_from"):
         qs = qs.filter(created_at__date__gte=params["date_from"])
     if params.get("date_to"):
@@ -54,7 +54,7 @@ def dealer_orders(user, params) -> "QuerySet":
     q = (params.get("q") or "").strip()
     if q:
         digits = q.upper().lstrip("M")
-        cond = Q(gsm__icontains=q) | Q(package__name__icontains=q)
+        cond = Q(gsm__icontains=q) | Q(package_name__icontains=q)
         if digits.isdigit():
             cond |= Q(id=int(digits))
         qs = qs.filter(cond)
@@ -68,7 +68,7 @@ def dealer_row(o: KontorOrder, user) -> dict:
     return {
         "kind": "mobile", "id": f"m{o.id}", "receipt_no": receipt_of(o),
         "operator": o.operator, "game_name": OP_LABEL.get(o.operator, o.operator),
-        "product": o.package_id, "product_name": o.package.name, "quantity": 1,
+        "product": o.package_id, "product_name": o.package_name, "quantity": 1,
         "player_id": o.gsm, "customer_phone": "",
         "paid_price": show(o.sell_price), "dealer_sell_price": show(o.dealer_sell_price),
         "dealer_profit": show(o.dealer_profit),

@@ -292,7 +292,13 @@ class KontorOrder(models.Model):
 
     tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="kontor_orders")
     dealer = models.ForeignKey("core.User", on_delete=models.PROTECT, related_name="kontor_orders")
-    package = models.ForeignKey(KontorPackage, on_delete=models.PROTECT, related_name="orders")
+    # الطلب ماضٍ مجمَّد: يحمل اسم الباقة وأرقامها ومبالغه وقت إنشائه، فحذف الباقة
+    # لاحقاً أو تغيير اسمها أو كلفتها أو سعر الصرف لا يغيّر صفّه شيئاً.
+    package = models.ForeignKey(
+        KontorPackage, null=True, blank=True, on_delete=models.SET_NULL, related_name="orders")
+    package_name = models.CharField(max_length=160, blank=True, default="")
+    znet_id = models.CharField(max_length=40, blank=True, default="")
+    link_code = models.CharField(max_length=40, blank=True, default="")
     operator = models.CharField(max_length=10, choices=Operator.choices)
     gsm = models.CharField(max_length=15)
 
@@ -330,5 +336,12 @@ class KontorOrder(models.Model):
             )
         ]
 
+    def save(self, *args, **kwargs):
+        # لقطة الباقة تُؤخذ مرّة عند الإنشاء ثم لا تتبعها
+        if self.package_id and not self.package_name:
+            p = self.package
+            self.package_name, self.znet_id, self.link_code = p.name, p.znet_id, p.link_code
+        super().save(*args, **kwargs)
+
     def __str__(self):
-        return f"#{self.id} {self.gsm} · {self.package.name} [{self.status}]"
+        return f"#{self.id} {self.gsm} · {self.package_name} [{self.status}]"

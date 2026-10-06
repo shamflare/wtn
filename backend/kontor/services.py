@@ -100,20 +100,30 @@ def _cost_in_base(tenant, cost, provider):
     return val
 
 
-def upsert_packages(tenant, rows, *, dry_run=False, provider=None) -> dict:
+def upsert_packages(tenant, rows, *, dry_run=False, provider=None, only_new=False) -> dict:
     """
     يُنشئ الفئات الناقصة ويحفظ الباقات. عند وجود باقة سابقة لا يُحدَّث إلا الاسم
     والكلفة — حفاظاً على ما عدّله المالك (الموصى، النوع، الحالة، التوجيه).
+
+    only_new: استيراد المالك من الواجهة — يُضاف الجديد وحده ولا تُمسّ الباقة
+    الموجودة أصلاً (بربطها لدى هذا المزوّد، أو برقم ZNET نفسه، أو باسمها في
+    الشركة نفسها). تحديث الكلفة له زرّه المستقلّ (refresh_costs).
 
     الكلفة تصل بعملة ZNET (الليرة): تُحفظ كما هي في provider_cost، ومحوّلةً إلى
     عملة الدفتر في cost_price — فكل سعر بعدها (الموصى، المجموعات، الخصم) بعملة الدفتر.
     """
     if rows and not dry_run:
         _cost_in_base(tenant, rows[0]["cost"], provider)  # يفشل مبكراً إن لم يُضبط الصرف
-    created = updated = 0
+    created = updated = existing = 0
+    known = _known_keys(tenant, provider) if only_new else None
     cats: dict[tuple, KontorCategory] = {}
     for r in rows:
         if dry_run:
+            continue
+        if known is not None and (
+                (r["operator"], "id", r["znet_id"]) in known
+                or (r["operator"], "name", _norm_name(r["name"])) in known):
+            existing += 1
             continue
         key = (r["operator"], r["line_type"])
         cat = cats.get(key)
@@ -154,7 +164,28 @@ def upsert_packages(tenant, rows, *, dry_run=False, provider=None) -> dict:
             )
             _link(tenant, new, provider, r["znet_id"], r["cost"])
             created += 1
-    return {"received": len(rows), "created": created, "updated": updated}
+            if known is not None:
+                known.add((r["operator"], "id", r["znet_id"]))
+                known.add((r["operator"], "name", _norm_name(r["name"])))
+    res = {"received": len(rows), "created": created, "updated": updated}
+    if only_new:
+        res["existing"] = existing
+    return res
+
+
+def _known_keys(tenant, provider) -> set:
+    """مفاتيح الباقات الموجودة: (شركة، id، رقم) و(شركة، name، اسم مطويّ)."""
+    from .models import KontorPackageLink
+    keys = set()
+    for p in KontorPackage.objects.filter(tenant=tenant):
+        keys.add((p.operator, "id", p.znet_id))
+        for n in (p.name, p.provider_name):
+            if n:
+                keys.add((p.operator, "name", _norm_name(n)))
+    if provider is not None:
+        for l in KontorPackageLink.objects.filter(tenant=tenant, provider=provider).select_related("package"):
+            keys.add((l.package.operator, "id", l.code))
+    return keys
 
 
 def _link(tenant, package, provider, code, cost):
@@ -222,17 +253,68 @@ def fetch_feed(base_url: str, kod: str, sifre: str) -> str:
     return resp.text
 
 
-def import_from_znet(tenant, base_url, kod, sifre, *, dry_run=False, provider=None) -> dict:
+def import_from_znet(tenant, base_url, kod, sifre, *, dry_run=False, provider=None,
+                     only_new=False) -> dict:
     """يجلب من ZNET ثم يحفظ. يرفع ValueError برسالة عربية عند عدم وجود باقات."""
     rows = parse_feed(fetch_feed(base_url, kod, sifre))
     if not rows:
         raise ValueError("لا باقات في الرد — تحقّق من بيانات الدخول وتفعيل API وثبات الـ IP.")
-    res = upsert_packages(tenant, rows, dry_run=dry_run, provider=provider)
-    if not dry_run:
+    res = upsert_packages(tenant, rows, dry_run=dry_run, provider=provider, only_new=only_new)
+    if not dry_run and not only_new:
         from .models import KontorPriceGroup
         for g in KontorPriceGroup.objects.filter(tenant=tenant):
             recompute_group_prices(g)
     return res
+
+
+def refresh_costs(tenant, provider) -> dict:
+    """
+    «تحديث التكلفة»: كلفة كل باقة = كلفتها لدى هذا المزوّد. تُطابَق الباقة برقمها
+    **لديه** (ربطها في «التوجيه») لا برقم ZNET — فلكل لوحة أرقامها. الباقة غير
+    المربوطة به، أو التي لم يعد رقمها في قائمته، لا تُمسّ وتُذكر في التقرير
+    مجمّعة بالشركة والفئة (مثل: 7 باقات Turkcell · Tam).
+    """
+    from .models import KontorPackageLink, KontorPriceGroup
+    creds = provider_creds(provider)
+    if not creds:
+        raise ValueError("إعداد المزوّد ناقص (base_url/kod/sifre)")
+    rows = parse_feed(fetch_feed(*creds))
+    if not rows:
+        raise ValueError("لا باقات في رد المزوّد — تحقّق من بيانات الدخول وتفعيل API وثبات الـ IP.")
+    feed = {(r["operator"], r["znet_id"]): r for r in rows}
+    _cost_in_base(tenant, rows[0]["cost"], provider)  # يفشل مبكراً إن لم يُضبط الصرف
+    links = {l.package_id: l for l in KontorPackageLink.objects.filter(tenant=tenant, provider=provider)}
+
+    updated = unchanged = 0
+    skipped: dict[tuple, int] = {}
+    for p in KontorPackage.objects.filter(tenant=tenant).select_related("category"):
+        link = links.get(p.id)
+        r = feed.get((p.operator, link.code)) if link else None
+        if r is None:
+            key = (p.operator, p.category.name if p.category else "—")
+            skipped[key] = skipped.get(key, 0) + 1
+            continue
+        cost = _cost_in_base(tenant, r["cost"], provider)
+        if link.cost != r["cost"]:
+            link.cost = r["cost"]
+            link.save(update_fields=["cost", "updated_at"])
+        if p.provider_cost == r["cost"] and p.cost_price == cost:
+            unchanged += 1
+            continue
+        p.provider_cost = r["cost"]
+        p.cost_price = cost
+        p.save(update_fields=["provider_cost", "cost_price", "updated_at"])
+        updated += 1
+    if updated:
+        for g in KontorPriceGroup.objects.filter(tenant=tenant):
+            recompute_group_prices(g)
+    return {
+        "provider": provider.name, "received": len(rows),
+        "updated": updated, "unchanged": unchanged,
+        "skipped_total": sum(skipped.values()),
+        "skipped": [{"operator": op, "operator_label": _OP_LABEL.get(op, op), "category": cat, "count": n}
+                    for (op, cat), n in sorted(skipped.items())],
+    }
 
 
 def reprice_costs(tenant, provider=None) -> int:

@@ -303,7 +303,7 @@ def poll(order: KontorOrder) -> KontorOrder:
         order.save(update_fields=["status", "provider_note", "updated_at"])
     elif code == 3:
         trail = [f"{prov.name}: {note}"[:280]]
-        chain = provider_chain(order.package)
+        chain = provider_chain(order.package) if order.package_id else []  # باقة محذوفة ⇐ لا بديل
         ids = [p.id for p in chain]
         rest = chain[ids.index(prov.id) + 1:] if prov.id in ids else [p for p in chain if p.id != prov.id]
         if not _try_chain(order, rest, trail):

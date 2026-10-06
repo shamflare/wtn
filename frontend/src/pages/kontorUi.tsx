@@ -135,6 +135,71 @@ export function LedgerNote({ ledger }: { ledger: ReturnType<typeof useLedger> })
   );
 }
 
+/**
+ * نافذة «من أيّ مزوّد ZNET؟»: تعرض مزوّدي الخطوط في «مزوّدو API» ليختار المالك أحدهم،
+ * ثم تشغّل `run(id)` وتعرض ما يعيده (تقرير النتيجة) داخلها.
+ */
+export function ProviderPickModal({ title, hint, action, busyText, run, onClose }: {
+  title: string; hint: React.ReactNode; action: string; busyText: string;
+  run: (provider: number) => Promise<React.ReactNode>; onClose: () => void;
+}) {
+  const [provs, setProvs] = useState<{ id: number; name: string; ready: boolean }[] | null>(null);
+  const [pick, setPick] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [result, setResult] = useState<React.ReactNode>(null);
+  useEffect(() => {
+    api.get("/kontor/providers/").then((r) => {
+      setProvs(r.data);
+      setPick(r.data.find((p: { ready: boolean }) => p.ready)?.id ?? null);
+    }).catch(() => setProvs([]));
+  }, []);
+
+  async function go() {
+    if (!pick) return;
+    setBusy(true); setErr("");
+    try { setResult(await run(pick)); }
+    catch (e: any) { setErr(e?.response?.data?.detail || "تعذّر التنفيذ"); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <Modal title={title} onClose={onClose} width={500} footer={result ? (
+      <button className="btn g" style={{ marginInlineStart: "auto" }} onClick={onClose}>تمّ</button>
+    ) : (<>
+      {err && <span style={errText}>{err}</span>}
+      <button className="btn" style={{ marginInlineStart: "auto" }} onClick={onClose}>إلغاء</button>
+      <button className="btn g" disabled={busy || !pick} onClick={go}>{busy ? busyText : action}</button>
+    </>)}>
+      {result ?? (<>
+        <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 12, lineHeight: 1.7 }}>{hint}</div>
+        {provs === null ? <div style={{ padding: 12 }}>جارٍ التحميل...</div>
+          : provs.length === 0 ? (
+            <div style={{ ...preview, background: "#fdf3f3", borderColor: "#f0caca", color: "#8a3535" }}>
+              لا مزوّد ZNET بعد — أضِفه أولاً في «الألعاب ⟵ مزوّدو API».
+            </div>
+          ) : (
+            <div style={{ display: "grid", gap: 6 }}>
+              {provs.map((p) => (
+                <label key={p.id} style={{
+                  display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", borderRadius: 8,
+                  cursor: p.ready ? "pointer" : "not-allowed", opacity: p.ready ? 1 : 0.55,
+                  border: `1px solid ${pick === p.id ? "var(--primary)" : "var(--border)"}`,
+                  background: pick === p.id ? "var(--primary-tint)" : "var(--surface)",
+                }}>
+                  <input type="radio" name="kontor-prov" checked={pick === p.id} disabled={!p.ready}
+                    onChange={() => setPick(p.id)} />
+                  <b>{p.name}</b>
+                  {!p.ready && <span style={{ fontSize: 11.5, color: "var(--danger)" }}>إعداده ناقص (base_url/kod/sifre)</span>}
+                </label>
+              ))}
+            </div>
+          )}
+      </>)}
+    </Modal>
+  );
+}
+
 /** رسالة عائمة أسفل الشاشة تختفي وحدها. */
 export function Toast({ text }: { text: string }) {
   if (!text) return null;

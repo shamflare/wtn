@@ -266,3 +266,22 @@ class CacheResetTest(APITestCase):
         u = User.objects.create(login_id="a", name="a", tenant=t, role=User.Role.TENANT_ADMIN)
         self.client.force_authenticate(u)
         self.assertEqual(self.client.delete("/api/platform/sorgula/cache/", {}, format="json").status_code, 403)
+
+
+class ChipOrderTest(Base):
+    def test_chips_follow_owner_order_offer_after_its_category(self):
+        from .models import KontorCategory
+        dealer_client = self.client_class()
+        dealer_client.force_authenticate(self.dealer)
+        for p in KontorPackage.objects.all():
+            p.recommended_price = Decimal("1000"); p.save()
+        ses = KontorCategory.objects.get(operator="Turkcell", line_type="Ses")
+        tam = KontorCategory.objects.get(operator="Turkcell", line_type="Tam")
+        tam.sort_order, ses.sort_order = 10, 20
+        tam.save(); ses.save()
+        r = dealer_client.get("/api/kontor/store/packages/?operator=Turkcell")
+        names = [c["name"] for c in r.json()["categories"]]
+        self.assertEqual(names, ["Tam", "Ses*"])  # Ses فيها عرض واحد فقط ⇐ Ses* بعد Tam
+        tam.sort_order = 30; tam.save()
+        r = dealer_client.get("/api/kontor/store/packages/?operator=Turkcell")
+        self.assertEqual([c["name"] for c in r.json()["categories"]], ["Ses*", "Tam"])

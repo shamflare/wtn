@@ -80,20 +80,19 @@ def store_packages_view(request):
     # الباقات داخل كل كرة من الأرخص (بسعر هذا الوكيل)، وكرات العروض أوّلاً
     price_of = {p.id: dealer_price(user, p) for p in pkgs}
     by_price = lambda x: (price_of[x.id], x.sort_order, x.id)  # noqa: E731
-    offer_chips, general_chips = [], []
+    # الكرات بترتيب المالك في «فئات الخطوط»؛ وكرة العروض تلي فئتها مباشرةً (Ses ثم Ses*)
+    result = []
     for c in cats:
         pkgs_c = by_cat.get(c.id, [])
         # العروض تنفصل في كرة بنجمة (Ses ⇐ Ses*) كما في ZNET
         general = sorted((p for p in pkgs_c if p.kind != KontorPackage.Kind.OFFER), key=by_price)
         offers = sorted((p for p in pkgs_c if p.kind == KontorPackage.Kind.OFFER), key=by_price)
-        for key, name, rows, bucket in ((f"{c.id}*", f"{c.name}*", offers, offer_chips),
-                                        (str(c.id), c.name, general, general_chips)):
+        for key, name, rows in ((str(c.id), c.name, general), (f"{c.id}*", f"{c.name}*", offers)):
             if rows:
-                bucket.append({
+                result.append({
                     "id": key, "line_type": c.line_type, "name": name, "is_offer": key.endswith("*"),
                     "logo_url": c.logo_url or op_logo, "packages": [_pkg_row(user, p) for p in rows],
                 })
-    result = offer_chips + general_chips
     return Response({
         "operator": op, "operator_logo": op_logo,
         "currency": currency.display_currency(user),

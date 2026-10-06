@@ -589,6 +589,34 @@ def sorgula_view(request):
     return Response(_sorgula_row(cfg))
 
 
+@api_view(["GET", "DELETE"])
+@permission_classes([IsAuthenticated, IsPlatformOwner])
+def sorgula_cache_view(request):
+    """
+    حفظ الكشف (الكاش): GET عدد المحفوظ الساري لكل نوع.
+    DELETE {kind: all|operator|offers, gsm?} — تصفير الحفظ كلّه أو نوعٍ منه، أو لرقمٍ واحد.
+    """
+    from django.utils import timezone
+
+    from kontor.models import KontorLookupCache
+    from kontor.views_store import _clean_gsm
+    if request.method == "DELETE":
+        kind = request.data.get("kind") or "all"
+        qs = KontorLookupCache.objects.all()
+        if kind in KontorLookupCache.Kind.values:
+            qs = qs.filter(kind=kind)
+        elif kind != "all":
+            return Response({"detail": "نوع غير صحيح"}, status=400)
+        gsm = _clean_gsm(request.data.get("gsm") or "")
+        if gsm:
+            qs = qs.filter(gsm=gsm)
+        deleted, _ = qs.delete()
+        return Response({"deleted": deleted})
+    live = KontorLookupCache.objects.filter(expires_at__gt=timezone.now())
+    return Response({"operator": live.filter(kind="operator").count(),
+                     "offers": live.filter(kind="offers").count()})
+
+
 @api_view(["POST"])
 @permission_classes([IsAuthenticated, IsPlatformOwner])
 def sorgula_test_view(request):

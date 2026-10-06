@@ -239,3 +239,30 @@ class LookupCacheTest(Base):
             p = self.pkg("476647"); p.recommended_price = Decimal("1000"); p.save()
             create_order(self.dealer, p, "5442199992")
             self.assertFalse(KontorLookupCache.objects.filter(kind="offers").exists())
+
+
+class CacheResetTest(APITestCase):
+    def test_platform_owner_clears_cache(self):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from .models import KontorLookupCache
+        owner = User.objects.create(login_id="plat", name="منصّة", role=User.Role.PLATFORM_OWNER)
+        exp = timezone.now() + timedelta(days=1)
+        for k, g in (("operator", "5442199992"), ("operator", "5321112233"), ("offers", "5442199992")):
+            KontorLookupCache.objects.create(kind=k, gsm=g, operator="" if k == "operator" else "Turkcell",
+                                             data={"v": "x"}, expires_at=exp)
+        self.client.force_authenticate(owner)
+        self.assertEqual(self.client.get("/api/platform/sorgula/cache/").json(), {"operator": 2, "offers": 1})
+        r = self.client.delete("/api/platform/sorgula/cache/", {"kind": "all", "gsm": "+90 544 219 99 92"}, format="json")
+        self.assertEqual(r.json()["deleted"], 2)
+        r = self.client.delete("/api/platform/sorgula/cache/", {"kind": "all"}, format="json")
+        self.assertEqual(r.json()["deleted"], 1)
+        self.assertFalse(KontorLookupCache.objects.exists())
+
+    def test_tenant_admin_forbidden(self):
+        t = Tenant.objects.create(subdomain="x", name="x")
+        u = User.objects.create(login_id="a", name="a", tenant=t, role=User.Role.TENANT_ADMIN)
+        self.client.force_authenticate(u)
+        self.assertEqual(self.client.delete("/api/platform/sorgula/cache/", {}, format="json").status_code, 403)

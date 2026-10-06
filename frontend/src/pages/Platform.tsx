@@ -680,6 +680,53 @@ function SorgulaTab() {
           </div>
         )}
       </div>
+
+      <SorgulaCache inputStyle={darkInp} />
+    </div>
+  );
+}
+
+/** حفظ الكشف (الكاش): الشركة شهراً والعروض 24 ساعة — وتصفيره كلّه أو لرقمٍ واحد. */
+function SorgulaCache({ inputStyle }: { inputStyle: React.CSSProperties }) {
+  const [n, setN] = useState<{ operator: number; offers: number } | null>(null);
+  const [gsm, setGsm] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const load = () => api.get("/platform/sorgula/cache/").then((r) => setN(r.data)).catch(() => {});
+  useEffect(() => { load(); }, []);
+
+  async function clear(kind: "all" | "operator" | "offers") {
+    const what = kind === "all" ? "كل الحفظ" : kind === "operator" ? "حفظ كشف الشركات" : "حفظ العروض";
+    if (!confirm(`تصفير ${what}${gsm.trim() ? ` للرقم ${gsm.trim()}` : " لكل الأرقام"}؟`)) return;
+    setBusy(true); setMsg(null);
+    try {
+      const r = await api.delete("/platform/sorgula/cache/", { data: { kind, gsm: gsm.trim() } });
+      setMsg({ ok: true, text: `✓ مُسح ${r.data.deleted} — الكشف التالي يُجلب من ZNET من جديد` });
+      load();
+    } catch (e: any) { setMsg({ ok: false, text: e?.response?.data?.detail || "تعذّر المسح" }); }
+    finally { setBusy(false); }
+  }
+
+  const btn: React.CSSProperties = { ...addBtn, background: "#334155" };
+  return (
+    <div style={{ background: "#131c31", border: "1px solid #1e293b", borderRadius: 12, padding: 18, marginTop: 16 }}>
+      <b>حفظ الكشف (الكاش)</b>
+      <p style={{ color: "#94a3b8", fontSize: 13, margin: "6px 0 12px", lineHeight: 1.8 }}>
+        كشف <b style={{ color: "#e2e8f0" }}>شركة الرقم</b> يُحفظ شهراً، و<b style={{ color: "#e2e8f0" }}>العروض</b> 24 ساعة —
+        فيظهر الكشف المكرّر فوراً بلا سؤال ZNET. صفّره هنا متى شئت؛ اكتب رقماً لتصفيره وحده، أو اتركه فارغاً لكل الأرقام.
+      </p>
+      <div style={{ display: "flex", gap: 18, marginBottom: 12, fontSize: 13.5 }}>
+        <span>📱 شركات محفوظة: <b style={{ color: "#e2e8f0" }}>{n ? n.operator : "…"}</b></span>
+        <span>⚡ عروض محفوظة: <b style={{ color: "#e2e8f0" }}>{n ? n.offers : "…"}</b></span>
+      </div>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <input dir="ltr" value={gsm} onChange={(e) => setGsm(e.target.value)} placeholder="5XXXXXXXXX (اختياري)"
+          style={{ ...inputStyle, maxWidth: 220 }} />
+        <button style={{ ...addBtn, background: "#b91c1c" }} disabled={busy} onClick={() => clear("all")}>🗑 تصفير كل الحفظ</button>
+        <button style={btn} disabled={busy} onClick={() => clear("operator")}>الشركات فقط</button>
+        <button style={btn} disabled={busy} onClick={() => clear("offers")}>العروض فقط</button>
+      </div>
+      {msg && <div style={{ color: msg.ok ? "#4ade80" : "#f87171", fontSize: 13, marginTop: 10 }}>{msg.text}</div>}
     </div>
   );
 }

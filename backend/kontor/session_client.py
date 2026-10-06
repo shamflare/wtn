@@ -5,6 +5,7 @@
 يُبقي المتصفّح خارج عمّال gunicorn — هنا طلب HTTP داخليّ خفيف فقط.
 """
 import os
+from datetime import timedelta
 
 import requests
 
@@ -76,17 +77,65 @@ def check_login() -> bool:
     return bool(_get("/login", {}, ignore_switch=True).get("ok"))
 
 
+# مدّة الكاش: شركة الرقم نادراً ما تتغيّر (نقل الرقم)، والعروض تتبدّل يومياً
+OPERATOR_TTL = timedelta(days=30)
+OFFERS_TTL = timedelta(hours=24)
+
+
+def _cached(kind: str, gsm: str, operator: str = ""):
+    from django.utils import timezone
+
+    from .models import KontorLookupCache
+    row = KontorLookupCache.objects.filter(
+        kind=kind, gsm=gsm, operator=operator, expires_at__gt=timezone.now()).first()
+    return row.data.get("v") if row else None
+
+
+def _store(kind: str, gsm: str, value, ttl: timedelta, operator: str = ""):
+    from django.utils import timezone
+
+    from .models import KontorLookupCache
+    now = timezone.now()
+    KontorLookupCache.objects.filter(expires_at__lte=now).delete()  # المنتهي يُمسح تلقائياً
+    KontorLookupCache.objects.update_or_create(
+        kind=kind, gsm=gsm, operator=operator,
+        defaults={"data": {"v": value}, "expires_at": now + ttl})
+
+
+def forget_offers(gsm: str):
+    """بعد شحن الرقم تتغيّر عروضه — يُنسى كاشها فيُجلب جديداً عند الكشف التالي."""
+    from .models import KontorLookupCache
+    KontorLookupCache.objects.filter(kind=KontorLookupCache.Kind.OFFERS, gsm=gsm).delete()
+
+
 def detect_operator(gsm: str, ignore_switch: bool = False) -> str | None:
-    """الشركة المكتشفة ⇐ رمزنا (Turkcell/Vodafone/Avea/Callback) أو None."""
+    """
+    الشركة المكتشفة ⇐ رمزنا (Turkcell/Vodafone/Avea/Callback) أو None.
+    من الكاش إن كُشف خلال شهر. ignore_switch (اختبار /sorgula) يتجاوز الكاش فيختبر الحساب فعلاً.
+    """
+    if not ignore_switch:
+        hit = _cached("operator", gsm)
+        if hit:
+            return hit
     html = _get("/detect", {"gsm": gsm}, ignore_switch).get("html", "")
-    return parse_operator(html)
+    op = parse_operator(html)
+    if op:  # الفشل لا يُحفظ — يُعاد الكشف في المرّة التالية
+        _store("operator", gsm, op, OPERATOR_TTL)
+    return op
 
 
 def fetch_offers(gsm: str, operator: str, ignore_switch: bool = False) -> list[dict]:
-    """عروض الرقم الخاصة (بصيغة panel_parse). operator برمزنا."""
+    """عروض الرقم الخاصة (بصيغة panel_parse). operator برمزنا. من الكاش إن جُلبت خلال 24 ساعة."""
+    if not ignore_switch:
+        hit = _cached("offers", gsm, operator)
+        if hit is not None:
+            return hit
     znet_op = _TO_ZNET.get(operator, operator.upper())
     html = _get("/offers", {"gsm": gsm, "operator": znet_op}, ignore_switch).get("html", "")
-    return parse_offers(html)
+    offers = parse_offers(html)
+    if offers:  # ردٌّ فارغ قد يكون عطلاً عابراً — لا يُحفظ يوماً كاملاً
+        _store("offers", gsm, offers, OFFERS_TTL, operator)
+    return offers
 
 
 def health() -> bool:

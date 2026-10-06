@@ -218,6 +218,31 @@ class KontorSessionConfig(models.Model):
         return bool(self.base_url and self.username and self.password)
 
 
+class KontorLookupCache(models.Model):
+    """
+    كاش الكشف — على مستوى المنصّة (شركة الرقم وعروضه حقيقةٌ واحدة لكل المتاجر).
+    كشف الشركة يُحفظ شهراً والعروض 24 ساعة (TTL في session_client)؛ المنتهي يُمسح
+    تلقائياً، والكشف من جديد بعد انتهائه يحفظه مدّة جديدة.
+    """
+
+    class Kind(models.TextChoices):
+        OPERATOR = "operator", "شركة الرقم"
+        OFFERS = "offers", "العروض"
+
+    kind = models.CharField(max_length=10, choices=Kind.choices)
+    gsm = models.CharField(max_length=15)
+    operator = models.CharField(max_length=10, blank=True, default="")  # للعروض: شركة الرقم
+    data = models.JSONField(default=dict)
+    expires_at = models.DateTimeField(db_index=True)
+    created_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "kontor_lookup_cache"
+        constraints = [
+            models.UniqueConstraint(fields=["kind", "gsm", "operator"], name="uniq_kontor_lookup")
+        ]
+
+
 class KontorPriceGroup(models.Model):
     """مجموعة أسعار للخطوط (Fiyat Grubu) — يُربط بها الوكيل لكل شركة."""
 

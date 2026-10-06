@@ -115,6 +115,8 @@ def create_order(dealer, package: KontorPackage, gsm: str, dealer_sell_price=Non
     order.save(update_fields=["tekil"])
     txn.ref_type = "kontor_order"; txn.ref_id = order.id
     txn.save(update_fields=["ref_type", "ref_id"])
+    from .session_client import forget_offers
+    forget_offers(gsm)  # الشحن يغيّر عروض الرقم — لا تُعرض عروض الأمس بعده
     return order
 
 

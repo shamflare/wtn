@@ -202,3 +202,40 @@ class CustomCategoryTest(Base):
         r = self.client.post("/api/kontor/categories/", {
             "operator": "Avea", "name": "فارغة", "line_type": "Tam"}, format="json")
         self.assertEqual(self.client.delete("/api/kontor/categories/", {"id": r.json()["id"]}, format="json").status_code, 200)
+
+
+class LookupCacheTest(Base):
+    def test_operator_month_offers_day_and_forget(self):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from . import session_client as sc
+        from .models import KontorLookupCache
+        html = {"/detect": {"html": "x"}, "/offers": {"html": "y"}}
+        offers = [{"znet_id": "476647", "name": "n", "details": "", "days": 0, "gb": 0, "minutes": 0,
+                   "shown_price": "1", "cost": "1", "is_offer": True}]
+        with mock.patch.object(sc, "_get", side_effect=lambda p, *a, **k: html[p]) as g, \
+                mock.patch.object(sc, "parse_operator", return_value="Turkcell"), \
+                mock.patch.object(sc, "parse_offers", return_value=offers):
+            self.assertEqual(sc.detect_operator("5442199992"), "Turkcell")
+            self.assertEqual(sc.detect_operator("5442199992"), "Turkcell")
+            self.assertEqual(sc.fetch_offers("5442199992", "Turkcell"), offers)
+            self.assertEqual(sc.fetch_offers("5442199992", "Turkcell"), offers)
+            self.assertEqual(g.call_count, 2)  # مرّة لكلٍّ منهما — الثانية من الكاش
+            op_row = KontorLookupCache.objects.get(kind="operator")
+            self.assertGreater(op_row.expires_at, timezone.now() + timedelta(days=29))
+            of_row = KontorLookupCache.objects.get(kind="offers")
+            self.assertLess(of_row.expires_at, timezone.now() + timedelta(hours=25))
+            # بعد انتهاء المدّة يُكشف من جديد
+            KontorLookupCache.objects.update(expires_at=timezone.now() - timedelta(seconds=1))
+            sc.detect_operator("5442199992")
+            self.assertEqual(g.call_count, 3)
+            # اختبار /sorgula يتجاوز الكاش
+            sc.detect_operator("5442199992", ignore_switch=True)
+            self.assertEqual(g.call_count, 4)
+            # الشحن ينسى العروض
+            sc.fetch_offers("5442199992", "Turkcell")
+            p = self.pkg("476647"); p.recommended_price = Decimal("1000"); p.save()
+            create_order(self.dealer, p, "5442199992")
+            self.assertFalse(KontorLookupCache.objects.filter(kind="offers").exists())

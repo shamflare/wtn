@@ -344,6 +344,15 @@ class StoreTest(APITestCase):
         self.assertEqual(len(offers), 1)
         self.assertTrue(offers[0]["is_offer"])
         self.assertEqual(offers[0]["price"], "1000.00")  # السعر الموصى (بلا مجموعة)
+        # التفاصيل حُفظت في الكتالوج — تظهر في قائمة الباقات بلا كشف
+        p = KontorPackage.objects.get(znet_id="476647")
+        self.assertEqual((p.details, p.gb, p.minutes, p.days), ("d", 30, 1000, 30))
+        # وما كتبه المالك لا يُمسّ
+        p.details = "وصف المالك"; p.save()
+        with patch("kontor.session_client.fetch_offers", return_value=fake):
+            self.client.post("/api/kontor/store/offers/", {"gsm": "5442199992", "operator": "Turkcell"}, format="json")
+        p.refresh_from_db()
+        self.assertEqual(p.details, "وصف المالك")
 
     def test_offers_denied_when_not_allowed(self):
         from kontor.models import KontorDealerSetting

@@ -932,42 +932,49 @@ button.ag-stat:active { transform: scale(.98); }
 @media (min-width: 680px) { .km-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; } }
 @media (min-width: 1040px) { .km-grid { grid-template-columns: repeat(3, 1fr); } }
 
+/* بطاقة الباقة: هيدر بلون الشركة فيه الاسم، وجسم فاتح فيه المواصفات والسعر */
 .km-card {
-  position: relative; overflow: hidden; width: 100%; display: flex; align-items: center; gap: 12px;
-  padding: 16px; text-align: start; cursor: pointer; font: inherit;
-  color: var(--opi, var(--text)); border: 0; border-radius: 20px;
-  background:
-    radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--opa, #fff) 16%, transparent), transparent 55%),
-    linear-gradient(135deg, var(--op1, var(--surface)), var(--op2, var(--surface-2)));
-  box-shadow: 0 8px 22px color-mix(in srgb, var(--op1, #000) 28%, transparent);
+  position: relative; overflow: hidden; width: 100%; display: flex; flex-direction: column;
+  padding: 0; text-align: start; cursor: pointer; font: inherit; color: var(--text);
+  background: var(--surface); border: 1px solid var(--border); border-radius: 18px;
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--op1, #000) 12%, transparent);
   transition: transform .15s, box-shadow .15s;
   animation: agPop .2s ease-out both;
 }
-.km-card:hover { transform: translateY(-2px); box-shadow: 0 14px 30px color-mix(in srgb, var(--op1, #000) 38%, transparent); }
+.km-card:hover { transform: translateY(-2px); box-shadow: 0 10px 24px color-mix(in srgb, var(--op1, #000) 22%, transparent); }
 .km-card:active { transform: scale(.98); }
+.km-card-head {
+  position: relative; display: flex; align-items: center; gap: 9px; min-height: 50px; padding: 10px 14px;
+  color: var(--opi, #fff);
+  background:
+    radial-gradient(120% 160% at 0% 0%, color-mix(in srgb, var(--opa, #fff) 18%, transparent), transparent 55%),
+    linear-gradient(135deg, var(--op1, var(--primary)), var(--op2, var(--primary-soft)));
+}
 .km-card-mark {
-  position: absolute; inset-inline-end: 34%; top: 50%; width: 110px; height: 110px; transform: translateY(-50%);
-  object-fit: contain; opacity: .1; pointer-events: none; filter: saturate(0) brightness(3);
+  width: 28px; height: 28px; flex-shrink: 0; object-fit: contain; border-radius: 8px;
+  background: rgba(255,255,255,.18); padding: 2px;
 }
-.km-card-body { flex: 1; min-width: 0; position: relative; }
-.km-card-name { font-weight: 900; font-size: 15.5px; line-height: 1.45; }
-.km-card-det { font-size: 12px; margin-top: 5px; line-height: 1.55; opacity: .82; }
-.km-card .km-specs span {
-  background: rgba(255,255,255,.16); border-color: rgba(255,255,255,.22); color: inherit;
-}
+.km-card-name { flex: 1; min-width: 0; font-weight: 900; font-size: 15px; line-height: 1.4; }
+.km-card-main { display: flex; align-items: center; gap: 12px; padding: 12px 14px; flex: 1; }
+.km-card-body { flex: 1; min-width: 0; }
+.km-card .km-specs { margin-top: 0; }
+.km-card-det { font-size: 12px; margin-top: 6px; line-height: 1.55; color: var(--muted); }
+.km-card-tap { font-size: 12px; color: var(--faint); }
 .km-card-price {
-  position: relative; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: 3px;
-  min-width: 96px; padding: 10px 12px; border-radius: 16px;
-  background: #fff; color: var(--op1, var(--primary)); box-shadow: 0 4px 12px rgba(0,0,0,.18);
+  flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: 3px;
+  min-width: 92px; padding: 8px 12px; border-radius: 14px;
+  background: color-mix(in srgb, var(--op2, var(--primary)) 9%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--op2, var(--primary)) 25%, transparent);
+  /* لون الشركة ممزوجاً بلون النص: داكن في الفاتح وفاتح في الداكن — مقروء في الوضعين */
+  color: color-mix(in srgb, var(--op2, var(--primary)) 72%, var(--text));
 }
 .km-card-amt { font-size: 18px; font-weight: 900; font-variant-numeric: tabular-nums; white-space: nowrap; line-height: 1.2; }
-.km-card-rec { font-size: 10.5px; font-weight: 700; color: #6b7280; white-space: nowrap; }
-.km-card.offer { box-shadow: 0 0 0 2px #ec4899, 0 8px 22px color-mix(in srgb, #ec4899 30%, transparent); }
+.km-card-rec { font-size: 10.5px; font-weight: 700; color: var(--muted); white-space: nowrap; }
+.km-card.offer { border-color: #ec4899; box-shadow: 0 0 0 1px #ec4899, 0 6px 18px color-mix(in srgb, #ec4899 22%, transparent); }
 .km-ribbon {
-  position: absolute; top: 0; inset-inline-start: 0; padding: 3px 12px 4px; z-index: 1;
-  border-end-end-radius: 12px; background: #ec4899; color: #fff; font-size: 11px; font-weight: 800;
+  flex-shrink: 0; padding: 3px 10px 4px; border-radius: 999px;
+  background: #ec4899; color: #fff; font-size: 11px; font-weight: 800; box-shadow: 0 2px 6px rgba(0,0,0,.18);
 }
-.km-card.offer .km-card-body { padding-top: 10px; }
 
 .km-specs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
 .km-specs span {
@@ -1010,7 +1017,7 @@ button.ag-stat:active { transform: scale(.98); }
 @media (max-width: 380px) {
   .km-num-ico { display: none; }
   .ag .km-num-field input { font-size: 19px; letter-spacing: .5px; }
-  .km-card { padding: 14px 12px; }
+  .km-card-head, .km-card-main { padding-inline: 12px; }
   .km-card-price { min-width: 84px; padding: 8px; }
 }
 

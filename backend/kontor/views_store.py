@@ -101,6 +101,22 @@ def store_packages_view(request):
     })
 
 
+def _learn_specs(p: KontorPackage, o: dict) -> None:
+    """
+    تفاصيل الباقة (الوصف · GB · الدقائق · الأيام) لا يعطيها paket_listesi بل صفحة
+    العروض وحدها — فنحفظها في الكتالوج أوّل ما تظهر، فتبدو للوكلاء قبل أي كشف.
+    تملأ الفارغ فقط: ما كتبه المالك بيده لا يُمسّ.
+    """
+    changed = []
+    if not p.details and o.get("details"):
+        p.details = str(o["details"])[:300]; changed.append("details")
+    for f in ("gb", "minutes", "days"):
+        if not getattr(p, f) and o.get(f):
+            setattr(p, f, int(o[f])); changed.append(f)
+    if changed:
+        p.save(update_fields=changed + ["updated_at"])
+
+
 def live_offers(user, gsm: str, op: str) -> list[dict]:
     """
     العروض الحيّة لرقمٍ مطابَقةً مع كتالوجنا وبأسعار هذا الوكيل — العروض الوردية
@@ -116,6 +132,7 @@ def live_offers(user, gsm: str, op: str) -> list[dict]:
         p = catalog.get(o["znet_id"])
         if not p:
             continue  # غير موجودة في كتالوجنا (استورِد لتظهر وتُسعَّر)
+        _learn_specs(p, o)
         rows.append({
             "id": p.id, "link_code": p.link_code, "znet_id": p.znet_id, "name": p.name,
             "details": o.get("details") or p.details,

@@ -1741,16 +1741,21 @@ function PkgCard({ p, sym, logo, onPick }: { p: KPkg; sym: string; logo: string;
   const rec = Number(p.recommended_price || 0);
   return (
     <button type="button" className={`km-card${offer ? " offer" : ""}`} onClick={onPick}>
-      {logo && <img src={logo} alt="" className="km-card-mark" />}
-      {offer && <span className="km-ribbon">★ عرض</span>}
-      <div className="km-card-body">
+      <div className="km-card-head">
+        {logo && <img src={logo} alt="" className="km-card-mark" />}
         <div className="km-card-name">{p.name}</div>
-        <Specs p={p} />
-        {p.details && <div className="km-card-det">{p.details}</div>}
+        {offer && <span className="km-ribbon">★ عرض</span>}
       </div>
-      <div className="km-card-price">
-        <Amt v={p.price} sym={sym} className="km-card-amt" />
-        {rec > 0 && <span className="km-card-rec">المقترح <Amt v={rec} sym={sym} /></span>}
+      <div className="km-card-main">
+        <div className="km-card-body">
+          <Specs p={p} />
+          {p.details && <div className="km-card-det">{p.details}</div>}
+          {!p.details && !(p.gb || p.minutes || p.days) && <div className="km-card-tap">اضغط للشحن</div>}
+        </div>
+        <div className="km-card-price">
+          <Amt v={p.price} sym={sym} className="km-card-amt" />
+          {rec > 0 && <span className="km-card-rec">المقترح <Amt v={rec} sym={sym} /></span>}
+        </div>
       </div>
     </button>
   );

@@ -17,8 +17,15 @@ interface Pkg {
   provider_cost: string; cost_price: string; recommended_price: string; profit: string;
   kind: "general" | "offer"; kind_label: string;
   status: "active" | "passive" | "sale_paused"; status_label: string;
-  sort_order: number;
+  sort_order: number; is_manual: boolean;
 }
+
+/* الفئات (Tür في ZNET) لنافذة «إضافة باقة» — بأسمائها القصيرة كما تظهر للوكيل */
+const LINE_TYPES = [
+  { k: "Ses", l: "Ses — باقات" }, { k: "Tam", l: "Tam — رصيد ليرة" }, { k: "3gCep", l: "3gCep — إنترنت" },
+  { k: "3gPc", l: "Wifi — إنترنت PC" }, { k: "Sms", l: "Sms — رسائل" }, { k: "Yds", l: "Yds — دولي" },
+  { k: "BimCell", l: "BiP (BimCell)" }, { k: "Mtn", l: "MTN سوري" }, { k: "Syriatel", l: "Syriatel سوري" },
+];
 
 // المعطّلة لا تظهر هنا — لها عرضها الخاص بزر «إظهار المعطّلة»
 const STATUS = [
@@ -43,6 +50,7 @@ export default function Kontor() {
   const [modal, setModal] = useState<Pkg | null>(null);
   const ledger = useLedger();
   const [importing, setImporting] = useState(false);
+  const [adding, setAdding] = useState(false);
   const [showOff, setShowOff] = useState(false);  // عرض المعطّلة وحدها
   const [confirmDel, setConfirmDel] = useState(false);
 
@@ -180,8 +188,11 @@ export default function Kontor() {
       <ScrollTop />
       <h2 style={pageTitle}>
         <Icon name="phone" size={20} /> باقات الخطوط
-        <button className="btn g" onClick={() => setImporting(true)}
+        <button className="btn" onClick={() => setAdding(true)}
           style={{ marginInlineStart: "auto", fontSize: 13.5 }}>
+          <Icon name="plus" size={15} style={ib} />إضافة باقة
+        </button>
+        <button className="btn g" onClick={() => setImporting(true)} style={{ fontSize: 13.5 }}>
           <Icon name="refresh" size={15} style={ib} />استيراد من ZNET
         </button>
       </h2>
@@ -303,6 +314,7 @@ export default function Kontor() {
                           <td className="cell-start">
                             <div style={{ fontWeight: 700 }}>
                               {p.name}
+                              {p.is_manual && <span title="أضفتها بيدك — ليست من ZNET" style={renamedTag}>يدوية</span>}
                               {p.provider_name && p.name !== p.provider_name && (
                                 <span title={`اسمها في ZNET: ${p.provider_name}`} style={renamedTag}>معدَّل</span>
                               )}
@@ -366,6 +378,15 @@ export default function Kontor() {
       {modal && (
         <PackageModal pkg={modal} onClose={() => setModal(null)}
           onSaved={(p) => { setPkgs((l) => l.map((x) => (x.id === p.id ? p : x))); setModal(null); say("✅ حُفظت الباقة"); }} />
+      )}
+      {adding && (
+        <AddPackageModal op={op} onClose={() => setAdding(false)}
+          onSaved={(p) => {
+            setPkgs((l) => [...l, p]); setAdding(false);
+            if (p.operator !== op) switchOp(p.operator);
+            if (showOff) switchView(false);
+            say(`✅ أُضيفت «${p.name}» برقم ربط ${p.link_code}`);
+          }} />
       )}
       {importing && (
         <ProviderPickModal title="استيراد الباقات من ZNET" action="استيراد" busyText="جارٍ الاستيراد..."
@@ -485,6 +506,76 @@ function PackageModal({ pkg, onClose, onSaved }: { pkg: Pkg; onClose: () => void
             <option value="active">نشطة</option><option value="passive">معطّلة</option><option value="sale_paused">بيع موقوف</option>
           </select>
         </Field>
+      </div>
+    </Modal>
+  );
+}
+
+/** نافذة «إضافة باقة» يدوية — لباقة ليست لدى ZNET، بكلفة يكتبها المالك. */
+function AddPackageModal({ op, onClose, onSaved }: { op: string; onClose: () => void; onSaved: (p: Pkg) => void }) {
+  const ledger = useLedger();
+  const [f, setF] = useState({
+    operator: op, line_type: "Ses", name: "", details: "", cost: "", recommended_price: "",
+    link_code: "", kind: "general",
+  });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const set = (k: keyof typeof f, v: string) => setF((o) => ({ ...o, [k]: v }));
+  const ok = f.name.trim() && f.cost !== "";
+
+  async function save() {
+    setBusy(true); setErr("");
+    try {
+      const r = await api.post("/kontor/packages/", { ...f, name: f.name.trim(), link_code: f.link_code.trim() });
+      onSaved(r.data);
+    } catch (e: any) {
+      setErr(e?.response?.data?.detail || "تعذّر الإضافة — تحقّق من القيم");
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <Modal title="إضافة باقة يدوياً" onClose={onClose} width={520} footer={<>
+      {err && <span style={errText}>{err}</span>}
+      <button className="btn" style={{ marginInlineStart: "auto" }} onClick={onClose}>إلغاء</button>
+      <button className="btn g" disabled={busy || !ok} onClick={save}>{busy ? "جارٍ الإضافة..." : "إضافة"}</button>
+    </>}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <Field label="الشركة">
+          <select value={f.operator} onChange={(e) => set("operator", e.target.value)} style={input}>
+            {OPERATORS.map((o) => <option key={o.code} value={o.code}>{o.label}</option>)}
+          </select>
+        </Field>
+        <Field label="الفئة">
+          <select value={f.line_type} onChange={(e) => set("line_type", e.target.value)} style={input}>
+            {LINE_TYPES.map((t) => <option key={t.k} value={t.k}>{t.l}</option>)}
+          </select>
+        </Field>
+      </div>
+      <Field label="اسم الباقة">
+        <input autoFocus value={f.name} onChange={(e) => set("name", e.target.value)} style={input} placeholder="مثال: 20GB شهري" />
+      </Field>
+      <Field label="التفاصيل" hint="اختياري — سطر قصير يراه الوكيل تحت الاسم">
+        <input value={f.details} onChange={(e) => set("details", e.target.value)} style={input} />
+      </Field>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <Field label={`الكلفة (${ledger.base || "…"})`}>
+          <input type="number" step="any" value={f.cost} onChange={(e) => set("cost", e.target.value)} style={input} />
+        </Field>
+        <Field label={`السعر الموصى (${ledger.base || "…"})`}>
+          <input type="number" step="any" value={f.recommended_price} onChange={(e) => set("recommended_price", e.target.value)} style={input} />
+        </Field>
+        <Field label="رقم الربط" hint="اتركه فارغاً فيُعطى تلقائياً (M1، M2…)">
+          <input value={f.link_code} dir="ltr" onChange={(e) => set("link_code", e.target.value)} style={input} />
+        </Field>
+        <Field label="النوع">
+          <select value={f.kind} onChange={(e) => set("kind", e.target.value)} style={input}>
+            <option value="general">عامة</option><option value="offer">عرض</option>
+          </select>
+        </Field>
+      </div>
+      <div style={preview}>
+        ⚙️ الباقة اليدوية لا تُرسَل إلى أي مزوّد حتى تربطها برقمها لديه في <b>«التوجيه والمزوّدون»</b> —
+        وقبل ذلك يُرفض طلبها ويُرجَع المال للوكيل تلقائياً. كلفتها تعدّلها متى شئت من «مجموعات الأسعار».
       </div>
     </Modal>
   );

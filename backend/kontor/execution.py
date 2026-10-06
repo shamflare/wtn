@@ -156,7 +156,7 @@ def _code_for(package: KontorPackage, provider) -> str | None:
     link = package.links.filter(provider=provider).first()
     if link is not None:
         return link.code
-    if not package.links.exists():
+    if not package.links.exists() and not package.is_manual:
         return package.znet_id
     return None
 

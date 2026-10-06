@@ -111,6 +111,9 @@ class KontorPackage(models.Model):
 
     kind = models.CharField(max_length=8, choices=Kind.choices, default=Kind.GENERAL)
     status = models.CharField(max_length=12, choices=Status.choices, default=Status.ACTIVE)
+    # أضافها المالك بيده (ليست من استيراد ZNET) — znet_id عندها معرّف داخلي M1، M2…
+    # فلا يُرسَل إلى أي مزوّد إلا برقمها لديه في «التوجيه».
+    is_manual = models.BooleanField(default=False)
 
     # التوجيه: المزوّد الرئيسي ثم بدائله (كبدائل الألعاب)
     provider = models.ForeignKey(

@@ -137,3 +137,34 @@ class ManualCostTest(Base):
     def test_rejects_negative(self):
         r = self.client.post("/api/kontor/set-cost/", {"package": self.pkg("100").id, "cost": "-1"}, format="json")
         self.assertEqual(r.status_code, 400)
+
+
+class ManualPackageTest(Base):
+    def test_create_manual_package(self):
+        r = self.client.post("/api/kontor/packages/", {
+            "operator": "Vodafone", "line_type": "Ses", "name": "باقة خاصة",
+            "cost": "120", "recommended_price": "130"}, format="json")
+        self.assertEqual(r.status_code, 201, r.content)
+        p = KontorPackage.objects.get(pk=r.json()["id"])
+        self.assertTrue(p.is_manual)
+        self.assertEqual((p.znet_id, p.link_code, p.cost_price), ("M1", "M1", Decimal("120.00")))
+        self.assertEqual(p.category.line_type, "Ses")
+        r2 = self.client.post("/api/kontor/packages/", {
+            "operator": "Vodafone", "line_type": "Ses", "name": "ثانية", "cost": "1"}, format="json")
+        self.assertEqual(r2.json()["znet_id"], "M2")
+
+    def test_link_code_taken_and_validation(self):
+        r = self.client.post("/api/kontor/packages/", {
+            "operator": "Turkcell", "line_type": "Tam", "name": "x", "cost": "1", "link_code": "100"}, format="json")
+        self.assertEqual(r.status_code, 400)
+        r = self.client.post("/api/kontor/packages/", {"operator": "Turkcell", "name": "x"}, format="json")
+        self.assertEqual(r.status_code, 400)
+
+    def test_manual_unlinked_is_never_sent(self):
+        from .execution import _code_for
+        r = self.client.post("/api/kontor/packages/", {
+            "operator": "Turkcell", "line_type": "Ses", "name": "يدوية", "cost": "1"}, format="json")
+        p = KontorPackage.objects.get(pk=r.json()["id"])
+        self.assertIsNone(_code_for(p, self.a))
+        KontorPackageLink.objects.create(tenant=self.tenant, package=p, provider=self.a, code="555")
+        self.assertEqual(_code_for(p, self.a), "555")

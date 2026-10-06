@@ -34,10 +34,10 @@ class KontorPackageSerializer(serializers.ModelSerializer):
             "provider_cost", "cost_price", "recommended_price", "profit",
             "kind", "kind_label", "status", "status_label",
             "provider", "provider_alt1", "provider_alt2", "provider_package_id",
-            "sort_order", "updated_at",
+            "sort_order", "is_manual", "updated_at",
         ]
         # المعرّف والكلفة والمشغّل يأتون من الاستيراد؛ المالك يملك الباقي
-        read_only_fields = ["tenant", "operator", "znet_id", "provider_name", "provider_cost", "cost_price", "updated_at"]
+        read_only_fields = ["tenant", "operator", "znet_id", "provider_name", "provider_cost", "cost_price", "is_manual", "updated_at"]
 
     def validate_name(self, value):
         """الاسم شكليّ يسمّيه المالك كما يشاء — فارغٌ يعيده إلى اسم ZNET."""

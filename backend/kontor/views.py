@@ -51,12 +51,18 @@ def categories_view(request):
     return Response({"ok": True})
 
 
-@api_view(["GET"])
+@api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated])
 def packages_view(request):
-    """باقات المتجر، مع تصفية اختيارية بالمشغّل ?operator= والنوع ?line_type=."""
+    """
+    GET: باقات المتجر، مع تصفية اختيارية بالمشغّل ?operator= والنوع ?line_type=.
+    POST: باقة يدوية {operator, line_type, name, cost, recommended_price?, details?,
+    link_code?, kind?} — لباقة ليست لدى ZNET؛ كلفتها بعملة الدفتر.
+    """
     if not _require_admin(request):
         return Response({"detail": "مخصّص لصاحب المتجر"}, status=403)
+    if request.method == "POST":
+        return _create_manual(request)
     qs = KontorPackage.objects.filter(tenant=request.user.tenant).select_related("category")
     op = request.query_params.get("operator")
     lt = request.query_params.get("line_type")
@@ -180,3 +186,49 @@ def packages_delete_view(request):
     n = qs.count()
     qs.delete()
     return Response({"deleted": n})
+
+
+def _create_manual(request):
+    from decimal import Decimal, InvalidOperation
+
+    from .models import LineType, Operator
+    from .services import SHORT_NAME, free_link_code
+    tenant = request.user.tenant
+    d = request.data
+    op, lt = d.get("operator"), d.get("line_type")
+    name = (d.get("name") or "").strip()
+    if op not in Operator.values or lt not in LineType.values:
+        return Response({"detail": "اختر الشركة والفئة"}, status=400)
+    if not name:
+        return Response({"detail": "اسم الباقة مطلوب"}, status=400)
+    try:
+        cost = Decimal(str(d.get("cost") or "0").replace(",", ".")).quantize(Decimal("0.01"))
+        rec = Decimal(str(d.get("recommended_price") or "0").replace(",", ".")).quantize(Decimal("0.01"))
+    except InvalidOperation:
+        return Response({"detail": "الكلفة أو السعر غير صحيح"}, status=400)
+    if cost < 0 or rec < 0:
+        return Response({"detail": "الأسعار لا تكون سالبة"}, status=400)
+
+    cat, _ = KontorCategory.objects.get_or_create(
+        tenant=tenant, operator=op, line_type=lt, defaults={"name": SHORT_NAME.get(lt, lt)})
+    n = 1
+    while KontorPackage.objects.filter(tenant=tenant, operator=op, znet_id=f"M{n}").exists():
+        n += 1
+    pkg = KontorPackage(
+        tenant=tenant, operator=op, category=cat, znet_id=f"M{n}", name=name, provider_name=name,
+        details=(d.get("details") or "").strip()[:300], cost_price=cost, recommended_price=rec,
+        kind=d.get("kind") if d.get("kind") in KontorPackage.Kind.values else KontorPackage.Kind.GENERAL,
+        is_manual=True,
+    )
+    code = (d.get("link_code") or "").strip()
+    if code:
+        ser = KontorPackageSerializer(instance=pkg)
+        try:
+            pkg.link_code = ser.validate_link_code(code)
+        except Exception as e:  # noqa: BLE001 — ValidationError برسالته العربية
+            msg = getattr(e, "detail", [str(e)])
+            return Response({"detail": msg[0] if isinstance(msg, list) else str(msg)}, status=400)
+    else:
+        pkg.link_code = free_link_code(tenant, pkg.znet_id, op)
+    pkg.save()
+    return Response(KontorPackageSerializer(pkg).data, status=status.HTTP_201_CREATED)

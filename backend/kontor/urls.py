@@ -11,7 +11,7 @@ from .views_store import (
 from .views_routing import auto_link_view, link_view, providers_view, routing_view
 from .views_pricing import (
     admin_orders_view, bulk_price_view, dealer_settings_view, price_group_delete_view,
-    price_groups_view, price_matrix_view, set_price_view,
+    price_groups_view, price_matrix_view, set_cost_view, set_price_view,
 )
 
 urlpatterns = [
@@ -32,6 +32,7 @@ urlpatterns = [
     path("price-groups/<int:pk>/", price_group_delete_view, name="kontor-price-group-delete"),
     path("price-matrix/", price_matrix_view, name="kontor-price-matrix"),
     path("set-price/", set_price_view, name="kontor-set-price"),
+    path("set-cost/", set_cost_view, name="kontor-set-cost"),
     path("bulk-price/", bulk_price_view, name="kontor-bulk-price"),
     path("dealer-settings/", dealer_settings_view, name="kontor-dealer-settings"),
     path("orders/", admin_orders_view, name="kontor-admin-orders"),

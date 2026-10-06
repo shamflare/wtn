@@ -124,6 +124,34 @@ def set_price_view(request):
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
+def set_cost_view(request):
+    """
+    {package, cost}: كلفة يدوية بعملة الدفتر — لباقة ليست لدى ZNET أو كلفة يريدها المالك.
+    تُصفَّر كلفة ZNET المحفوظة فلا يعيدها تغيّر سعر الصرف؛ وزر «تحديث التكلفة» وحده
+    يعيدها إلى كلفة المزوّد إن كانت مربوطة به. الخلايا المرتبطة بالكلفة تتبعها.
+    """
+    if not _require_admin(request):
+        return Response({"detail": "مخصّص لصاحب المتجر"}, status=403)
+    tenant = request.user.tenant
+    pkg = KontorPackage.objects.filter(pk=request.data.get("package"), tenant=tenant).first()
+    if not pkg:
+        return Response({"detail": "باقة غير صحيحة"}, status=400)
+    try:
+        cost = _dec(request.data.get("cost")).quantize(Decimal("0.01"))
+    except (InvalidOperation, TypeError):
+        return Response({"detail": "كلفة غير صحيحة"}, status=400)
+    if cost < 0:
+        return Response({"detail": "الكلفة لا تكون سالبة"}, status=400)
+    pkg.cost_price = cost
+    pkg.provider_cost = Decimal("0")
+    pkg.save(update_fields=["cost_price", "provider_cost", "updated_at"])
+    for g in KontorPriceGroup.objects.filter(tenant=tenant):
+        services.recompute_group_prices(g)
+    return Response({"package": pkg.id, "cost_price": str(pkg.cost_price)})
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
 def bulk_price_view(request):
     """
     تسعير جماعي لباقات شركةٍ واحدة (كنظيره في الألعاب):

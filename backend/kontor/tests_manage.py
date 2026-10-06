@@ -114,3 +114,26 @@ class DeleteTest(Base):
         r = self.client.post("/api/kontor/packages/delete/", {"ids": [p.id]}, format="json")
         self.assertEqual(r.status_code, 400)
         self.assertTrue(KontorPackage.objects.filter(pk=p.id).exists())
+
+
+class ManualCostTest(Base):
+    def test_manual_cost_then_refresh_restores_znet(self):
+        p = self.pkg("476647")
+        g = KontorPriceGroup.objects.create(tenant=self.tenant, name="VIP")
+        self.client.post("/api/kontor/set-price/", {"package": p.id, "group": g.id,
+                                                    "mode": "fixed", "value": "5"}, format="json")
+        r = self.client.post("/api/kontor/set-cost/", {"package": p.id, "cost": "800"}, format="json")
+        self.assertEqual(r.status_code, 200, r.content)
+        p.refresh_from_db()
+        self.assertEqual((p.cost_price, p.provider_cost), (Decimal("800.00"), Decimal("0")))
+        self.assertEqual(KontorPackagePrice.objects.get(package=p, group=g).price, Decimal("805.00"))
+
+        with mock.patch("kontor.services.requests.get", return_value=_resp(FEED)):
+            self.client.post("/api/kontor/refresh-costs/", {"provider": self.a.id}, format="json")
+        p.refresh_from_db()
+        self.assertEqual(p.cost_price, Decimal("970.00"))
+        self.assertEqual(KontorPackagePrice.objects.get(package=p, group=g).price, Decimal("975.00"))
+
+    def test_rejects_negative(self):
+        r = self.client.post("/api/kontor/set-cost/", {"package": self.pkg("100").id, "cost": "-1"}, format="json")
+        self.assertEqual(r.status_code, 400)

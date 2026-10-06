@@ -24,8 +24,8 @@ function ruleLabel(c: Cell): string {
   return (c.mode === "percent" ? `${n}%` : `+${n}`) + (c.round ? "↑" : "");
 }
 
-// عمود الخلية قيد التحرير: رقم مجموعة، أو عمود الموصى
-type Col = number | "rec";
+// عمود الخلية قيد التحرير: رقم مجموعة، أو عمود الموصى، أو الكلفة
+type Col = number | "rec" | "cost";
 
 export default function KontorPrices() {
   const [op, setOp] = useState("Turkcell");
@@ -93,6 +93,20 @@ export default function KontorPrices() {
     setRows((rs) => rs.map((x) => (x.id === r.id ? { ...x, recommended_price: v } : x)));
   }
 
+  /** كلفة يدوية — الخلايا المرتبطة بالكلفة تتبعها، و«تحديث التكلفة» يعيدها إلى ZNET. */
+  async function saveCost(r: Row) {
+    const v = draft.trim();
+    setEditing(null);
+    if (v === "" || Number(v) === Number(r.cost_price)) return;
+    try {
+      await api.post("/kontor/set-cost/", { package: r.id, cost: v });
+      setToast(`✅ كلفة «${r.name}» صارت ${money(v)} يدوياً`); setTimeout(() => setToast(""), 5000);
+      await load();
+    } catch (e: any) {
+      setToast(e?.response?.data?.detail || "تعذّر حفظ الكلفة"); setTimeout(() => setToast(""), 5000);
+    }
+  }
+
   function cellInput(commit: () => void) {
     return (
       <input autoFocus type="number" step="any" value={draft} style={{ width: 84, height: 26 }}
@@ -158,6 +172,8 @@ export default function KontorPrices() {
       <div style={note}>
         اضغط على أي خلية سعر لتعديلها. الخلية <b style={{ color: "var(--primary-dark)" }}>الملوّنة</b> = سعر مخصّص
         للمجموعة، والرمادية = تتبع <b>السعر الموصى</b>. عمود الموصى قابل للتعديل هنا أيضاً.
+        و<b>الكلفة</b> تأتي من ZNET، واضغطها لتكتبها بيدك (لباقة ليست لدى ZNET مثلاً) فيظهر تحتها «يدوية» —
+        و«تحديث التكلفة» يعيدها إلى كلفة ZNET للباقات المربوطة به.
         <div style={{ marginTop: 4 }}>
           الخلية التي عليها وسم مثل <sup style={{ ...linkTag, position: "static" }}>10%</sup>{" "}
           <b>مرتبطة بالكلفة</b>: يُعاد حسابها تلقائياً مع كل «تحديث التكلفة» يغيّر كلفة ZNET.
@@ -196,10 +212,15 @@ export default function KontorPrices() {
                         {r.kind === "offer" && <span style={offerTag}>عرض</span>}
                         {r.status !== "active" && <span style={{ ...offerTag, background: "#eef1f2", color: "var(--muted)" }}>معطّلة</span>}
                       </td>
-                      <td className="num">
-                        <div className="buy">{money(r.cost_price)}</div>
-                        {ledger.base !== "TRY" && Number(r.provider_cost) > 0 &&
-                          <div style={{ fontSize: 11, color: "var(--faint)" }}>{money(r.provider_cost)} ₺</div>}
+                      <td className="num" style={{ cursor: "pointer" }}
+                        title="اضغط لتعديل الكلفة يدوياً — «تحديث التكلفة» يعيدها إلى كلفة ZNET"
+                        onClick={() => startEdit(r.id, "cost", Number(r.cost_price) ? r.cost_price : "")}>
+                        {editing?.p === r.id && editing?.g === "cost" ? cellInput(() => saveCost(r)) : (<>
+                          <div className="buy">{money(r.cost_price)}</div>
+                          {Number(r.provider_cost) > 0
+                            ? ledger.base !== "TRY" && <div style={{ fontSize: 11, color: "var(--faint)" }}>{money(r.provider_cost)} ₺</div>
+                            : Number(r.cost_price) > 0 && <div style={{ fontSize: 10.5, color: "var(--info)" }}>يدوية</div>}
+                        </>)}
                       </td>
                       <td className="num" style={{ cursor: "pointer" }}
                         onClick={() => startEdit(r.id, "rec", Number(r.recommended_price) ? r.recommended_price : "")}>

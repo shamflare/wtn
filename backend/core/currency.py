@@ -112,3 +112,18 @@ def convert_keys(row: dict, keys, user) -> dict:
         except (InvalidOperation, TypeError):
             pass
     return row
+
+
+SYMBOLS = {"TRY": "₺", "USD": "$", "SYP": "ل.س", "EUR": "€", "SAR": "﷼", "AED": "د.إ", "EGP": "ج.م"}
+
+
+def symbol_of(code: str) -> str:
+    return SYMBOLS.get(code, code)
+
+
+def fmt(user, amount) -> str:
+    """
+    مبلغٌ من الدفتر كما يقرؤه `user` في رسالة: بعملته ورمزها — «1,250.00 ₺».
+    كل رسالة فيها مالٌ تمرّ من هنا، وإلا قرأ وكيلٌ بالليرة دولاراتٍ لا يعرفها.
+    """
+    return f"{to_display(user, amount):,.2f} {symbol_of(display_currency(user))}"

@@ -1014,3 +1014,20 @@ class RoleGateTest(APITestCase):
 
     def test_owner_is_not_gated(self):
         self.assertEqual(self._get(self.admin, "/api/payments/methods/").status_code, 200)
+
+
+class WalletLimitMessageTest(TestCase):
+    """رسالة الحد الائتماني بعملة صاحب المحفظة — لا بدولارات الدفتر."""
+
+    def test_message_is_in_owner_currency(self):
+        from core import services
+        t = Tenant.objects.create(subdomain="wl", name="متجر", base_currency="USD",
+                                  exchange_rates={"TRY": "50"})
+        u = User.objects.create(login_id="wl-1", name="و", tenant=t, role=User.Role.ANA_BAYI,
+                                display_currency="TRY")
+        w = Wallet.objects.create(tenant=t, user=u, balance=Decimal("0"), credit_limit=Decimal("-40"))
+        with self.assertRaises(services.WalletError) as cm:
+            services.apply_transaction(w.id, Decimal("-41"), "order_debit")
+        msg = str(cm.exception)
+        self.assertIn("-2,000.00 ₺", msg)          # 40$ × 50
+        self.assertIn("الحد الائتماني", msg)         # يتعرّف بها الـ API الخارجي

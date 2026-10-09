@@ -38,8 +38,13 @@ def apply_transaction(
 
     # الحد الائتماني: أقصى قيمة سالبة مسموحة (credit_limit ≤ 0)
     if not allow_below_limit and after < wallet.credit_limit:
+        # بعملة صاحب المحفظة لا بعملة الدفتر. وعبارة «الحد الائتماني» يتعرّف
+        # بها الـ API الخارجي على «رصيد لا يكفي» — فلا تُغيَّر.
+        from .currency import fmt
+        owner = wallet.user
         raise WalletError(
-            f"الرصيد الناتج ({after}) يتجاوز الحد الائتماني ({wallet.credit_limit})"
+            f"الرصيد لا يكفي: الرصيد بعد العملية ({fmt(owner, after)}) "
+            f"يتجاوز الحد الائتماني ({fmt(owner, wallet.credit_limit)})"
         )
 
     wallet.balance = after

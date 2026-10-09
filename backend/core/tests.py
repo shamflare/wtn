@@ -1031,3 +1031,10 @@ class WalletLimitMessageTest(TestCase):
         msg = str(cm.exception)
         self.assertIn("-2,000.00 ₺", msg)          # 40$ × 50
         self.assertIn("الحد الائتماني", msg)         # يتعرّف بها الـ API الخارجي
+
+
+class RoleGateUploadTest(RoleGateTest):
+    def test_dealer_can_upload_receipt_image(self):
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.tok[self.bayi]}")
+        r = self.client.post("/api/catalog/images/", {})
+        self.assertEqual(r.status_code, 400)   # «لم يصل ملف» — لا 403

@@ -17,6 +17,7 @@ DEALER_PREFIXES = (
     "tickets/", "notifications/", "my-cards/", "announcement/",
     "settings/theme/", "settings/agent-theme/",   # القراءة فقط — الكتابة محروسة في الباب
     "kontor/store/", "payments/store/", "catalog/img/",
+    "catalog/images/",   # رفع صورة إيصال التحويل في «شحن رصيد»
 )
 # وفوقها للوكيل الكبير: لوحته كلّها وعدّادات هيدره
 AGENT_PREFIXES = DEALER_PREFIXES + ("agent/", "alerts/")

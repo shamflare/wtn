@@ -2,6 +2,7 @@ import { Fragment, useEffect, useState } from "react";
 import { api, type Order } from "../api";
 import Icon from "../components/Icon";
 import { useBaseSymbol } from "../currency";
+import DateRange, { rangeText, TODAY } from "../components/DateRange";
 
 // ألوان أيقونات الألعاب (حين لا توجد صورة)
 const GCOLORS = ["#101418,#2c343d", "#5b21b6,#8b5cf6", "#b45309,#f59e0b", "#065f46,#10b981", "#9d174d,#ec4899"];
@@ -19,7 +20,8 @@ const ROW_TONE: Record<string, string> = {
 
 interface Opt { id: number; name: string; game?: number }
 
-const EMPTY = { game: "", product: "", dealer: "", provider: "", q: "", phone: "", min: "", max: "", date_from: "", date_to: "", player: "" };
+// القائمة تفتح على طلبات اليوم — والفترة تُغيَّر من شريط التاريخ أعلاها
+const EMPTY = { game: "", product: "", dealer: "", provider: "", q: "", phone: "", min: "", max: "", player: "", ...TODAY };
 
 export default function Orders() {
   const cur = useBaseSymbol();
@@ -27,6 +29,7 @@ export default function Orders() {
   const [status, setStatus] = useState("all");
   const [f, setF] = useState({ ...EMPTY });
   const [loading, setLoading] = useState(true);
+  const [olderOpen, setOlderOpen] = useState(0);
   const [expanded, setExpanded] = useState<number | null>(null);
   // لوحة الفلاتر مطويّة افتراضياً — الجدول هو المقصود، لا نموذج البحث
   const [showFilters, setShowFilters] = useState(false);
@@ -49,7 +52,9 @@ export default function Orders() {
     setLoading(true);
     const params: any = { status: st };
     Object.entries(filters).forEach(([k, v]) => { if (v) params[k] = v; });
-    api.get("/orders/", { params }).then((r) => setOrders(r.data.results)).finally(() => setLoading(false));
+    api.get("/orders/", { params })
+      .then((r) => { setOrders(r.data.results); setOlderOpen(r.data.older_open || 0); })
+      .finally(() => setLoading(false));
   }
 
   /** يعيد جلب القائمة بصمت — بلا وميض "جارٍ التحميل". */
@@ -147,7 +152,11 @@ export default function Orders() {
   const money = (v: string) => Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 });
   const set = (k: string, v: string) => setF((old) => ({ ...old, [k]: v }));
   // عدد الفلاتر المفعّلة — يظهر على الزر فلا تختفي فلترة قائمة عن العين
-  const activeFilters = Object.values(f).filter(Boolean).length;
+  const activeFilters = Object.entries(f).filter(([k, v]) => v && !k.startsWith("date_")).length;
+  function setDates(d: { date_from: string; date_to: string }) {
+    const next = { ...f, ...d };
+    setF(next); setPicked([]); load(status, next);
+  }
   const shownProducts = f.game ? products.filter((p) => String(p.game) === f.game) : products;
 
   return (
@@ -173,6 +182,24 @@ export default function Orders() {
               <span style={{ marginInlineStart: 5, fontSize: 10 }}>{showFilters ? "▲" : "▼"}</span>
             </button>
           </span>
+        </div>
+        {/* الفترة ظاهرة دائماً — القائمة تفتح على اليوم، فلا تُقرأ على أنها كل الطلبات */}
+        <div style={{ padding: "10px 14px", borderBottom: "1px solid var(--border)", display: "flex",
+          gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+          <DateRange value={f} onChange={setDates} />
+          <span style={{ fontSize: 12.5, color: "var(--muted)" }}>
+            المعروض: <b style={{ color: "var(--text)" }}>{rangeText(f)}</b>
+          </span>
+          {olderOpen > 0 && (
+            <button className="btn" style={{ height: 30, fontSize: 12.5, background: "#b45309" }}
+              onClick={() => {
+                const next = { ...f, date_from: "", date_to: "" };
+                setF(next); setStatus("pending"); setPicked([]); load("pending", next);
+              }}>
+              <Icon name="warning" size={13} style={{ marginInlineEnd: 5, verticalAlign: -2 }} />
+              {olderOpen} طلب معلّق من أيام سابقة — عرضها
+            </button>
+          )}
         </div>
         {showFilters && (
         <div style={fgrid}>
@@ -204,12 +231,6 @@ export default function Orders() {
           <Field label="هاتف المشترك"><input value={f.phone} onChange={(e) => set("phone", e.target.value)} style={inp} /></Field>
           <Field label="أقل مبلغ"><input type="number" value={f.min} onChange={(e) => set("min", e.target.value)} style={inp} /></Field>
           <Field label="أعلى مبلغ"><input type="number" value={f.max} onChange={(e) => set("max", e.target.value)} style={inp} /></Field>
-          <Field label="تاريخ العملية (من / إلى)">
-            <div style={{ display: "flex", gap: 6 }}>
-              <input type="date" value={f.date_from} onChange={(e) => set("date_from", e.target.value)} style={{ ...inp, flex: 1 }} />
-              <input type="date" value={f.date_to} onChange={(e) => set("date_to", e.target.value)} style={{ ...inp, flex: 1 }} />
-            </div>
-          </Field>
           <Field label="معرّف اللاعب"><input value={f.player} onChange={(e) => set("player", e.target.value)} style={inp} /></Field>
           <div style={{ display: "flex", gap: 8, alignItems: "flex-end", gridColumn: "span 2" }}>
             <button className="btn g" style={{ height: 36, flex: 1 }} onClick={() => load()}>

@@ -1,21 +1,32 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import DateRange, { rangeText, TODAY, type Dates } from "../components/DateRange";
+import { symbolOf } from "../currency";
 
 interface Row { dealer: string; count: number; sell: string; profit: string }
 interface Totals { count: string; sell: string; profit: string }
 
-export default function DealerReport({ title, highlight }:
-  { title: string; highlight: "profit" | "sell" }) {
+/**
+ * تقرير الأرباح بحسب الوكيل — يفتح على اليوم. وللوكيل الكبير (`agent`) أرباحه هو
+ * من كل دكان من دكاكينه، بعملته.
+ */
+export default function DealerReport({ title, highlight, agent }:
+  { title: string; highlight: "profit" | "sell"; agent?: boolean }) {
   const [rows, setRows] = useState<Row[]>([]);
   const [totals, setTotals] = useState<Totals | null>(null);
   const [loading, setLoading] = useState(true);
+  const [dates, setDates] = useState<Dates>(TODAY);
+  const [cur, setCur] = useState("");
 
   useEffect(() => {
     setLoading(true);
-    api.get("/orders/reports/dealers/")
-      .then((r) => { setRows(r.data.results); setTotals(r.data.totals); })
+    const params: Record<string, string> = {};
+    if (dates.date_from) params.date_from = dates.date_from;
+    if (dates.date_to) params.date_to = dates.date_to;
+    api.get(agent ? "/agent/reports/dealers/" : "/orders/reports/dealers/", { params })
+      .then((r) => { setRows(r.data.results); setTotals(r.data.totals); setCur(r.data.currency || ""); })
       .finally(() => setLoading(false));
-  }, [title]);
+  }, [title, dates, agent]);
 
   const money = (v: string) => Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 });
   const hi = (col: "profit" | "sell") =>
@@ -23,10 +34,18 @@ export default function DealerReport({ title, highlight }:
 
   return (
     <div style={{ padding: 16 }}>
-      <h2 style={{ fontSize: 20, color: "var(--primary-dark)", marginBottom: 14 }}>{title}</h2>
+      <h2 style={{ fontSize: 20, color: "var(--primary-dark)", marginBottom: 12 }}>{title}</h2>
+      <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", background: "#f2f5f6",
+        padding: "12px 14px", borderRadius: 6, marginBottom: 12 }}>
+        <DateRange value={dates} onChange={setDates} />
+        <span style={{ fontSize: 12.5, color: "var(--muted)" }}>
+          الفترة المعروضة: <b style={{ color: "var(--text)" }}>{rangeText(dates)}</b>
+          {cur && <> · المبالغ بـ<b style={{ color: "var(--text)" }}>{symbolOf(cur)}</b></>}
+        </span>
+      </div>
       <table style={table}>
         <thead>
-          <tr>{["الوكيل", "عدد الطلبات", "إجمالي المبيعات", "إجمالي الربح"]
+          <tr>{[agent ? "الدكان" : "الوكيل", "عدد الطلبات", "إجمالي المبيعات", agent ? "ربحي" : "إجمالي الربح"]
             .map((h) => <th key={h} style={th}>{h}</th>)}</tr>
         </thead>
         <tbody>

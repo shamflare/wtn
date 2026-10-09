@@ -70,7 +70,7 @@ def dealer_row(o: KontorOrder, user) -> dict:
         "operator": o.operator, "game_name": OP_LABEL.get(o.operator, o.operator),
         "product": o.package_id, "product_name": o.package_name, "quantity": 1,
         "player_id": o.gsm, "customer_phone": "",
-        "paid_price": show(o.sell_price), "dealer_sell_price": show(o.dealer_sell_price),
+        "paid_price": show(o.buyer_price), "dealer_sell_price": show(o.dealer_sell_price),
         "dealer_profit": show(o.dealer_profit),
         "status": st, "status_label": LABEL[st], "pin_result": "",
         "provider_note": o.provider_note, "dealer_note": "", "last_sync_at": None,

@@ -1,52 +1,31 @@
 import { useEffect, useState } from "react";
 import { api, type Dealer, type Game } from "../api";
 import Icon from "../components/Icon";
+import DateRange, { rangeText, TODAY } from "../components/DateRange";
+import { symbolOf } from "../currency";
 
 interface Row { game: string; kind?: "game" | "mobile"; count: number; cost: string; sell: string; profit: string }
 interface Totals { count: string; cost: string; sell: string; profit: string }
 /** section: "" الكل · games الألعاب · mobile الموبايل (شحن الخطوط) */
 interface Filters { dealer: string; game: string; section: string; date_from: string; date_to: string }
 
-type Range = "today" | "week" | "month" | "custom";
-
-const RANGES: [Range, string][] = [
-  ["today", "اليوم"], ["week", "هذا الأسبوع"],
-  ["month", "هذا الشهر"], ["custom", "تاريخ مخصّص"],
-];
-
-/** تاريخ محلّي بصيغة YYYY-MM-DD. لا نستعمل toISOString: يعطي تاريخ UTC فيقفز اليوم قرب منتصف الليل. */
-const ymd = (d: Date) =>
-  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-
-/** حدود الفترة الجاهزة. الأسبوع يبدأ **الاثنين** — عدّل السطر إن أردته السبت. */
-function rangeDates(r: Range): { date_from: string; date_to: string } {
-  const now = new Date();
-  const today = ymd(now);
-  if (r === "today") return { date_from: today, date_to: today };
-  if (r === "week") {
-    const start = new Date(now);
-    start.setDate(start.getDate() - ((start.getDay() + 6) % 7));  // الاثنين = 0
-    return { date_from: ymd(start), date_to: today };
-  }
-  if (r === "month") {
-    return { date_from: ymd(new Date(now.getFullYear(), now.getMonth(), 1)), date_to: today };
-  }
-  return { date_from: "", date_to: "" };  // مخصّص: يحدّده المستخدم
-}
-
-export default function Reports() {
+/**
+ * تقرير المبيعات — لصاحب المتجر، وللوكيل الكبير (`agent`) على دكاكينه بمنظوره:
+ * الشراء ما دفعه للمتجر، والبيع ما دفعه دكانه له، والربح فرقهما.
+ */
+export default function Reports({ agent }: { agent?: boolean }) {
   const [dealers, setDealers] = useState<Dealer[]>([]);
   const [games, setGames] = useState<Game[]>([]);
   const [rows, setRows] = useState<Row[]>([]);
   const [totals, setTotals] = useState<Totals | null>(null);
-  const [range, setRange] = useState<Range>("today");
+  const [cur, setCur] = useState("");
   // الافتراضي: اليوم — فلا يفتح التقرير على تاريخ المتجر كلّه
-  const [filters, setFilters] = useState<Filters>(() => ({ dealer: "", game: "", section: "", ...rangeDates("today") }));
+  const [filters, setFilters] = useState<Filters>(() => ({ dealer: "", game: "", section: "", ...TODAY }));
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    api.get("/dealers/").then((r) => setDealers(r.data.results));
-    api.get("/catalog/games/").then((r) => setGames(r.data));
+    api.get(agent ? "/agent/dealers/" : "/dealers/").then((r) => setDealers(r.data.results));
+    if (!agent) api.get("/catalog/games/").then((r) => setGames(r.data));
     run(filters);
   }, []);
 
@@ -55,18 +34,10 @@ export default function Reports() {
     setLoading(true);
     const params: Record<string, string> = {};
     Object.entries(f).forEach(([k, v]) => { if (v) params[k] = v; });
-    api.get("/orders/reports/summary/", { params })
-      .then((r) => { setRows(r.data.results); setTotals(r.data.totals); })
+    if (agent && params.section) { params.kind = params.section; delete params.section; }
+    api.get(agent ? "/agent/reports/summary/" : "/orders/reports/summary/", { params })
+      .then((r) => { setRows(r.data.results); setTotals(r.data.totals); setCur(r.data.currency || ""); })
       .finally(() => setLoading(false));
-  }
-
-  /** الفترات الجاهزة تعرض فوراً؛ «مخصّص» ينتظر أن يختار المستخدم تاريخيه. */
-  function pickRange(r: Range) {
-    setRange(r);
-    if (r === "custom") return;  // نُبقي التاريخين الحاليين نقطةَ بداية للتعديل
-    const next = { ...filters, ...rangeDates(r) };
-    setFilters(next);
-    run(next);
   }
 
   function change(patch: Partial<Filters>) {
@@ -76,8 +47,7 @@ export default function Reports() {
   }
 
   function clear() {
-    setRange("today");
-    const next: Filters = { dealer: "", game: "", section: "", ...rangeDates("today") };
+    const next: Filters = { dealer: "", game: "", section: "", ...TODAY };
     setFilters(next);
     run(next);
   }
@@ -103,26 +73,11 @@ export default function Reports() {
       {/* الفلاتر */}
       <div style={filterBar}>
         <Field label="الفترة">
-          <div className="segment">
-            {RANGES.map(([k, label]) => (
-              <button key={k} className={range === k ? "active" : ""} onClick={() => pickRange(k)}>{label}</button>
-            ))}
-          </div>
+          <DateRange value={filters} onChange={(d) => change(d)} />
         </Field>
-        {/* التاريخان لا يظهران إلا مع «تاريخ مخصّص» */}
-        {range === "custom" && (
-          <>
-            <Field label="من تاريخ">
-              <input type="date" value={filters.date_from} onChange={(e) => change({ date_from: e.target.value })} />
-            </Field>
-            <Field label="إلى تاريخ">
-              <input type="date" value={filters.date_to} onChange={(e) => change({ date_to: e.target.value })} />
-            </Field>
-          </>
-        )}
-        <Field label="الوكيل">
+        <Field label={agent ? "الدكان" : "الوكيل"}>
           <select value={filters.dealer} onChange={(e) => change({ dealer: e.target.value })} style={{ width: 170 }}>
-            <option value="">كل الوكلاء</option>
+            <option value="">{agent ? "كل الدكاكين" : "كل الوكلاء"}</option>
             {dealers.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
           </select>
         </Field>
@@ -134,13 +89,13 @@ export default function Reports() {
             ))}
           </div>
         </Field>
-        <Field label="اللعبة">
+        {!agent && <Field label="اللعبة">
           <select value={filters.game} disabled={filters.section === "mobile"}
             onChange={(e) => change({ game: e.target.value })} style={{ width: 150 }}>
             <option value="">كل الألعاب</option>
             {games.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
           </select>
-        </Field>
+        </Field>}
         <button className="btn" onClick={() => run(filters)}><Icon name="search" size={15} style={{ marginInlineEnd: 5 }} />عرض التقرير</button>
         <button className="btn g" onClick={exportCsv}><Icon name="excel" size={15} style={{ marginInlineEnd: 5 }} />تصدير Excel</button>
         <button className="btn r" onClick={clear}>إزالة الفلاتر</button>
@@ -148,21 +103,15 @@ export default function Reports() {
 
       {/* الفترة المطبَّقة — فلا يُقرأ الجدول على أنه كل التاريخ */}
       <div style={{ fontSize: 12.5, color: "var(--muted)", margin: "-8px 0 12px" }}>
-        الفترة المعروضة: <b style={{ color: "var(--text)" }}>
-          {filters.date_from && filters.date_to
-            ? (filters.date_from === filters.date_to
-              ? filters.date_from
-              : `${filters.date_from} ← ${filters.date_to}`)
-            : filters.date_from ? `من ${filters.date_from}`
-            : filters.date_to ? `حتى ${filters.date_to}`
-            : "كل التواريخ"}
-        </b>
+        الفترة المعروضة: <b style={{ color: "var(--text)" }}>{rangeText(filters)}</b>
+        {cur && <> · المبالغ بـ<b style={{ color: "var(--text)" }}>{symbolOf(cur)}</b></>}
       </div>
 
       <table style={table}>
         <thead>
           <tr>
-            {["اللعبة / الموبايل", "العدد", "الشراء", "البيع", "الربح"].map((h) => <th key={h} style={th}>{h}</th>)}
+            {["اللعبة / الموبايل", "العدد", agent ? "تكلفتي (من المتجر)" : "الشراء",
+              agent ? "مبيعاتي (لدكاكيني)" : "البيع", agent ? "ربحي" : "الربح"].map((h) => <th key={h} style={th}>{h}</th>)}
           </tr>
         </thead>
         <tbody>

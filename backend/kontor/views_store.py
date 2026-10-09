@@ -181,7 +181,7 @@ def _order_row(user, o: KontorOrder) -> dict:
     return {
         "id": o.id, "gsm": o.gsm, "operator": o.operator,
         "package_name": o.package_name, "znet_id": o.znet_id,
-        "price": str(currency.to_display(user, o.sell_price)),
+        "price": str(currency.to_display(user, o.buyer_price)),
         "dealer_sell_price": str(currency.to_display(user, o.dealer_sell_price)),
         "dealer_profit": str(currency.to_display(user, o.dealer_profit)),
         "status": o.status, "status_label": o.get_status_display(),

@@ -136,13 +136,21 @@ def orders_view(request):
             qs = qs.filter(sell_price__lte=Decimal(p["max"]))
     except InvalidOperation:
         pass
+    # طلبات لم تُحسم من قبل الفترة المعروضة — القائمة تفتح على «اليوم»، فلا يغيب
+    # عن المشغّل طلبٌ معلّق من أمس
+    older_open = 0
     if p.get("date_from"):
+        older_open = Order.objects.filter(
+            tenant=tenant, created_at__date__lt=p["date_from"],
+            status__in=[Order.Status.PENDING, Order.Status.PROCESSING, Order.Status.STUCK],
+        ).count()
         qs = qs.filter(created_at__date__gte=p["date_from"])
     if p.get("date_to"):
         qs = qs.filter(created_at__date__lte=p["date_to"])
 
     return Response({
         "count": qs.count(),
+        "older_open": older_open,
         "results": OrderSerializer(qs[:200], many=True).data,
     })
 
@@ -317,7 +325,7 @@ def store_orders_view(request):
 
     # إجمالي ما دفعه الوكيل في النتيجة المعروضة (بلا الملغاة — مالها عاد إليه)
     paid = (qs.exclude(status=Order.Status.CANCELLED).aggregate(s=Sum("buyer_price"))["s"] or 0) \
-        + (kq.filter(status__in=kr.SPENT).aggregate(s=Sum("sell_price"))["s"] or 0)
+        + (kq.filter(status__in=kr.SPENT).aggregate(s=Sum("buyer_price"))["s"] or 0)
     merged = [(o.created_at, {**_store_order_row(o, request.user), "kind": "game"}) for o in qs[:200]]
     merged += [(o.created_at, kr.dealer_row(o, request.user)) for o in kq.order_by("-created_at")[:200]]
     merged.sort(key=lambda t: t[0], reverse=True)
@@ -416,10 +424,10 @@ def store_report_view(request):
         qs = qs.filter(created_at__date__gte=p["date_from"])
     if p.get("date_to"):
         qs = qs.filter(created_at__date__lte=p["date_to"])
-    # بمنظور الوكيل: تكلفته = ما دفعه لصاحب المتجر · مبيعاته وربحه له وحده
+    # بمنظور الوكيل: تكلفته = ما دفعه هو (buyer_price — لوكيله الكبير إن كان له وكيل)
     rows = (
         qs.values("game__name", "product__name")
-        .annotate(count=Count("id"), cost=Sum("sell_price"),
+        .annotate(count=Count("id"), cost=Sum("buyer_price"),
                   sell=Sum("dealer_sell_price"), profit=Sum("dealer_profit"))
         .order_by("game__name", "-count")
     )
@@ -429,7 +437,7 @@ def store_report_view(request):
         "count": r["count"], "cost": str(show(user, r["cost"] or 0)),
         "sell": str(show(user, r["sell"] or 0)), "profit": str(show(user, r["profit"] or 0)),
     } for r in rows]
-    totals = qs.aggregate(count=Count("id"), cost=Sum("sell_price"),
+    totals = qs.aggregate(count=Count("id"), cost=Sum("buyer_price"),
                           sell=Sum("dealer_sell_price"), profit=Sum("dealer_profit"))
 
     # الخطوط: «موبايل · الشركة» بدل اللعبة — بنفس منظور الوكيل (ما دفعه، ما باع به، ربحه)
@@ -438,7 +446,7 @@ def store_report_view(request):
     if not p.get("include_cancelled"):
         kq = kq.filter(status__in=kr.SPENT)
     for r in (kq.values("operator", "package_name")
-              .annotate(count=Count("id"), cost=Sum("sell_price"),
+              .annotate(count=Count("id"), cost=Sum("buyer_price"),
                         sell=Sum("dealer_sell_price"), profit=Sum("dealer_profit"))
               .order_by("operator", "-count")):
         results.append({
@@ -446,7 +454,7 @@ def store_report_view(request):
             "count": r["count"], "cost": str(show(user, r["cost"] or 0)),
             "sell": str(show(user, r["sell"] or 0)), "profit": str(show(user, r["profit"] or 0)),
         })
-    totals = kr.add(totals, kr.sums(kq, cost="sell_price", sell="dealer_sell_price", profit="dealer_profit"))
+    totals = kr.add(totals, kr.sums(kq, cost="buyer_price", sell="dealer_sell_price", profit="dealer_profit"))
     return Response({
         "results": results,
         "products": len(results),

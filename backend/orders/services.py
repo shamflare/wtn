@@ -59,7 +59,8 @@ def resolve_sell_price(dealer: User, product: Product) -> Decimal:
             group_id=dealer.agent_price_group_id, product=product
         ).first()
         if row:
-            return row.price.quantize(Decimal("0.01"))
+            from catalog.services import agent_row_price, rounds
+            return agent_row_price(row, agent_cost, rounds(product, True))
 
     margin = AgentMargin.objects.filter(agent_id=agent.id, product=product).first()
     if margin and margin.margin_percent:

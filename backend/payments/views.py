@@ -27,6 +27,20 @@ def _is_admin(user):
     return user.role in (User.Role.TENANT_ADMIN, User.Role.PLATFORM_OWNER)
 
 
+def owner_scope(user):
+    """
+    صاحب طرق الدفع التي يديرها `user`: None = المتجر (لصاحبه)، والوكيل الكبير نفسه
+    لطرقه هو. كل استعلام هنا يُصفّى بها فلا يرى أحدهما طرق الآخر ولا إيداعاته.
+    """
+    return user if user.role == User.Role.ANA_BAYI else None
+
+
+def payee_of(dealer):
+    """لمن يدفع هذا الوكيل: لوكيله الكبير إن كان تابعاً له، وإلا للمتجر (None)."""
+    from orders.services import big_agent_of
+    return big_agent_of(dealer)
+
+
 def credit_for(method: PaymentMethod, amount: Decimal, rate: Decimal) -> Decimal:
     """
     المبلغ الذي يدخل الدفتر: المبلغ ÷ سعر الصرف − العمولة.
@@ -39,39 +53,54 @@ def credit_for(method: PaymentMethod, amount: Decimal, rate: Decimal) -> Decimal
 
 
 class ReceivingAccountViewSet(viewsets.ModelViewSet):
-    """CRUD حسابات الاستلام (Hesaplarım)."""
+    """CRUD حسابات الاستلام (Hesaplarım) — لصاحب المتجر، أو للوكيل الكبير حساباتُه هو."""
     serializer_class = ReceivingAccountSerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return ReceivingAccount.objects.filter(tenant=self.request.user.tenant)
+        return ReceivingAccount.objects.filter(
+            tenant=self.request.user.tenant, owner=owner_scope(self.request.user))
 
     def perform_create(self, serializer):
-        serializer.save(tenant=self.request.user.tenant)
+        serializer.save(tenant=self.request.user.tenant, owner=owner_scope(self.request.user))
 
 
 class PaymentMethodViewSet(viewsets.ModelViewSet):
-    """CRUD طرق الدفع — لصاحب المتجر وحده، بكل تفاصيلها وحقولها المبنيّة."""
+    """CRUD طرق الدفع بكل تفاصيلها وحقولها المبنيّة — لصاحبها وحده (المتجر أو الوكيل الكبير)."""
     serializer_class = PaymentMethodSerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
         return (
-            PaymentMethod.objects.filter(tenant=self.request.user.tenant)
+            PaymentMethod.objects.filter(
+                tenant=self.request.user.tenant, owner=owner_scope(self.request.user))
             .select_related("account").prefetch_related("fields")
             .annotate(request_count=Count("requests"))
         )
 
+    def _check_account(self, serializer):
+        """حساب الاستلام من حسابات صاحب الطريقة نفسه — لا من حسابات غيره."""
+        from rest_framework.exceptions import ValidationError
+        acc = serializer.validated_data.get("account")
+        mine = getattr(owner_scope(self.request.user), "id", None)
+        if acc is not None and (acc.tenant_id != self.request.user.tenant_id or acc.owner_id != mine):
+            raise ValidationError({"account": "الحساب ليس من حساباتك"})
+
     def perform_create(self, serializer):
-        serializer.save(tenant=self.request.user.tenant)
+        self._check_account(serializer)
+        serializer.save(tenant=self.request.user.tenant, owner=owner_scope(self.request.user))
+
+    def perform_update(self, serializer):
+        self._check_account(serializer)
+        serializer.save()
 
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def accounts_total_view(request):
-    total = ReceivingAccount.objects.filter(tenant=request.user.tenant).aggregate(
-        balance=Sum("balance")
-    )["balance"]
+    total = ReceivingAccount.objects.filter(
+        tenant=request.user.tenant, owner=owner_scope(request.user)
+    ).aggregate(balance=Sum("balance"))["balance"]
     return Response({"balance": str(total or 0)})
 
 
@@ -82,8 +111,10 @@ def accounts_total_view(request):
 def store_methods_view(request):
     """طرق الدفع النشطة كما يراها الوكيل، مع سعر صرف كلٍّ منها الآن."""
     tenant = request.user.tenant
+    # دكان الوكيل الكبير يدفع لوكيله بطرقه هو؛ وغيره يدفع للمتجر
     methods = (
-        PaymentMethod.objects.filter(tenant=tenant, status=PaymentMethod.Status.ACTIVE)
+        PaymentMethod.objects.filter(tenant=tenant, status=PaymentMethod.Status.ACTIVE,
+                                     owner=payee_of(request.user))
         .prefetch_related("fields")
     )
     # المعامل المعروض للوكيل: من عملة الطريقة إلى **عملة عرضه** مباشرةً، لا إلى
@@ -130,11 +161,12 @@ def store_deposits_view(request):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def store_deposit_create_view(request):
-    """إنشاء طلب إضافة رصيد — يبقى قيد المراجعة حتى يقرّر صاحب المتجر."""
+    """إنشاء طلب إضافة رصيد — يبقى قيد المراجعة حتى يقرّر صاحب الطريقة (المتجر أو الوكيل الكبير)."""
     tenant = request.user.tenant
     try:
         method = PaymentMethod.objects.prefetch_related("fields").get(
-            pk=request.data.get("method"), tenant=tenant, status=PaymentMethod.Status.ACTIVE
+            pk=request.data.get("method"), tenant=tenant, status=PaymentMethod.Status.ACTIVE,
+            owner=payee_of(request.user),
         )
     except PaymentMethod.DoesNotExist:
         return Response({"detail": "طريقة الدفع غير متاحة"}, status=404)
@@ -177,7 +209,7 @@ def store_deposit_create_view(request):
         )
 
     notif = PaymentNotification.objects.create(
-        tenant=tenant, dealer=request.user, method=method, account=method.account,
+        tenant=tenant, dealer=request.user, owner=method.owner, method=method, account=method.account,
         amount=amount, currency=dep_currency, rate=rate,
         commission_percent=method.commission_percent,
         credit_amount=credit_for(method, amount, rate),
@@ -196,9 +228,9 @@ def store_deposit_create_view(request):
 def payment_notifications_view(request):
     """قائمة طلبات إضافة الرصيد — فلترة بالحالة والوكيل والطريقة والمبلغ والتاريخ."""
     p = request.query_params
-    qs = PaymentNotification.objects.filter(tenant=request.user.tenant).select_related(
-        "dealer", "account", "method"
-    )
+    qs = PaymentNotification.objects.filter(
+        tenant=request.user.tenant, owner=owner_scope(request.user)
+    ).select_related("dealer", "account", "method")
     st = p.get("status")
     if st and st != "all":
         qs = qs.filter(status=st)
@@ -216,9 +248,15 @@ def payment_notifications_view(request):
         qs = qs.filter(created_at__date__lte=p["date_to"])
     if p.get("q"):
         qs = qs.filter(dealer__name__icontains=p["q"])
+    rows = PaymentNotificationSerializer(qs[:300], many=True).data
+    agent = owner_scope(request.user)
+    if agent is not None:
+        # الوكيل الكبير يقرأ مبالغ دكاكينه بعملة عرضه هو
+        rows = [currency.convert_keys(dict(r), DEALER_MONEY, agent) for r in rows]
     return Response({
         "count": qs.count(),
-        "results": PaymentNotificationSerializer(qs[:300], many=True).data,
+        "results": rows,
+        "currency": currency.display_currency(agent) if agent else "",
     })
 
 
@@ -227,12 +265,28 @@ def _apply_decision(notif, action, actor, note=""):
     ينفّذ القرار على طلب واحد ويعيد (نجاح، رسالة).
     القرار قابل للعكس: قبول المرفوض يضيف الرصيد، وإبطال المقبول يسحبه.
     """
+    agent_wallet = getattr(notif.owner, "wallet", None) if notif.owner_id else None
+    if notif.owner_id and agent_wallet is None:
+        return False, "لا توجد محفظة للوكيل الكبير"
+    credit = notif.credit_amount or notif.amount
+
     if action == "approve":
         if notif.status == PaymentNotification.Status.APPROVED:
             return False, "الطلب مقبول أصلاً"
         wallet = getattr(notif.dealer, "wallet", None)
         if wallet is None:
             return False, "لا توجد محفظة للوكيل"
+        if agent_wallet is not None:
+            # المال وصل إلى الوكيل الكبير؛ والرصيد يعطيه دكانه **من رصيده** —
+            # فإن لم يكفِه رصيده (مع حدّه الائتماني) رُفض القبول
+            try:
+                wallet_services.apply_transaction(
+                    agent_wallet.id, -credit, WalletTransaction.Type.MANUAL_DEBIT,
+                    created_by=actor, note=f"إيداع {notif.dealer.name} — طلب #{notif.id}",
+                    ref_type="payment", ref_id=notif.id,
+                )
+            except wallet_services.WalletError as e:
+                return False, f"رصيدك لا يكفي لإضافة المبلغ لدكانك — {e}"
         txn = wallet_services.apply_transaction(
             wallet.id, notif.credit_amount or notif.amount, WalletTransaction.Type.TOPUP,
             created_by=actor, note=note or f"إضافة رصيد — طلب #{notif.id}",
@@ -254,6 +308,12 @@ def _apply_decision(notif, action, actor, note=""):
                 ref_type="payment", ref_id=notif.id, allow_below_limit=True,
             )
             notif.balance_before, notif.balance_after = txn.balance_before, txn.balance_after
+            if agent_wallet is not None:
+                wallet_services.apply_transaction(
+                    agent_wallet.id, credit, WalletTransaction.Type.MANUAL_CREDIT,
+                    created_by=actor, note=f"إبطال إيداع {notif.dealer.name} — طلب #{notif.id}",
+                    ref_type="payment", ref_id=notif.id, allow_below_limit=True,
+                )
         notif.status = PaymentNotification.Status.REJECTED
 
     notif.approved_by = actor
@@ -272,11 +332,11 @@ def payment_decide_view(request, notif_id, action):
     """قبول/رفض طلب واحد."""
     if action not in ("approve", "reject"):
         return Response({"detail": "إجراء غير معروف"}, status=400)
-    if not _is_admin(request.user):
+    if not (_is_admin(request.user) or owner_scope(request.user)):
         return Response({"detail": "غير مصرّح"}, status=403)
     try:
-        notif = PaymentNotification.objects.select_related("dealer").get(
-            pk=notif_id, tenant=request.user.tenant
+        notif = PaymentNotification.objects.select_related("dealer", "owner").get(
+            pk=notif_id, tenant=request.user.tenant, owner=owner_scope(request.user)
         )
     except PaymentNotification.DoesNotExist:
         return Response({"detail": "الطلب غير موجود"}, status=404)
@@ -291,7 +351,7 @@ def payment_decide_view(request, notif_id, action):
 @permission_classes([IsAuthenticated])
 def payment_bulk_action_view(request):
     """قبول/رفض جماعي على الطلبات المحدَّدة — كإجراءات جدول طلبات الألعاب."""
-    if not _is_admin(request.user):
+    if not (_is_admin(request.user) or owner_scope(request.user)):
         return Response({"detail": "غير مصرّح"}, status=403)
     action = request.data.get("action")
     if action not in ("approve", "reject"):
@@ -300,8 +360,8 @@ def payment_bulk_action_view(request):
     note = str(request.data.get("note") or "")
 
     results, done = [], 0
-    for notif in PaymentNotification.objects.select_related("dealer").filter(
-        pk__in=ids, tenant=request.user.tenant
+    for notif in PaymentNotification.objects.select_related("dealer", "owner").filter(
+        pk__in=ids, tenant=request.user.tenant, owner=owner_scope(request.user)
     ):
         try:
             ok, msg = _apply_decision(notif, action, request.user, note)

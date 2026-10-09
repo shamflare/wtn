@@ -9,7 +9,7 @@ from decimal import Decimal
 from django.db.models import Count, Q, Sum
 
 from core import currency as cur
-from core.models import Invoice, Wallet
+from core.models import Invoice, User, Wallet
 from payments.models import ReceivingAccount
 from providers.models import Provider
 
@@ -103,7 +103,7 @@ def build(tenant) -> dict:
     recv_lines = [
         _line(tenant, f"{a.title} · {a.get_method_display()}", a.balance, base, item_id=a.id)
         for a in ReceivingAccount.objects.filter(
-            tenant=tenant, status=ReceivingAccount.Status.ACTIVE
+            tenant=tenant, owner__isnull=True, status=ReceivingAccount.Status.ACTIVE
         ).order_by("sort_order", "id")
     ]
     groups.append(_group(
@@ -113,7 +113,10 @@ def build(tenant) -> dict:
     ))
 
     # ── محافظ الوكلاء — بالإشارة المعكوسة ──
-    agg = Wallet.objects.filter(tenant=tenant).aggregate(
+    # دكاكين الوكيل الكبير خارج جرد المتجر: أرصدتها دفترٌ بينها وبين وكيلها، ومحفظة
+    # الكبير نفسه هي ما بينه وبين المتجر
+    agg = Wallet.objects.filter(tenant=tenant).exclude(
+        user__parent__role=User.Role.ANA_BAYI).aggregate(
         net=Sum("balance"),
         credit=Sum("balance", filter=Q(balance__gt=0)),
         credit_n=Count("id", filter=Q(balance__gt=0)),

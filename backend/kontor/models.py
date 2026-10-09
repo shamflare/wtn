@@ -334,10 +334,19 @@ class KontorOrder(models.Model):
     operator = models.CharField(max_length=10, choices=Operator.choices)
     gsm = models.CharField(max_length=15)
 
-    # المبالغ بعملة الموقع (الدفتر)
+    # المبالغ بعملة الموقع (الدفتر). كالألعاب: `sell_price` ما قبضه **المتجر** و`profit`
+    # ربحه هو؛ ومع وكيل كبير وسيط يبقى ما قبضه المتجر من الكبير لا ما دفعه الدكان.
     cost_price = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"))
-    sell_price = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"))  # ما دفعه الوكيل
+    sell_price = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"))
     profit = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"))
+    # الوسيط: وكيل كبير اشترى من المتجر وباع لدكانه. فارغ = لا وسيط.
+    agent = models.ForeignKey(
+        "core.User", null=True, blank=True, on_delete=models.PROTECT,
+        related_name="agent_kontor_orders",
+    )
+    # ما دفعه المشتري فعلاً: يساوي sell_price بلا وسيط، ويزيد عنه بربح الوسيط.
+    buyer_price = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"))
+    agent_profit = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"))
     # ما باع به الوكيل لزبونه (يكتبه أو يُؤخذ المقترح) وربحه هو — كالألعاب
     dealer_sell_price = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"))
     dealer_profit = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"))
@@ -376,7 +385,34 @@ class KontorOrder(models.Model):
         if self.package_id and not self.package_name:
             p = self.package
             self.package_name, self.znet_id, self.link_code = p.name, p.znet_id, p.link_code
+        # بلا وسيط: ما دفعه المشتري هو ما قبضه المتجر
+        if not self.buyer_price and not self.agent_id:
+            self.buyer_price = self.sell_price
         super().save(*args, **kwargs)
 
     def __str__(self):
         return f"#{self.id} {self.gsm} · {self.package_name} [{self.status}]"
+
+
+class AgentKontorPrice(models.Model):
+    """
+    سعر باقة خطوط في إحدى مجموعات الوكيل الكبير — بها يشتري دكانه منه.
+    المجموعات نفسها مجموعات الألعاب (`catalog.AgentPriceGroup`): الدكان في مجموعة
+    واحدة عند وكيله، تسعّر له الألعاب والخطوط معاً.
+    """
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="agent_kontor_prices")
+    group = models.ForeignKey(
+        "catalog.AgentPriceGroup", on_delete=models.CASCADE, related_name="kontor_prices")
+    package = models.ForeignKey(KontorPackage, on_delete=models.CASCADE, related_name="agent_prices")
+    price = models.DecimalField(max_digits=12, decimal_places=2)
+    # قاعدة التسعير الجماعي (كمصفوفة المالك): مرتبطٌ ⇐ السعر = تكلفة الوكيل + الهامش
+    # يُحسب لحظة البيع فيتبع تكلفته كلّما غيّر المتجر سعره. فارغ = سعرٌ يدويّ جامد.
+    margin_mode = models.CharField(max_length=8, blank=True, default="")
+    margin_value = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
+    margin_round = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = "kontor_agent_prices"
+        constraints = [
+            models.UniqueConstraint(fields=["group", "package"], name="uniq_agent_kontor_price")
+        ]

@@ -375,18 +375,43 @@ def recompute_group_prices(group) -> int:
     return n
 
 
-def dealer_price(dealer, package) -> Decimal:
+def store_price(buyer, package) -> Decimal:
     """
-    سعر الوكيل لباقة: سعر مجموعته لشركة الباقة، وإلا السعر الموصى.
+    ما يقبضه **المتجر** من هذا المشتري: سعر مجموعته لشركة الباقة، وإلا السعر الموصى.
     """
     from .models import KontorDealerSetting, KontorPackagePrice
     setting = KontorDealerSetting.objects.filter(
-        dealer=dealer, operator=package.operator).select_related("group").first()
+        dealer=buyer, operator=package.operator).select_related("group").first()
     if setting and setting.group_id:
         pp = KontorPackagePrice.objects.filter(package=package, group_id=setting.group_id).first()
         if pp:
             return pp.price.quantize(CENT)
     return (package.recommended_price or Decimal("0")).quantize(CENT)
+
+
+def agent_price(agent, group_id, package) -> Decimal:
+    """
+    سعر الباقة لدكانٍ عند وكيله الكبير: سعر مجموعته عند وكيله، وإلا تكلفة الوكيل.
+    ولا ينزل أبداً تحت تكلفة الوكيل — لو رفع المتجر سعره بعد أن سعّر الوكيل، لا
+    يبيع الوكيل بخسارةٍ لا يعرف بها.
+    """
+    from .models import AgentKontorPrice
+    cost = store_price(agent, package)
+    if group_id:
+        row = AgentKontorPrice.objects.filter(group_id=group_id, package=package).first()
+        if row:
+            from catalog.services import agent_row_price
+            return agent_row_price(row, cost)
+    return cost
+
+
+def dealer_price(dealer, package) -> Decimal:
+    """ما يدفعه المشتري: من وكيله الكبير إن كان له وكيل، وإلا من المتجر مباشرةً."""
+    from orders.services import big_agent_of
+    agent = big_agent_of(dealer)
+    if agent is None:
+        return store_price(dealer, package)
+    return agent_price(agent, dealer.agent_price_group_id, package)
 
 
 def dealer_can_query(dealer, operator) -> bool:

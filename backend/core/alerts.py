@@ -58,7 +58,7 @@ def alerts_view(request):
         "dealers_negative": Wallet.objects.filter(
             tenant=tenant, balance__lt=0,
             user__role__in=[User.Role.BAYI, User.Role.ANA_BAYI],
-        ).count(),
+        ).exclude(user__parent__role=User.Role.ANA_BAYI).count(),   # دكاكين الكبير دَينها عليه لا علينا
 
         # وكلاء سجّلوا أنفسهم من الباب العام وينتظرون قبولك
         "registrations": User.objects.filter(
@@ -66,5 +66,5 @@ def alerts_view(request):
 
         # طلبات إيداع تنتظر قبولك أو رفضك
         "deposits_pending": PaymentNotification.objects.filter(
-            tenant=tenant, status=PaymentNotification.Status.PENDING).count(),
+            tenant=tenant, owner__isnull=True, status=PaymentNotification.Status.PENDING).count(),
     })

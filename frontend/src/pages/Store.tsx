@@ -14,6 +14,7 @@ import TopUp from "../components/TopUp";
 import { applyThemeConfig } from "../theme";
 import { showPrice } from "../unitPrice";
 import { AGENT_THEME_DEFAULTS, applyAgentTheme, cachedAgentTheme, type AgentTheme } from "../agentTheme";
+import { TODAY } from "../components/DateRange";
 import "./store.css";
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -765,8 +766,8 @@ function OrdersTab() {
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [total, setTotal] = useState("0");
   const [status, setStatus] = useState("all");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
+  const [from, setFrom] = useState(TODAY.date_from);   // يفتح على اليوم
+  const [to, setTo] = useState(TODAY.date_to);
   const [q, setQ] = useState("");
   const [details, setDetails] = useState<any | null>(null);
   const [copied, copy] = useCopy();
@@ -1052,8 +1053,8 @@ function OrderBody({ order: o, img }: { order: any; img?: string }) {
 function ReportsTab() {
   const cur = useCur();
   const [data, setData] = useState<any>(null);
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
+  const [from, setFrom] = useState(TODAY.date_from);   // يفتح على اليوم
+  const [to, setTo] = useState(TODAY.date_to);
   const [inclCancelled, setInclCancelled] = useState(false);
 
   function load(f = from, t = to, inc = inclCancelled) {
@@ -1150,8 +1151,8 @@ function WalletTab({ summary, onTopUp }: { summary: Summary | null; onTopUp: () 
   const [data, setData] = useState<any>(null);
   const [list, setList] = useState<any[] | null>(null);
   const [kind, setKind] = useState("all");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
+  const [from, setFrom] = useState(TODAY.date_from);   // يفتح على اليوم
+  const [to, setTo] = useState(TODAY.date_to);
   const [open, setOpen] = useState<any | null>(null);
 
   function load(k = kind, f = from, t = to) {

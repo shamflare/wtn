@@ -235,3 +235,42 @@ class SessionHeadersTest(TestCase):
                         return_value=mock.Mock(status_code=200, json=lambda: {"html": ""})) as g:
             session_client.detect_operator("5442199992")
         self.assertEqual(g.call_args.kwargs["headers"], {})
+
+
+class AgentLegTest(Base):
+    """
+    دكانٌ تابع لوكيل كبير يشتري الخطوط **من وكيله** كالألعاب: الوكيل يقبض سعره
+    ويدفع للمتجر سعر المتجر، والإلغاء ينقض الساقين معاً.
+    """
+
+    def setUp(self):
+        super().setUp()
+        from catalog.models import AgentPriceGroup
+        from .models import AgentKontorPrice
+        self.agent = User.objects.create(login_id="big", name="كبير", tenant=self.tenant,
+                                         role=User.Role.ANA_BAYI)
+        self.agent_wallet = Wallet.objects.create(tenant=self.tenant, user=self.agent, balance=Decimal("0"))
+        g = AgentPriceGroup.objects.create(tenant=self.tenant, agent=self.agent, name="ذهبي")
+        AgentKontorPrice.objects.create(tenant=self.tenant, group=g, package=self.p, price=Decimal("1100"))
+        self.dealer.parent = self.agent
+        self.dealer.agent_price_group = g
+        self.dealer.save()
+
+    def test_sale_goes_through_the_agent(self):
+        o = self.order()
+        self.assertEqual((o.agent_id, o.buyer_price, o.sell_price, o.agent_profit),
+                         (self.agent.id, Decimal("1100.00"), Decimal("1000.00"), Decimal("100.00")))
+        self.wallet.refresh_from_db(); self.agent_wallet.refresh_from_db()
+        self.assertEqual((self.wallet.balance, self.agent_wallet.balance), (Decimal("3900.00"), Decimal("100.00")))
+
+    def test_refund_undoes_both_legs(self):
+        o = self.order()
+        with mock.patch("kontor.execution.requests.get", side_effect=[_resp("OK|3|x|")]):
+            execute(o)
+        self.wallet.refresh_from_db(); self.agent_wallet.refresh_from_db()
+        self.assertEqual((self.wallet.balance, self.agent_wallet.balance), (Decimal("5000.00"), Decimal("0.00")))
+
+    def test_price_never_below_agent_cost(self):
+        from .models import AgentKontorPrice
+        AgentKontorPrice.objects.update(price=Decimal("900"))
+        self.assertEqual(self.order().buyer_price, Decimal("1000.00"))

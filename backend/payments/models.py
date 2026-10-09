@@ -40,6 +40,10 @@ class ReceivingAccount(models.Model):
         PASSIVE = "passive", "معطّل"
 
     tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="receiving_accounts")
+    # صاحبها: فارغ = المتجر نفسه، أو وكيلٌ كبير يستقبل أموال دكاكينه بنفسه
+    owner = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.CASCADE, related_name="%(class)s_owned",
+    )
     method = models.CharField(max_length=16, choices=Method.choices, default=Method.SHAM_CASH)
     title = models.CharField(max_length=120)              # Kurum/Şube Adı
     account_no = models.CharField(max_length=120, blank=True, default="")  # Hesap No
@@ -68,6 +72,10 @@ class PaymentMethod(models.Model):
         PASSIVE = "passive", "معطّل"
 
     tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="payment_methods")
+    # صاحبها: فارغ = المتجر نفسه، أو وكيلٌ كبير يستقبل أموال دكاكينه بنفسه
+    owner = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.CASCADE, related_name="%(class)s_owned",
+    )
     name = models.CharField(max_length=120)                       # شركة تواصل دولار
     subtitle = models.CharField(max_length=160, blank=True, default="")  # سطر تحت الاسم
     logo_url = models.CharField(max_length=500, blank=True, default="")  # صورة البطاقة
@@ -140,6 +148,11 @@ class PaymentNotification(models.Model):
 
     tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="payment_notifications")
     dealer = models.ForeignKey(User, on_delete=models.CASCADE, related_name="payment_notifications")
+    # من يقرّر: فارغ = صاحب المتجر، أو الوكيل الكبير صاحب الطريقة — وقبوله حوالةٌ
+    # من محفظته إلى دكانه (قبض المال نقداً فيعطي رصيداً من رصيده)
+    owner = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.CASCADE, related_name="payment_requests_owned",
+    )
     account = models.ForeignKey(
         ReceivingAccount, null=True, blank=True, on_delete=models.SET_NULL, related_name="notifications"
     )

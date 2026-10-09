@@ -34,18 +34,37 @@ def _dealer_ids(agent):
 @api_view(["GET"])
 @permission_classes(AGENT)
 def summary_view(request):
+    """رئيسية الوكيل الكبير: رصيده وحدّه، ودكاكينه، وطلبات اليوم وربحه (ألعاب + خطوط)."""
+    from django.utils import timezone
+    from kontor.models import KontorOrder
+    from payments.models import PaymentNotification
+
     agent = request.user
     ids = _dealer_ids(agent)
-    orders = Order.objects.filter(dealer_id__in=ids, status=Order.Status.SUCCESS)
-    # ربحه هو فرق سعرَيه (`agent_profit`) — لا ربح صاحب المتجر (`profit`)
-    agg = orders.aggregate(count=Count("id"), profit=Sum("agent_profit"))
+    today = timezone.localdate()
+    g_ok = Order.objects.filter(agent=agent, status=Order.Status.SUCCESS)
+    m_ok = KontorOrder.objects.filter(agent=agent, status=KontorOrder.Status.SUCCESS)
+
+    def stats(g, m):
+        a = g.aggregate(c=Count("id"), p=Sum("agent_profit"), s=Sum("buyer_price"))
+        b = m.aggregate(c=Count("id"), p=Sum("agent_profit"), s=Sum("buyer_price"))
+        return ((a["c"] or 0) + (b["c"] or 0), (a["p"] or 0) + (b["p"] or 0), (a["s"] or 0) + (b["s"] or 0))
+
+    all_n, all_p, _ = stats(g_ok, m_ok)
+    day_n, day_p, day_s = stats(g_ok.filter(created_at__date=today), m_ok.filter(created_at__date=today))
     wallet = getattr(agent, "wallet", None)
-    show = currency.to_display
+    show = lambda v: str(currency.to_display(agent, v))  # noqa: E731
     return Response({
-        "balance": str(show(agent, wallet.balance)) if wallet else "0.00",
+        "balance": show(wallet.balance) if wallet else "0.00",
+        "credit_limit": show(wallet.credit_limit) if wallet else "0.00",
+        "available": show(wallet.balance - wallet.credit_limit) if wallet else "0.00",
         "dealers": len(ids),
-        "orders": agg["count"] or 0,
-        "profit": str(show(agent, agg["profit"] or 0)),
+        "dealers_balance": show(Wallet.objects.filter(user_id__in=ids).aggregate(s=Sum("balance"))["s"] or 0),
+        "orders": all_n,
+        "profit": show(all_p),
+        "today": {"orders": day_n, "profit": show(day_p), "sales": show(day_s)},
+        "deposits_pending": PaymentNotification.objects.filter(
+            owner=agent, status=PaymentNotification.Status.PENDING).count(),
         "currency": currency.display_currency(agent),
     })
 
@@ -305,32 +324,6 @@ def dealer_statement_view(request, dealer_id):
         },
         "results": rows,
         "currency": currency.display_currency(agent),
-    })
-
-
-@api_view(["GET"])
-@permission_classes(AGENT)
-def orders_view(request):
-    ids = _dealer_ids(request.user)
-    qs = Order.objects.filter(dealer_id__in=ids).select_related("dealer", "game", "product").order_by("-created_at")
-    st = request.query_params.get("status")
-    if st and st != "all":
-        qs = qs.filter(status__in=dealer_filter(st))
-    show = currency.to_display
-    rows = [{
-        "id": o.id, "receipt_no": o.receipt_no, "dealer_name": o.dealer.name,
-        "product_name": o.product.name, "game_name": o.game.name,
-        # ما دفعه دكانه له، وما ربحه هو من الصفقة
-        "sell_price": str(show(request.user, o.buyer_price)),
-        "profit": str(show(request.user, o.agent_profit)),
-        # كدكانه: «عالق» و«قيد التنفيذ» يراهما «قيد الانتظار» (DEALER_STATUS)
-        "status": DEALER_STATUS.get(o.status, o.status),
-        "status_label": dict(Order.Status.choices)[DEALER_STATUS.get(o.status, o.status)],
-        "created_at": o.created_at.strftime("%Y-%m-%d %H:%M"),
-    } for o in qs[:200]]
-    return Response({
-        "count": qs.count(), "results": rows,
-        "currency": currency.display_currency(request.user),
     })
 
 

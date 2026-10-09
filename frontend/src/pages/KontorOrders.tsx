@@ -2,6 +2,7 @@ import { Fragment, useEffect, useState } from "react";
 import { api } from "../api";
 import Icon from "../components/Icon";
 import ScrollTop from "../components/ScrollTop";
+import DateRange, { rangeText, TODAY } from "../components/DateRange";
 import { empty, input, money, OpBadge, OPERATORS, pageTitle, pageWrap } from "./kontorUi";
 
 interface Order {
@@ -18,7 +19,8 @@ const DOTS: [string, string, string][] = [
   ["failed", "#dd4444", "فشل"], ["refunded", "#8a999e", "مُسترجَع"],
 ];
 const ROW_TONE: Record<string, string> = { pending: "row-wait", processing: "row-sent" };
-const EMPTY = { operator: "", dealer: "", q: "", date_from: "", date_to: "" };
+// تفتح على طلبات اليوم — والفترة تُغيَّر من شريط التاريخ
+const EMPTY = { operator: "", dealer: "", q: "", ...TODAY };
 
 export default function KontorOrders() {
   const [rows, setRows] = useState<Order[]>([]);
@@ -81,6 +83,13 @@ export default function KontorOrders() {
             ))}
           </span>
         </div>
+        <div style={{ padding: "10px 14px", borderBottom: "1px solid var(--border)", display: "flex",
+          gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+          <DateRange value={f} onChange={(d) => { const next = { ...f, ...d }; setF(next); load(st, next).catch(() => {}); }} />
+          <span style={{ fontSize: 12.5, color: "var(--muted)" }}>
+            المعروض: <b style={{ color: "var(--text)" }}>{rangeText(f)}</b>
+          </span>
+        </div>
         <div style={fgrid}>
           <select value={f.operator} onChange={(e) => set("operator", e.target.value)} style={input}>
             <option value="">كل الشركات</option>
@@ -92,8 +101,6 @@ export default function KontorOrders() {
           </select>
           <input value={f.q} onChange={(e) => set("q", e.target.value)} placeholder="رقم الخط أو الباقة أو المرجع"
             onKeyDown={(e) => e.key === "Enter" && apply()} style={input} />
-          <input type="date" value={f.date_from} onChange={(e) => set("date_from", e.target.value)} style={input} title="من تاريخ" />
-          <input type="date" value={f.date_to} onChange={(e) => set("date_to", e.target.value)} style={input} title="إلى تاريخ" />
           <div style={{ display: "flex", gap: 6 }}>
             <button className="btn g" onClick={apply} style={{ flex: 1 }}><Icon name="search" size={14} /> بحث</button>
             <button className="btn" onClick={clear} title="مسح الفلاتر">مسح</button>

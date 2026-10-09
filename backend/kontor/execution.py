@@ -19,7 +19,7 @@ from core.models import WalletTransaction
 from providers.models import Provider
 
 from .models import KontorOrder, KontorPackage
-from .services import dealer_price
+from .services import dealer_price, store_price
 
 CENT = Decimal("0.01")
 
@@ -72,7 +72,10 @@ def create_order(dealer, package: KontorPackage, gsm: str, dealer_sell_price=Non
     if dealer.tenant is not None and getattr(dealer.tenant, "purchases_blocked", False):
         raise KontorOrderError("الشراء متوقّف (اشتراك المتجر)")
 
-    sell = dealer_price(dealer, package).quantize(CENT)
+    from orders.services import big_agent_of
+    agent = big_agent_of(dealer)
+    buyer = dealer_price(dealer, package).quantize(CENT)                 # ما يدفعه المشتري
+    sell = store_price(agent or dealer, package).quantize(CENT)          # ما يقبضه المتجر
     cost = (package.cost_price or Decimal("0")).quantize(CENT)
     # حرّاس المال: بلا كلفة محوّلة (لا سعر صرف) أو بلا سعر أو بسعر دون الكلفة ⇐ لا بيع
     if cost <= 0:
@@ -97,17 +100,36 @@ def create_order(dealer, package: KontorPackage, gsm: str, dealer_sell_price=Non
         raise KontorOrderError("لا توجد محفظة للوكيل")
     try:
         txn = wallet_services.apply_transaction(
-            wallet.id, -sell, WalletTransaction.Type.ORDER_DEBIT,
+            wallet.id, -buyer, WalletTransaction.Type.ORDER_DEBIT,
             created_by=dealer, note=f"شحن {package.name} ⟵ {gsm}",
         )
     except wallet_services.WalletError as e:
         raise KontorOrderError(str(e))
 
+    # ساقا الوكيل الكبير (كالألعاب): يقبض من دكانه أوّلاً ثم يدفع للمتجر
+    if agent is not None:
+        agent_wallet = getattr(agent, "wallet", None)
+        if agent_wallet is None:
+            raise KontorOrderError("لا توجد محفظة للوكيل الكبير")
+        try:
+            wallet_services.apply_transaction(
+                agent_wallet.id, buyer, WalletTransaction.Type.TOPUP,
+                created_by=dealer, note=f"بيع {package.name} لـ{dealer.name} ⟵ {gsm}",
+            )
+            wallet_services.apply_transaction(
+                agent_wallet.id, -sell, WalletTransaction.Type.ORDER_DEBIT,
+                created_by=dealer, note=f"شراء {package.name} من المتجر لـ{dealer.name}",
+            )
+        except wallet_services.WalletError as e:
+            raise KontorOrderError(f"محفظة الوكيل الكبير: {e}")
+
     order = KontorOrder.objects.create(
         tenant_id=dealer.tenant_id, dealer=dealer, package=package,
         operator=package.operator, gsm=gsm,
         cost_price=cost, sell_price=sell, profit=sell - cost,
-        dealer_sell_price=retail, dealer_profit=retail - sell, client_uuid=client_uuid,
+        agent=agent, buyer_price=buyer,
+        agent_profit=(buyer - sell) if agent else Decimal("0"),
+        dealer_sell_price=retail, dealer_profit=retail - buyer, client_uuid=client_uuid,
         status=KontorOrder.Status.PENDING,
         balance_before=txn.balance_before, balance_after=txn.balance_after,
     )
@@ -124,8 +146,19 @@ def _refund(order: KontorOrder, note: str):
     wallet = getattr(order.dealer, "wallet", None)
     if wallet is None:
         return
+    # الوكيل الكبير أوّلاً: يستردّ من المتجر ثم يردّ لدكانه — والدكان يستردّ ما دفعه هو
+    agent_wallet = getattr(order.agent, "wallet", None) if order.agent_id else None
+    if agent_wallet is not None:
+        for amount, label in ((order.sell_price, "استرداد من المتجر"),
+                              (-order.buyer_price, "ردّ لدكانه")):
+            wallet_services.apply_transaction(
+                agent_wallet.id, amount,
+                WalletTransaction.Type.TOPUP if amount > 0 else WalletTransaction.Type.ORDER_DEBIT,
+                note=f"{label} — خط M{order.id}", ref_type="kontor_order", ref_id=order.id,
+                allow_below_limit=True,
+            )
     wallet_services.apply_transaction(
-        wallet.id, order.sell_price, WalletTransaction.Type.REFUND,
+        wallet.id, order.buyer_price or order.sell_price, WalletTransaction.Type.REFUND,
         created_by=order.dealer, note=note, ref_type="kontor_order", ref_id=order.id,
         allow_below_limit=True,
     )

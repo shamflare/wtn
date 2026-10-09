@@ -158,7 +158,7 @@ def _order_row(o: KontorOrder, user) -> dict:
         "package_name": o.package_name,
         "operator": o.operator,
         "gsm": o.gsm,
-        "price": _money(user, o.sell_price),
+        "price": _money(user, o.buyer_price),
         "dealer_sell_price": _money(user, o.dealer_sell_price),
         "currency": currency.display_currency(user),
         "created_at": o.created_at.strftime("%Y-%m-%d %H:%M:%S"),

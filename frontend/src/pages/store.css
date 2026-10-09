@@ -789,7 +789,7 @@ button.ag-stat:active { transform: scale(.98); }
   text-decoration: none; white-space: nowrap;
 }
 .ag-pub-btn.ghost { background: var(--surface-2); color: var(--text); border: 1px solid var(--border-strong); }
-@media (max-width: 380px) { .ag-pub-btn { padding: 0 10px; font-size: 12.5px; } .ag-brand-sub { display: none; } }
+@media (max-width: 380px) { .ag-pub-btn { padding: 0 10px; font-size: 12.5px; } .ag-brand img { max-width: 90px; } }
 
 .ag-pub-hero {
   border-radius: 24px; padding: 26px 20px; margin-bottom: 6px; text-align: center;

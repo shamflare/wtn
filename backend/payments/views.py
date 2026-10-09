@@ -49,7 +49,7 @@ def credit_for(method: PaymentMethod, amount: Decimal, rate: Decimal) -> Decimal
     """
     gross = amount / rate
     net = gross * (Decimal("100") - method.commission_percent) / Decimal("100")
-    return net.quantize(Decimal("0.01"))
+    return net.quantize(currency.LEDGER)   # بدقّة الدفتر — 1000 ل.ت تبقى 1000
 
 
 class ReceivingAccountViewSet(viewsets.ModelViewSet):
@@ -270,13 +270,16 @@ def payment_notifications_view(request):
         qs = qs.filter(created_at__date__lte=p["date_to"])
     if p.get("q"):
         qs = qs.filter(dealer__name__icontains=p["q"])
-    rows = PaymentNotificationSerializer(qs[:300], many=True).data
+    from core.statement import paginate
+    page, paging = paginate(qs, p)
+    rows = PaymentNotificationSerializer(page, many=True).data
     agent = owner_scope(request.user)
     if agent is not None:
         # الوكيل الكبير يقرأ مبالغ دكاكينه بعملة عرضه هو
         rows = [currency.convert_keys(dict(r), DEALER_MONEY, agent) for r in rows]
     return Response({
-        "count": qs.count(),
+        "count": paging["count"],
+        "paging": paging,
         "results": rows,
         "currency": currency.display_currency(agent) if agent else "",
     })
@@ -305,7 +308,7 @@ def _apply_decision(notif, action, actor, note=""):
                 wallet_services.apply_transaction(
                     agent_wallet.id, -credit, WalletTransaction.Type.MANUAL_DEBIT,
                     created_by=actor, note=f"إيداع {notif.dealer.name} — طلب #{notif.id}",
-                    ref_type="payment", ref_id=notif.id,
+                    ref_type="payment", ref_id=notif.id, internal=True,
                 )
             except wallet_services.WalletError as e:
                 return False, f"رصيدك لا يكفي لإضافة المبلغ لدكانك — {e}"
@@ -334,7 +337,7 @@ def _apply_decision(notif, action, actor, note=""):
                 wallet_services.apply_transaction(
                     agent_wallet.id, credit, WalletTransaction.Type.MANUAL_CREDIT,
                     created_by=actor, note=f"إبطال إيداع {notif.dealer.name} — طلب #{notif.id}",
-                    ref_type="payment", ref_id=notif.id, allow_below_limit=True,
+                    ref_type="payment", ref_id=notif.id, allow_below_limit=True, internal=True,
                 )
         notif.status = PaymentNotification.Status.REJECTED
 

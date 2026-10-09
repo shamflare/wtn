@@ -15,6 +15,7 @@ import { applyThemeConfig } from "../theme";
 import { showPrice } from "../unitPrice";
 import { AGENT_THEME_DEFAULTS, applyAgentTheme, cachedAgentTheme, type AgentTheme } from "../agentTheme";
 import { TODAY } from "../components/DateRange";
+import Pager from "../components/Pager";
 import "./store.css";
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -201,15 +202,16 @@ export default function Store() {
           )}
           <button className="ag-brand" onClick={() => goTab("home")}
             style={{ background: "none", border: 0, color: "inherit", padding: 0, textAlign: "start" }}>
+            {/* اسم الوكيل يبقى ظاهراً مع الشعار أيضاً — يعرف كل من يرى الشاشة حسابَ من هذا */}
             {logo ? <img src={logo} alt={storeName} /> : (
-              <>
-                <span className="ag-brand-mark">{storeName.trim().charAt(0)}</span>
-                <span style={{ minWidth: 0 }}>
-                  <div className="ag-brand-name">{storeName}</div>
-                  <div className="ag-brand-sub">{user?.name}</div>
-                </span>
-              </>
+              <span className="ag-brand-mark">{storeName.trim().charAt(0)}</span>
             )}
+            <span style={{ minWidth: 0 }}>
+              {!logo && <div className="ag-brand-name">{storeName}</div>}
+              <div className={logo ? "ag-brand-name" : "ag-brand-sub"} style={logo ? { fontSize: 14.5 } : undefined}>
+                {user?.name}
+              </div>
+            </span>
           </button>
           <button className="ag-icon-btn" aria-label="الإشعارات" style={{ position: "relative" }}
             onClick={() => { setMore(false); setBell(true); notif.markSeen(); }}>
@@ -1155,9 +1157,9 @@ function WalletTab({ summary, onTopUp }: { summary: Summary | null; onTopUp: () 
   const [to, setTo] = useState(TODAY.date_to);
   const [open, setOpen] = useState<any | null>(null);
 
-  function load(k = kind, f = from, t = to) {
+  function load(k = kind, f = from, t = to, pg = 1) {
     setList(null);
-    const params: Record<string, string> = { type: k };
+    const params: Record<string, string> = { type: k, page: String(pg) };
     if (f) params.date_from = f;
     if (t) params.date_to = t;
     api.get("/store/wallet/", { params })
@@ -1256,6 +1258,7 @@ function WalletTab({ summary, onTopUp }: { summary: Summary | null; onTopUp: () 
           })}
         </div>
       )}
+      <Pager paging={data?.paging} onPage={(pg) => load(kind, from, to, pg)} />
 
       {open && <TxnDetails txn={open} cur={sym} onClose={() => setOpen(null)} />}
     </div>

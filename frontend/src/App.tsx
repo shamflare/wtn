@@ -42,7 +42,6 @@ import AgentDealers from "./pages/AgentDealers";
 import AgentPrices from "./pages/AgentPrices";
 import AgentOrders from "./pages/AgentOrders";
 import AgentWallet from "./pages/AgentWallet";
-import AgentInventory from "./pages/AgentInventory";
 import Tickets from "./components/Tickets";
 import Home from "./pages/Home";
 
@@ -95,7 +94,7 @@ export default function App() {
           <Route path="/bigagent/wallet" element={Agent(<AgentWallet />)} />
           <Route path="/bigagent/reports" element={Agent(<Reports agent />)} />
           <Route path="/bigagent/reports/profits" element={Agent(<DealerReport title="تقرير أرباحي من دكاكيني" highlight="profit" agent />)} />
-          <Route path="/bigagent/reports/inventory" element={Agent(<AgentInventory />)} />
+          <Route path="/bigagent/reports/inventory" element={Agent(<Inventory agent />)} />
           {/* متجر الشراء للدكاكين وحدها — الوكيل الكبير يدير ولا يشتري لنفسه */}
           <Route path="/store/*" element={<Guard roles={["bayi"]} bare><Store /></Guard>} />
 

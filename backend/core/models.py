@@ -251,9 +251,9 @@ class Wallet(models.Model):
 
     tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="wallets")
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="wallet")
-    balance = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
+    balance = models.DecimalField(max_digits=18, decimal_places=6, default=Decimal("0"))
     credit_limit = models.DecimalField(  # أقصى قيمة سالبة مسموحة (مثال -500)
-        max_digits=14, decimal_places=2, default=Decimal("0")
+        max_digits=18, decimal_places=6, default=Decimal("0")
     )
     # عملة المحفظة = عملة دفتر المتجر دائماً — فالرصيد مخزّنٌ بها (core/currency.py).
     # كان افتراضها TRY ثابتاً، فمتجرٌ دفتره بالدولار يرى أرصدة وكلائه بالليرة.
@@ -294,12 +294,15 @@ class WalletTransaction(models.Model):
     tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="wallet_txns")
     wallet = models.ForeignKey(Wallet, on_delete=models.CASCADE, related_name="transactions")
     type = models.CharField(max_length=16, choices=Type.choices)
-    amount = models.DecimalField(max_digits=14, decimal_places=2)  # ± موقّع
-    balance_before = models.DecimalField(max_digits=14, decimal_places=2)
-    balance_after = models.DecimalField(max_digits=14, decimal_places=2)
+    amount = models.DecimalField(max_digits=18, decimal_places=6)  # ± موقّع
+    balance_before = models.DecimalField(max_digits=18, decimal_places=6)
+    balance_after = models.DecimalField(max_digits=18, decimal_places=6)
     ref_type = models.CharField(max_length=20, blank=True, default="")
     ref_id = models.BigIntegerField(null=True, blank=True)
     note = models.CharField(max_length=255, blank=True, default="")
+    # حركةٌ بين الوكيل الكبير ودكاكينه (بيعه لهم، حوالاته إليهم، إيداعاتهم عنده) —
+    # لا بينه وبين المتجر. كشفه عند صاحب المتجر يخفيها افتراضاً: لا تعني المتجر.
+    internal = models.BooleanField(default=False, db_index=True)
     created_by = models.ForeignKey(
         User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
     )

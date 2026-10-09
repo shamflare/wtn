@@ -75,9 +75,14 @@ def price_matrix_view(request):
                             "round": r.margin_round}
                            if r.margin_mode and r.margin_value is not None else None),
             }
-        row = {"id": p.id, "name": p.name, "cost": show(cost), "prices": cells}
+        # «الموصى» سعر بيع الزبون الذي يقترحه صاحب المتجر — للعرض وحده هنا
+        row = {"id": p.id, "name": p.name, "cost": show(cost), "prices": cells,
+               "recommended": show(p.recommended_price or 0)}
         if section == "games":
             row.update(sale_type=p.sale_type, qty_unit=p.qty_unit)
+        else:
+            row.update(operator=p.operator, link_code=p.link_code, znet_id=p.znet_id,
+                       category=p.category.name if p.category else "")
         cur["products"].append(row)
     return Response({
         "section": section,
@@ -164,7 +169,7 @@ def bulk_price_view(request):
     done, zero = 0, []
     with transaction.atomic():
         for p, cost, round_ok in picked:
-            price = price_from_margin(cost, mode, stored, round_ok and round_up)
+            price = price_from_margin(cost, mode, stored, round_ok and round_up, currency.LEDGER)
             if price is None:
                 zero.append(p.name)
                 continue

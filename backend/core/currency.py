@@ -12,6 +12,9 @@
 from decimal import Decimal, InvalidOperation
 
 CENT = Decimal("0.01")
+# دقّة الدفتر لكل مبلغٍ يمرّ بتحويل عملة: 1000 ل.ت تُحفظ دولاراً بست منازل فتعود
+# 1000.00 بالضبط. بالسنت وحده كانت تعود 999.80 — ويقرؤها الوكيل نقصاً في ماله.
+LEDGER = Decimal("0.000001")
 DEFAULT_BASE = "USD"
 
 
@@ -95,10 +98,10 @@ def to_display(user, amount) -> Decimal:
 
 
 def from_display(user, amount) -> Decimal:
-    """من عملة عرض المستخدم إلى عملة الدفتر — لكل رقم يكتبه المستخدم."""
+    """من عملة عرض المستخدم إلى عملة الدفتر — لكل رقم يكتبه المستخدم (بدقّة الدفتر)."""
     if amount is None:
         return None
-    return (Decimal(str(amount)) / display_rate(user)).quantize(CENT)
+    return (Decimal(str(amount)) / display_rate(user)).quantize(LEDGER)
 
 
 def convert_keys(row: dict, keys, user) -> dict:

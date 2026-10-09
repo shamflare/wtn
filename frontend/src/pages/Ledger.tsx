@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import DateRange, { rangeText, TODAY, type Dates } from "../components/DateRange";
+import Pager, { type Paging } from "../components/Pager";
 
 interface Txn {
   id: number; dealer_name: string; type: string; type_label: string;
@@ -18,12 +20,20 @@ export default function Ledger() {
   const [txns, setTxns] = useState<Txn[]>([]);
   const [type, setType] = useState("all");
   const [loading, setLoading] = useState(true);
+  const [dates, setDates] = useState<Dates>(TODAY);   // يفتح على حركات اليوم
+  const [page, setPage] = useState(1);
+  const [paging, setPaging] = useState<Paging | null>(null);
 
   function load() {
     setLoading(true);
-    api.get("/ledger/", { params: { type } }).then((r) => setTxns(r.data.results)).finally(() => setLoading(false));
+    const params: Record<string, string> = { type, page: String(page) };
+    if (dates.date_from) params.date_from = dates.date_from;
+    if (dates.date_to) params.date_to = dates.date_to;
+    api.get("/ledger/", { params })
+      .then((r) => { setTxns(r.data.results); setPaging(r.data.paging); })
+      .finally(() => setLoading(false));
   }
-  useEffect(() => load(), [type]);
+  useEffect(() => load(), [type, dates, page]);
 
   const money = (v: string) => Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 });
 
@@ -34,9 +44,15 @@ export default function Ledger() {
       </h2>
       <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
         {TYPES.map((t) => (
-          <button key={t.key} onClick={() => setType(t.key)} className="btn"
+          <button key={t.key} onClick={() => { setType(t.key); setPage(1); }} className="btn"
             style={{ background: type === t.key ? "var(--primary)" : "#8a999e" }}>{t.label}</button>
         ))}
+      </div>
+      <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12, flexWrap: "wrap" }}>
+        <DateRange value={dates} onChange={(d) => { setDates(d); setPage(1); }} />
+        <span style={{ fontSize: 12.5, color: "var(--muted)" }}>
+          المعروض: <b style={{ color: "var(--text)" }}>{rangeText(dates)}</b> · حركات دكاكين الوكلاء الكبار في كشوفهم لا هنا
+        </span>
       </div>
       <table style={table}>
         <thead>
@@ -67,6 +83,7 @@ export default function Ledger() {
           })}
         </tbody>
       </table>
+      <Pager paging={paging} onPage={setPage} />
     </div>
   );
 }

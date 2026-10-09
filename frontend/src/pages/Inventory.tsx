@@ -30,7 +30,12 @@ interface Snap {
   orders_profit: string; orders_count: number; note: string; by: string;
 }
 
-export default function Inventory() {
+/**
+ * الجرد — لصاحب المتجر، وللوكيل الكبير (`agent`) جرده هو بعملته: رصيده لدى المتجر
+ * وحساباته ومحافظ دكاكينه وبنوده اليدوية ولقطاته. بلا مزوّدين ولا مصادر تُبدَّل.
+ */
+export default function Inventory({ agent }: { agent?: boolean } = {}) {
+  const P = agent ? "/agent/inventory" : "/inventory";
   const [d, setD] = useState<Live | null>(null);
   const [snaps, setSnaps] = useState<Snap[]>([]);
   const [busy, setBusy] = useState("");
@@ -39,9 +44,9 @@ export default function Inventory() {
   const [tab, setTab] = useState<"all" | "daily" | "monthly">("all");
 
   function load() {
-    api.get("/inventory/live/").then((r) => setD(r.data))
+    api.get(`${P}/live/`).then((r) => setD(r.data))
       .catch((e) => setMsg({ ok: false, text: e?.response?.data?.detail || "تعذّر جلب الجرد" }));
-    api.get("/inventory/snapshots/").then((r) => setSnaps(r.data.results)).catch(() => {});
+    api.get(`${P}/snapshots/`).then((r) => setSnaps(r.data.results)).catch(() => {});
   }
   useEffect(load, []);
 
@@ -63,7 +68,7 @@ export default function Inventory() {
   }
 
   async function refresh() {
-    const r = await call(() => api.post("/inventory/refresh/", {}), "refresh");
+    const r = await call(() => api.post(`${P}/refresh/`, {}), "refresh");
     if (r) {
       const { ok_count, fail_count } = r.data;
       setMsg({
@@ -79,7 +84,7 @@ export default function Inventory() {
   async function save(kind: "daily" | "monthly") {
     const label = kind === "daily" ? "الجرد اليومي" : "الجرد الشهري";
     if (!confirm(`حفظ ${label} بالمجموع ${money(d!.totals.total)} ${sym}؟\nاللقطة لا تتغيّر بعد حفظها.`)) return;
-    await call(() => api.post("/inventory/snapshots/save/", { kind }), kind, `حُفظ ${label}`);
+    await call(() => api.post(`${P}/snapshots/save/`, { kind }), kind, `حُفظ ${label}`);
   }
 
   const shownSnaps = snaps.filter((s) => tab === "all" || s.kind === tab);
@@ -89,16 +94,18 @@ export default function Inventory() {
       {/* ═══ الرأس والأزرار ═══ */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 14 }}>
         <div>
-          <h2 style={{ fontSize: 21, color: "var(--primary-dark)", margin: 0 }}>الجرد النهائي</h2>
+          <h2 style={{ fontSize: 21, color: "var(--primary-dark)", margin: 0 }}>{agent ? "جردي" : "الجرد النهائي"}</h2>
           <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 2 }}>
             {new Date().toLocaleDateString("ar-EG", { day: "numeric", month: "long", year: "numeric" })}
             {d.previous && <> · آخر جرد: {d.previous.taken_at}</>}
           </div>
         </div>
         <div style={{ marginInlineStart: "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button className="btn" onClick={refresh} disabled={!!busy}>
-            <Icon name="refresh" size={14} style={ib} />{busy === "refresh" ? "جارٍ الجلب..." : "جلب الأرصدة"}
-          </button>
+          {!agent && (
+            <button className="btn" onClick={refresh} disabled={!!busy}>
+              <Icon name="refresh" size={14} style={ib} />{busy === "refresh" ? "جارٍ الجلب..." : "جلب الأرصدة"}
+            </button>
+          )}
           <button className="btn g" onClick={() => save("daily")} disabled={!!busy}>
             <Icon name="check" size={14} style={ib} />حفظ الجرد اليومي
           </button>
@@ -123,15 +130,15 @@ export default function Inventory() {
       {d.groups.map((g) => (
         <Panel key={g.key} title={g.label} hint={g.hint} sym={sym} total={g.total_base}
           enabled={g.enabled} accent="var(--primary)"
-          toggle={() => call(
-            () => api.put("/inventory/sources/", {
+          toggle={agent ? undefined : () => call(
+            () => api.put(`${P}/sources/`, {
               sources: { ...Object.fromEntries(d.sources.map((s) => [s.key, s.enabled])), [g.key]: !g.enabled },
             }), "src")}
           right={<Icon name="api" size={14} style={{ opacity: .8 }} />}
         >
           <LineTable lines={g.lines} sym={sym}
             onRefresh={g.key === "providers"
-              ? (id) => call(() => api.post("/inventory/refresh/", { provider: id }), "one")
+              ? (id) => call(() => api.post(`${P}/refresh/`, { provider: id }), "one")
               : undefined} />
         </Panel>
       ))}
@@ -140,9 +147,9 @@ export default function Inventory() {
       <Panel title={d.manual.label} hint={d.manual.hint} sym={sym} total={d.manual.total_base}
         enabled accent="#3b4a5a" right={<Icon name="edit" size={14} style={{ opacity: .8 }} />}>
         <LineTable lines={d.manual.lines} sym={sym} currencies={d.currencies}
-          onEdit={(id, patch) => call(() => api.post(`/inventory/items/${id}/`, patch), "item")}
+          onEdit={(id, patch) => call(() => api.post(`${P}/items/${id}/`, patch), "item")}
           onDelete={(id) => {
-            if (confirm("حذف هذا البند؟")) call(() => api.delete(`/inventory/items/${id}/`), "item");
+            if (confirm("حذف هذا البند؟")) call(() => api.delete(`${P}/items/${id}/`), "item");
           }} />
         <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
           <input value={newName} onChange={(e) => setNewName(e.target.value)}
@@ -165,8 +172,8 @@ export default function Inventory() {
             {Object.entries(d.rates).map(([c, v]) => (
               <Box key={`r${c}`} label={`سعر ${c}`} value={`${v}`} faint />
             ))}
-            <Box label="الأصول (ما لنا)" value={`${money(d.totals.assets)} ${sym}`} color="var(--ok)" />
-            <Box label="الالتزامات (ما علينا)" value={`${money(d.totals.liabilities)} ${sym}`} color="var(--debt)" />
+            <Box label={agent ? "ما لي" : "الأصول (ما لنا)"} value={`${money(d.totals.assets)} ${sym}`} color="var(--ok)" />
+            <Box label={agent ? "ما عليّ" : "الالتزامات (ما علينا)"} value={`${money(d.totals.liabilities)} ${sym}`} color="var(--debt)" />
             <Box label="الجرد السابق" value={`${money(d.totals.previous_total)} ${sym}`} />
             <Box label="المجموع الكلي" value={`${money(d.totals.total)} ${sym}`} strong />
           </div>
@@ -205,7 +212,7 @@ export default function Inventory() {
             <thead>
               <tr>
                 <th>التاريخ</th><th>النوع</th><th>المجموع</th><th>السابق</th><th>الربح</th>
-                <th title="ما يقوله دفتر الطلبات عن الفترة نفسها">ربح الطلبات</th>
+                <th title="ما يقوله دفتر الطلبات عن الفترة نفسها">{agent ? "ربحي من الطلبات" : "ربح الطلبات"}</th>
                 <th>حفظه</th><th>إجراءات</th>
               </tr>
             </thead>
@@ -241,7 +248,7 @@ export default function Inventory() {
                       <button className="btn r" style={{ height: 26, fontSize: 11.5 }}
                         onClick={() => {
                           if (confirm("حذف هذا الجرد؟ أرباح الجرود التالية حُسبت عليه.")) {
-                            call(() => api.delete(`/inventory/snapshots/${s.id}/`), "del");
+                            call(() => api.delete(`${P}/snapshots/${s.id}/`), "del");
                           }
                         }}>حذف</button>
                     </td>
@@ -259,7 +266,7 @@ export default function Inventory() {
     const name = newName.trim();
     if (!name) return;
     setNewName("");
-    call(() => api.post("/inventory/items/", { name }), "item");
+    call(() => api.post(`${P}/items/`, { name }), "item");
   }
 }
 
@@ -309,7 +316,7 @@ function LineTable({ lines, sym, currencies, onEdit, onDelete, onRefresh }: {
             <th className="cell-start">الاسم</th>
             <th>المبلغ</th>
             <th>العملة</th>
-            <th>بعملة الدفتر</th>
+            <th>المحسوب ({sym})</th>
             <th className="cell-start">ملاحظات</th>
             {(onDelete || onRefresh) && <th style={{ width: 70 }}>إجراءات</th>}
           </tr>

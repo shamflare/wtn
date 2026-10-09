@@ -47,7 +47,7 @@ class ReceivingAccount(models.Model):
     method = models.CharField(max_length=16, choices=Method.choices, default=Method.SHAM_CASH)
     title = models.CharField(max_length=120)              # Kurum/Şube Adı
     account_no = models.CharField(max_length=120, blank=True, default="")  # Hesap No
-    balance = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
+    balance = models.DecimalField(max_digits=18, decimal_places=6, default=Decimal("0"))
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.ACTIVE)
     notification_enabled = models.BooleanField(default=True)  # Bildirim
     sort_order = models.IntegerField(default=0)
@@ -165,7 +165,7 @@ class PaymentNotification(models.Model):
     currency = models.CharField(max_length=8, blank=True, default="")
     rate = models.DecimalField(max_digits=14, decimal_places=6, default=Decimal("1"))
     commission_percent = models.DecimalField(max_digits=6, decimal_places=2, default=Decimal("0"))
-    credit_amount = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
+    credit_amount = models.DecimalField(max_digits=18, decimal_places=6, default=Decimal("0"))
 
     values = models.JSONField(default=dict, blank=True)   # قيم الحقول المبنيّة {label: value}
     note = models.CharField(max_length=255, blank=True, default="")
@@ -176,8 +176,8 @@ class PaymentNotification(models.Model):
         User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
     )
     decided_at = models.DateTimeField(null=True, blank=True)
-    balance_before = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
-    balance_after = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    balance_before = models.DecimalField(max_digits=18, decimal_places=6, null=True, blank=True)
+    balance_after = models.DecimalField(max_digits=18, decimal_places=6, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

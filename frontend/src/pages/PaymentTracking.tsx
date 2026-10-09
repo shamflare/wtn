@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useState } from "react";
 import { api } from "../api";
 import Icon from "../components/Icon";
+import Pager, { type Paging } from "../components/Pager";
 import { money, symbolOf, useBaseCurrency } from "../currency";
 
 interface Req {
@@ -35,12 +36,13 @@ export default function PaymentTracking({ agent }: { agent?: boolean } = {}) {
   const [bulkBusy, setBulkBusy] = useState("");
   const [bulkMsg, setBulkMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
-  function load(st = status, filters = f) {
+  const [paging, setPaging] = useState<Paging | null>(null);
+  function load(st = status, filters = f, page = 1) {
     setLoading(true);
-    const params: any = { status: st };
+    const params: any = { status: st, page };
     Object.entries(filters).forEach(([k, v]) => { if (v) params[k] = v; });
     api.get(`${P}/notifications/`, { params })
-      .then((r) => setReqs(r.data.results))
+      .then((r) => { setReqs(r.data.results); setPaging(r.data.paging); })
       .finally(() => setLoading(false));
   }
   useEffect(() => {
@@ -305,6 +307,9 @@ export default function PaymentTracking({ agent }: { agent?: boolean } = {}) {
               ))}
             </tbody>
           </table>
+        </div>
+        <div style={{ padding: "0 12px" }}>
+          <Pager paging={paging} onPage={(pg) => { setPicked([]); load(status, f, pg); }} />
         </div>
       </div>
     </div>

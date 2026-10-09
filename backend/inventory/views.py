@@ -23,18 +23,30 @@ ZERO = Decimal("0")
 CENT = Decimal("0.01")
 
 
-def _money(v) -> str:
+def _money_base(v) -> str:
     """كل مبلغ يخرج بخانتين عشريتين — «0» و«0.00» في الردّ نفسه تربك الواجهة."""
     return str(Decimal(v or 0).quantize(CENT))
 
 
 def _guard(request):
-    """الجرد لصاحب المتجر وحده — هو رأس ماله."""
-    if request.user.role != User.Role.TENANT_ADMIN:
+    """الجرد لصاحب المتجر، وللوكيل الكبير جرده هو (يُعرف بـ `_agent`)."""
+    if request.user.role not in (User.Role.TENANT_ADMIN, User.Role.ANA_BAYI):
         return None, Response({"detail": "الجرد لصاحب المتجر وحده"}, status=403)
     if request.user.tenant is None:
         return None, Response({"detail": "لا يوجد متجر"}, status=400)
     return request.user.tenant, None
+
+
+def _agent(request):
+    """الوكيل الكبير صاحب هذا الجرد — أو None لجرد المتجر."""
+    return request.user if request.user.role == User.Role.ANA_BAYI else None
+
+
+def _owner_only(request):
+    """ما يخصّ المتجر وحده (المزوّدون ومصادرهم) — لا يطرقه الوكيل الكبير."""
+    if _agent(request) is not None:
+        return Response({"detail": "لا مزوّدين في جرد الوكيل"}, status=403)
+    return None
 
 
 @api_view(["GET"])
@@ -44,7 +56,8 @@ def live_view(request):
     tenant, err = _guard(request)
     if err:
         return err
-    data = services.build(tenant)
+    agent = _agent(request)
+    data = services.for_viewer(services.build(tenant, agent), agent)
     data["currencies"] = [{"code": c, "label": lbl} for c, lbl in CURRENCIES]
     return Response(data)
 
@@ -53,7 +66,7 @@ def live_view(request):
 
 def _item_row(m):
     return {
-        "id": m.id, "name": m.name, "amount": _money(m.amount),
+        "id": m.id, "name": m.name, "amount": _money_base(m.amount),
         "currency": m.currency, "note": m.note, "sort_order": m.sort_order,
     }
 
@@ -74,9 +87,12 @@ def item_create_view(request):
             {"detail": f"لا سعر صرف مضبوط للعملة {currency} — اضبطه في «أسعار الصرف» أولاً"},
             status=400,
         )
-    last = ManualItem.objects.filter(tenant=tenant).order_by("-sort_order").first()
+    agent = _agent(request)
+    if agent is not None and "currency" not in request.data:
+        currency = cur.display_currency(agent)        # بند الوكيل بعملته افتراضاً
+    last = ManualItem.objects.filter(tenant=tenant, owner=agent).order_by("-sort_order").first()
     m = ManualItem.objects.create(
-        tenant=tenant, name=name[:120], currency=currency,
+        tenant=tenant, owner=agent, name=name[:120], currency=currency,
         sort_order=(last.sort_order + 1) if last else 0,
     )
     return Response(_item_row(m), status=201)
@@ -90,7 +106,7 @@ def item_view(request, item_id):
     if err:
         return err
     try:
-        m = ManualItem.objects.get(pk=item_id, tenant=tenant)
+        m = ManualItem.objects.get(pk=item_id, tenant=tenant, owner=_agent(request))
     except ManualItem.DoesNotExist:
         return Response({"detail": "البند غير موجود"}, status=404)
 
@@ -125,7 +141,7 @@ def item_view(request, item_id):
 def sources_view(request):
     """تفعيل/تعطيل مصدر تلقائي — أي البنود تدخل رأس مالك قرارُك أنت."""
     tenant, err = _guard(request)
-    if err:
+    if err or (err := _owner_only(request)):
         return err
     conf, _ = InventoryConfig.objects.get_or_create(tenant=tenant)
     incoming = request.data.get("sources")
@@ -149,7 +165,7 @@ def refresh_view(request):
     البقيّة. ويعيد سطراً لكل مزوّد بما جرى معه.
     """
     tenant, err = _guard(request)
-    if err:
+    if err or (err := _owner_only(request)):
         return err
     only = request.data.get("provider")
     qs = Provider.objects.filter(tenant=tenant)
@@ -195,13 +211,24 @@ def refresh_view(request):
 
 # ─────────────────────────── الحفظ والسجلّ ───────────────────────────
 
-def _orders_profit(tenant, since):
+def _orders_profit(tenant, since, agent=None):
     """
     ربح الطلبات في الفترة — شاهدٌ مستقلّ على فرق رأس المال.
 
     ليس بديلاً عن الجرد: الجرد يرى المال كلّه (نقداً وديوناً وأرصدة)، ودفتر
     الطلبات يرى المبيعات وحدها. لكن تباعدهما الكبير يستحقّ سؤالاً.
     """
+    if agent is not None:
+        # الوكيل الكبير: ربحه هو من طلبات دكاكينه — ألعاباً وخطوطاً
+        from kontor.models import KontorOrder
+        p, n = ZERO, 0
+        for qs in (Order.objects.filter(agent=agent, status="success"),
+                   KontorOrder.objects.filter(agent=agent, status="success")):
+            if since:
+                qs = qs.filter(created_at__gt=since)
+            agg = qs.aggregate(p=Sum("agent_profit"), n=Count("id"))
+            p, n = p + (agg["p"] or ZERO), n + (agg["n"] or 0)
+        return p, n
     qs = Order.objects.filter(tenant=tenant, status="success")
     if since:
         qs = qs.filter(created_at__gt=since)
@@ -220,18 +247,20 @@ def snapshot_create_view(request):
     if kind not in Snapshot.Kind.values:
         return Response({"detail": "نوع جرد غير معروف"}, status=400)
 
-    live = services.build(tenant)
+    agent = _agent(request)
+    live = services.build(tenant, agent)   # بعملة الدفتر — واللقطة تُحفظ بها
     counted = [g for g in live["groups"] if g["enabled"]] + [live["manual"]]
 
-    previous = Snapshot.objects.filter(tenant=tenant, kind=kind).order_by("-taken_at", "-id").first()
+    previous = Snapshot.objects.filter(
+        tenant=tenant, owner=agent, kind=kind).order_by("-taken_at", "-id").first()
     prev_total = previous.total_base if previous else ZERO
     total = Decimal(live["totals"]["total"])
 
-    orders_profit, orders_count = _orders_profit(tenant, previous.taken_at if previous else None)
+    orders_profit, orders_count = _orders_profit(tenant, previous.taken_at if previous else None, agent)
 
     period_profit, daily_count = ZERO, 0
     if kind == Snapshot.Kind.MONTHLY:
-        dailies = Snapshot.objects.filter(tenant=tenant, kind=Snapshot.Kind.DAILY)
+        dailies = Snapshot.objects.filter(tenant=tenant, owner=agent, kind=Snapshot.Kind.DAILY)
         if previous:
             dailies = dailies.filter(taken_at__gt=previous.taken_at)
         agg = dailies.aggregate(p=Sum("profit"), n=Count("id"))
@@ -239,7 +268,7 @@ def snapshot_create_view(request):
 
     with transaction.atomic():
         snap = Snapshot.objects.create(
-            tenant=tenant, kind=kind,
+            tenant=tenant, owner=agent, kind=kind,
             base_currency=live["base_currency"], rates=live["rates"],
             total_base=total,
             assets_base=Decimal(live["totals"]["assets"]),
@@ -265,15 +294,18 @@ def snapshot_create_view(request):
                 order += 1
         SnapshotLine.objects.bulk_create(rows)
 
-    return Response(_snapshot_row(snap, with_lines=True), status=201)
+    return Response(_snapshot_row(snap, with_lines=True, agent=agent), status=201)
 
 
-def _snapshot_row(s, with_lines=False):
+def _snapshot_row(s, with_lines=False, agent=None):
+    # جرد الوكيل الكبير يُعرض بعملته — المحفوظ بعملة الدفتر
+    _money = _money_base if agent is None else (
+        lambda v: str(cur.to_display(agent, Decimal(v or 0))))
     row = {
         "id": s.id, "kind": s.kind, "kind_label": s.get_kind_display(),
         "taken_at": s.taken_at.strftime("%Y-%m-%d %H:%M"),
         "date": s.taken_at.strftime("%Y-%m-%d"),
-        "base_currency": s.base_currency,
+        "base_currency": s.base_currency if agent is None else cur.display_currency(agent),
         "total": _money(s.total_base),
         "assets": _money(s.assets_base), "liabilities": _money(s.liabilities_base),
         "previous_total": _money(s.previous_total), "profit": _money(s.profit),
@@ -285,10 +317,10 @@ def _snapshot_row(s, with_lines=False):
     if with_lines:
         row["lines"] = [{
             "group": l.group, "group_label": l.group_label, "name": l.name,
-            "amount": _money(l.amount), "currency": l.currency,
+            "amount": _money_base(l.amount), "currency": l.currency,
             "base": _money(l.base_amount), "source": l.source, "note": l.note,
         } for l in s.lines.all()]
-        row["rates"] = s.rates
+        row["rates"] = s.rates if agent is None else {}
     return row
 
 
@@ -299,11 +331,12 @@ def snapshots_view(request):
     tenant, err = _guard(request)
     if err:
         return err
-    qs = Snapshot.objects.filter(tenant=tenant).select_related("created_by")
+    agent = _agent(request)
+    qs = Snapshot.objects.filter(tenant=tenant, owner=agent).select_related("created_by")
     kind = request.query_params.get("kind")
     if kind in Snapshot.Kind.values:
         qs = qs.filter(kind=kind)
-    return Response({"count": qs.count(), "results": [_snapshot_row(s) for s in qs[:200]]})
+    return Response({"count": qs.count(), "results": [_snapshot_row(s, agent=agent) for s in qs[:200]]})
 
 
 @api_view(["GET", "DELETE"])
@@ -314,10 +347,11 @@ def snapshot_view(request, snapshot_id):
     if err:
         return err
     try:
-        s = Snapshot.objects.select_related("created_by").get(pk=snapshot_id, tenant=tenant)
+        s = Snapshot.objects.select_related("created_by").get(
+            pk=snapshot_id, tenant=tenant, owner=_agent(request))
     except Snapshot.DoesNotExist:
         return Response({"detail": "الجرد غير موجود"}, status=404)
     if request.method == "DELETE":
         s.delete()
         return Response({"deleted": True})
-    return Response(_snapshot_row(s, with_lines=True))
+    return Response(_snapshot_row(s, with_lines=True, agent=_agent(request)))

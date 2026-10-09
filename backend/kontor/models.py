@@ -345,11 +345,11 @@ class KontorOrder(models.Model):
         related_name="agent_kontor_orders",
     )
     # ما دفعه المشتري فعلاً: يساوي sell_price بلا وسيط، ويزيد عنه بربح الوسيط.
-    buyer_price = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"))
-    agent_profit = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"))
+    buyer_price = models.DecimalField(max_digits=16, decimal_places=6, default=Decimal("0"))
+    agent_profit = models.DecimalField(max_digits=16, decimal_places=6, default=Decimal("0"))
     # ما باع به الوكيل لزبونه (يكتبه أو يُؤخذ المقترح) وربحه هو — كالألعاب
-    dealer_sell_price = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"))
-    dealer_profit = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"))
+    dealer_sell_price = models.DecimalField(max_digits=16, decimal_places=6, default=Decimal("0"))
+    dealer_profit = models.DecimalField(max_digits=16, decimal_places=6, default=Decimal("0"))
 
     status = models.CharField(max_length=12, choices=Status.choices, default=Status.PENDING)
     provider = models.ForeignKey(
@@ -363,8 +363,8 @@ class KontorOrder(models.Model):
     # بلا اسم مزوّد. ومسار المحاولات كاملاً بأسماء المزوّدين لصاحب المتجر وحده.
     provider_note = models.CharField(max_length=300, blank=True, default="")
     trace = models.CharField(max_length=500, blank=True, default="")
-    balance_before = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
-    balance_after = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
+    balance_before = models.DecimalField(max_digits=18, decimal_places=6, default=Decimal("0"))
+    balance_after = models.DecimalField(max_digits=18, decimal_places=6, default=Decimal("0"))
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -404,11 +404,11 @@ class AgentKontorPrice(models.Model):
     group = models.ForeignKey(
         "catalog.AgentPriceGroup", on_delete=models.CASCADE, related_name="kontor_prices")
     package = models.ForeignKey(KontorPackage, on_delete=models.CASCADE, related_name="agent_prices")
-    price = models.DecimalField(max_digits=12, decimal_places=2)
+    price = models.DecimalField(max_digits=16, decimal_places=6)
     # قاعدة التسعير الجماعي (كمصفوفة المالك): مرتبطٌ ⇐ السعر = تكلفة الوكيل + الهامش
     # يُحسب لحظة البيع فيتبع تكلفته كلّما غيّر المتجر سعره. فارغ = سعرٌ يدويّ جامد.
     margin_mode = models.CharField(max_length=8, blank=True, default="")
-    margin_value = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
+    margin_value = models.DecimalField(max_digits=16, decimal_places=6, null=True, blank=True)
     margin_round = models.BooleanField(default=False)
 
     class Meta:

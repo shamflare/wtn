@@ -6,10 +6,15 @@ import ScrollTop from "../components/ScrollTop";
 import { symbolOf } from "../currency";
 import { matches } from "../search";
 import { editValue, isAmountP, showPrice, toBlock } from "../unitPrice";
+import { OperatorTabs } from "./kontorUi";
 
 interface Margin { mode: "percent" | "fixed"; value: string; round?: boolean }
 interface Cell { price: string; margin: Margin | null }
-interface Row { id: number; name: string; cost: string; sale_type?: string; qty_unit?: number; prices: Record<string, Cell | null> }
+interface Row {
+  id: number; name: string; cost: string; recommended: string; sale_type?: string; qty_unit?: number;
+  operator?: string; link_code?: string; znet_id?: string; category?: string;
+  prices: Record<string, Cell | null>;
+}
 interface Block { name: string; products: Row[] }
 interface Group { id: number; name: string; dealers: number }
 
@@ -38,6 +43,7 @@ export default function AgentPrices({ section }: { section: "games" | "mobile" }
   const [dialog, setDialog] = useState<"bulk" | "delete" | null>(null);
   const [toast, setToast] = useState<{ ok: boolean; text: string } | null>(null);
   const [q, setQ] = useState("");
+  const [op, setOp] = useState("Turkcell");   // الموبايل: شركةٌ واحدة في المرّة كصفحة المالك
   const mobile = section === "mobile";
 
   function load() {
@@ -81,10 +87,21 @@ export default function AgentPrices({ section }: { section: "games" | "mobile" }
     } catch (e: any) { say(false, e?.response?.data?.detail || "تعذّر الحفظ"); }
   }
 
-  const shown = q.trim()
-    ? blocks.map((b) => matches(q, b.name) ? b : { ...b, products: b.products.filter((p) => matches(q, p.name, p.id)) })
+  // فلاتر صفحة المالك نفسها: الشركة (للموبايل) ثم البحث بالاسم أو الرقم أو الفئة
+  const byOp = mobile
+    ? blocks.map((b) => ({ ...b, products: b.products.filter((p) => p.operator === op) }))
       .filter((b) => b.products.length > 0)
     : blocks;
+  const opCounts = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const p of allRows) if (p.operator) m[p.operator] = (m[p.operator] || 0) + 1;
+    return m;
+  }, [allRows]);
+  const shown = q.trim()
+    ? byOp.map((b) => matches(q, b.name) ? b
+      : { ...b, products: b.products.filter((p) => matches(q, p.name, p.id, p.link_code, p.znet_id, p.category)) })
+      .filter((b) => b.products.length > 0)
+    : byOp;
   const sym = symbolOf(cur);
 
   if (loading) return <div style={{ padding: 30 }}>جارٍ التحميل...</div>;
@@ -98,6 +115,11 @@ export default function AgentPrices({ section }: { section: "games" | "mobile" }
         </span>
       </h2>
 
+      {mobile && (
+        <div style={{ marginBottom: 10 }}>
+          <OperatorTabs value={op} onChange={setOp} counts={opCounts} />
+        </div>
+      )}
       <div style={toolbar}>
         <button className="btn g" onClick={createGroup}><Icon name="plus" size={15} style={ib} />إنشاء مجموعة</button>
         <button className="btn" disabled={groups.length === 0} onClick={() => setDialog("bulk")}>
@@ -132,6 +154,9 @@ export default function AgentPrices({ section }: { section: "games" | "mobile" }
                 <th style={{ ...th, width: 50 }}>Id</th>
                 <th style={{ ...th, textAlign: "right", paddingInlineStart: 12 }}>الباقة</th>
                 <th style={th}>تكلفتي</th>
+                <th style={{ ...th, color: "var(--muted)" }} title="سعر البيع للزبون الذي يقترحه صاحب المتجر — للعرض فقط">
+                  الموصى للزبون
+                </th>
                 {groups.map((g) => (
                   <th key={g.id} style={{ ...th, background: "var(--primary)" }}>
                     مجموعة {g.name}
@@ -142,19 +167,22 @@ export default function AgentPrices({ section }: { section: "games" | "mobile" }
             </thead>
             <tbody>
               {shown.length === 0 && (
-                <tr><td colSpan={3 + groups.length} style={{ ...td, padding: 24 }}>لا شيء يطابق «{q.trim()}»</td></tr>
+                <tr><td colSpan={4 + groups.length} style={{ ...td, padding: 24 }}>
+                  {q.trim() ? <>لا شيء يطابق «{q.trim()}»</> : "لا باقات هنا"}
+                </td></tr>
               )}
               {shown.map((b) => (
                 <Fragment key={b.name}>
-                  <tr><td colSpan={3 + groups.length} style={groupHead}>{b.name}</td></tr>
+                  <tr><td colSpan={4 + groups.length} style={groupHead}>{b.name}</td></tr>
                   {b.products.map((p, i) => (
                     <tr key={p.id} style={{ background: i % 2 ? "var(--row-alt)" : "#fff" }}>
-                      <td style={{ ...td, color: "var(--muted)" }}>{p.id}</td>
+                      <td style={{ ...td, color: "var(--muted)" }}>{mobile ? (p.link_code || p.id) : p.id}</td>
                       <td style={{ ...td, textAlign: "right", paddingInlineStart: 12, fontWeight: 600 }}>
                         {p.name}
                         {isAmountP(p) && <span style={unitTag} title="باقة بالكمية — الأسعار للوحدة الواحدة">⚖ للوحدة</span>}
                       </td>
                       <td style={{ ...td, color: "var(--muted)" }}>{showPrice(p.cost, p)}</td>
+                      <td style={{ ...td, color: "var(--faint)", fontSize: 12.5 }}>{showPrice(p.recommended, p)}</td>
                       {groups.map((g) => {
                         const cell = p.prices[g.id];
                         const isEditing = editing?.p === p.id && editing?.g === g.id;

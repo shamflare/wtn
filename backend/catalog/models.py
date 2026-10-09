@@ -111,11 +111,11 @@ class AgentProductPrice(models.Model):
     tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="agent_product_prices")
     group = models.ForeignKey(AgentPriceGroup, on_delete=models.CASCADE, related_name="prices")
     product = models.ForeignKey("catalog.Product", on_delete=models.CASCADE, related_name="agent_prices")
-    price = models.DecimalField(max_digits=12, decimal_places=2)
+    price = models.DecimalField(max_digits=16, decimal_places=6)
     # قاعدة التسعير الجماعي (كمصفوفة المالك): مرتبطٌ ⇐ السعر = تكلفة الوكيل + الهامش
     # يُحسب لحظة البيع فيتبع تكلفته كلّما غيّر المتجر سعره. فارغ = سعرٌ يدويّ جامد.
     margin_mode = models.CharField(max_length=8, blank=True, default="")
-    margin_value = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
+    margin_value = models.DecimalField(max_digits=16, decimal_places=6, null=True, blank=True)
     margin_round = models.BooleanField(default=False)
 
     class Meta:

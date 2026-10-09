@@ -24,6 +24,7 @@ def apply_transaction(
     ref_type: str = "",
     ref_id: int | None = None,
     allow_below_limit: bool = False,
+    internal: bool = False,
 ) -> WalletTransaction:
     """
     يطبّق حركة على المحفظة بشكل ذرّي.
@@ -61,6 +62,7 @@ def apply_transaction(
         ref_type=ref_type,
         ref_id=ref_id,
         created_by=created_by,
+        internal=internal,
     )
 
 

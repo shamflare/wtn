@@ -23,6 +23,8 @@ class ManualItem(models.Model):
     """بند يدوي يضيفه صاحب المتجر — ما لا تعرفه القاعدة."""
 
     tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="inv_items")
+    # صاحب الجرد: فارغ = المتجر، أو وكيلٌ كبير له جرده هو (core.User)
+    owner = models.ForeignKey(User, null=True, blank=True, on_delete=models.CASCADE, related_name="+")
     name = models.CharField(max_length=120)
     amount = models.DecimalField(max_digits=16, decimal_places=2, default=Decimal("0"))
     currency = models.CharField(max_length=8, default="USD")
@@ -64,6 +66,8 @@ class Snapshot(models.Model):
         MONTHLY = "monthly", "شهري"
 
     tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="inv_snapshots")
+    # صاحب الجرد: فارغ = المتجر، أو وكيلٌ كبير له جرده هو (core.User)
+    owner = models.ForeignKey(User, null=True, blank=True, on_delete=models.CASCADE, related_name="+")
     kind = models.CharField(max_length=8, choices=Kind.choices, default=Kind.DAILY)
     taken_at = models.DateTimeField(auto_now_add=True)
     base_currency = models.CharField(max_length=8, default="USD")

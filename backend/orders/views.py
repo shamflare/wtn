@@ -367,7 +367,8 @@ def store_wallet_view(request):
     kind = p.get("type") or "all"
     if kind != "all":
         qs = qs.filter(type=kind)
-    txns = list(qs[:200])
+    from core.statement import paginate
+    txns, paging = paginate(qs, p)
 
     order_ids = [t.ref_id for t in txns if t.ref_type == "order" and t.ref_id]
     orders = {
@@ -382,6 +383,7 @@ def store_wallet_view(request):
         "available": str(show(user, wallet.balance - wallet.credit_limit)),
         "currency": currency.display_currency(user),
         "counts": counts,
+        "paging": paging,
         "types": [{"key": k, "label": label} for k, label in WalletTransaction.Type.choices],
         "results": [{
             "id": t.id, "type": t.type, "type_label": t.get_type_display(),

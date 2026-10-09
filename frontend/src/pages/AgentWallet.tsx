@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import DateRange, { rangeText, TODAY, type Dates } from "../components/DateRange";
 import Icon from "../components/Icon";
+import Pager from "../components/Pager";
 import TopUp from "../components/TopUp";
 import { money, symbolOf } from "../currency";
 import "./store.css";
@@ -17,14 +18,15 @@ export default function AgentWallet() {
   const [dates, setDates] = useState<Dates>(TODAY);
   const [kind, setKind] = useState("all");
   const [topup, setTopup] = useState(false);
+  const [page, setPage] = useState(1);
 
   function load() {
-    const params: Record<string, string> = { type: kind };
+    const params: Record<string, string> = { type: kind, page: String(page) };
     if (dates.date_from) params.date_from = dates.date_from;
     if (dates.date_to) params.date_to = dates.date_to;
     api.get("/store/wallet/", { params }).then((r) => setData(r.data)).catch(() => setData({ results: [] }));
   }
-  useEffect(() => { load(); }, [dates, kind]);
+  useEffect(() => { load(); }, [dates, kind, page]);
 
   const sym = symbolOf(data?.currency || "");
   const counts: Record<string, number> = data?.counts || {};
@@ -61,14 +63,14 @@ export default function AgentWallet() {
           <Icon name="receipt" size={16} style={{ color: "var(--primary)" }} /> كشف حركات محفظتي
         </div>
         <div style={{ padding: "10px 14px", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-          <DateRange value={dates} onChange={setDates} />
+          <DateRange value={dates} onChange={(d) => { setDates(d); setPage(1); }} />
           <span style={{ fontSize: 12.5, color: "var(--muted)" }}>
             الفترة: <b style={{ color: "var(--text)" }}>{rangeText(dates)}</b>
           </span>
         </div>
         <div style={{ padding: "0 14px 10px", display: "flex", gap: 6, flexWrap: "wrap" }}>
           {types.map((t) => (
-            <button key={t.key} onClick={() => setKind(t.key)}
+            <button key={t.key} onClick={() => { setKind(t.key); setPage(1); }}
               style={{ border: "1px solid var(--border)", borderRadius: 999, padding: "4px 12px", cursor: "pointer",
                 fontSize: 12.5, background: kind === t.key ? "var(--primary)" : "var(--surface)",
                 color: kind === t.key ? "#fff" : "var(--text)" }}>
@@ -99,6 +101,7 @@ export default function AgentWallet() {
             </tbody>
           </table>
         </div>
+        <div style={{ padding: "0 12px" }}><Pager paging={data?.paging} onPage={setPage} /></div>
       </div>
     </div>
   );

@@ -230,27 +230,28 @@ def sms_settings_view(request):
 @permission_classes([IsAuthenticated])
 def ledger_view(request):
     """حركات الحسابات (Hesap Hareketleri): كل حركات المحافظ في المستأجر."""
-    qs = WalletTransaction.objects.filter(tenant=request.user.tenant).select_related(
-        "wallet__user"
-    )
+    # دفتر المتجر: ما بين الوكيل الكبير ودكاكينه دفترُه هو لا دفتر المتجر
+    qs = WalletTransaction.objects.filter(tenant=request.user.tenant, internal=False).exclude(
+        wallet__user__parent__role=User.Role.ANA_BAYI
+    ).select_related("wallet__user")
     dealer = request.query_params.get("dealer")
     if dealer:
         qs = qs.filter(wallet__user_id=dealer)
-    txn_type = request.query_params.get("type")
-    if txn_type and txn_type != "all":
-        qs = qs.filter(type=txn_type)
+    from .statement import filtered, paginate
+    qs = filtered(qs, request.query_params)
+    page, paging = paginate(qs, request.query_params)
     rows = [{
         "id": t.id,
         "dealer_name": t.wallet.user.name,
         "type": t.type,
         "type_label": t.get_type_display(),
-        "amount": str(t.amount),
-        "balance_before": str(t.balance_before),
-        "balance_after": str(t.balance_after),
+        "amount": str(t.amount.quantize(currency.CENT)),
+        "balance_before": str(t.balance_before.quantize(currency.CENT)),
+        "balance_after": str(t.balance_after.quantize(currency.CENT)),
         "note": t.note,
         "created_at": t.created_at.strftime("%Y-%m-%d %H:%M"),
-    } for t in qs[:300]]
-    return Response({"count": qs.count(), "results": rows})
+    } for t in page]
+    return Response({"count": paging["count"], "paging": paging, "results": rows})
 
 
 def _next_dealer_no(tenant) -> int:
@@ -727,19 +728,20 @@ def wallet_transactions_view(request, dealer_id):
     except Wallet.DoesNotExist:
         return Response({"detail": "الوكيل غير موجود"}, status=404)
 
-    txns = wallet.transactions.all()[:100]
+    # فلاتر وصفحات (core/statement.py). ومحفظة الوكيل الكبير تُعرض افتراضاً بحركاته
+    # مع المتجر وحدها — حركاته مع دكاكينه لا تعني صاحب المتجر إلا إن طلبها
+    from .statement import build
+    user = wallet.user
+    is_big = user.role == User.Role.ANA_BAYI
+    cent = lambda v: Decimal(v).quantize(currency.CENT)  # noqa: E731
+    data = build(wallet, request.query_params, cent, scoped=is_big)
     return Response({
-        "dealer": {"id": wallet.user_id, "name": wallet.user.name,
-                   "balance": str(wallet.balance), "currency": currency.base_currency(wallet.tenant)},
-        "results": [{
-            "id": t.id,
-            "type": t.type,
-            "type_label": t.get_type_display(),
-            "amount": str(t.amount),
-            "balance_after": str(t.balance_after),
-            "note": t.note,
-            "created_at": t.created_at.strftime("%Y-%m-%d %H:%M"),
-        } for t in txns],
+        "dealer": {"id": wallet.user_id, "name": user.name, "is_big": is_big,
+                   "balance": str(cent(wallet.balance)), "currency": currency.base_currency(wallet.tenant),
+                   "balance_own": str(currency.to_display(user, wallet.balance)),
+                   "own_currency": currency.display_currency(user)},
+        "types": [{"key": k, "label": label} for k, label in WalletTransaction.Type.choices],
+        **data,
     })
 
 

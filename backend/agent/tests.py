@@ -80,8 +80,9 @@ class OrdersAndReportsTest(Base):
         self.assertEqual(r["totals"]["profit"], "60.00")                # (0.5 + 1) × 40
         d = self.client.get("/api/agent/reports/dealers/").json()
         self.assertEqual([x["dealer"] for x in d["results"]], ["shop"])
-        inv = self.client.get("/api/agent/inventory/").json()
-        self.assertEqual([l["key"] for l in inv["lines"]], ["wallet", "accounts", "dealers"])
+        inv = self.client.get("/api/agent/inventory/live/").json()
+        self.assertEqual([g["key"] for g in inv["groups"]], ["agent_wallet", "receiving", "dealer_wallets"])
+        self.assertEqual(inv["base_currency"], "TRY")
 
     def test_other_agent_sees_nothing(self):
         self.client.force_authenticate(self.other)
@@ -180,8 +181,8 @@ class AgentAccountsCurrencyTest(Base):
         acc = ReceivingAccount.objects.get(title="صندوقي")
         self.assertEqual((acc.balance, acc.owner_id), (Decimal("10.00"), self.agent.id))   # 400 ل.ت = 10$
         self.assertEqual(self.client.get("/api/agent/payments/accounts/").json()[0]["balance"], "400.00")
-        inv = self.client.get("/api/agent/inventory/").json()
-        self.assertEqual(inv["lines"][1]["amount"], "400.00")
+        inv = self.client.get("/api/agent/inventory/live/").json()
+        self.assertEqual(inv["groups"][1]["lines"][0]["base"], "400.00")
 
 
 class AddDealerTest(Base):
@@ -190,3 +191,90 @@ class AddDealerTest(Base):
                              format="json")
         self.assertEqual(r.status_code, 201, r.content)
         self.assertEqual(User.objects.get(login_id="5550001111").display_currency, "TRY")
+
+
+class LedgerPrecisionAndStatementTest(Base):
+    """1000 ل.ت يشحنها المالك تصل 1000 بالضبط، وكشف الكبير عند المالك بلا حركات دكاكينه."""
+
+    def setUp(self):
+        super().setUp()
+        self.t.exchange_rates = {"TRY": "41.3"}
+        self.t.save()
+
+    def test_owner_topup_in_agent_currency_is_exact(self):
+        self.client.force_authenticate(self.owner)
+        r = self.client.post(f"/api/dealers/{self.agent.id}/topup/", {"amount": "1000"}, format="json")
+        self.assertEqual(r.status_code, 200, r.content)
+        before = Decimal("100") * Decimal("41.3")
+        self.assertEqual(Decimal(r.json()["balance_own"]), before + Decimal("1000.00"))
+        # والوكيل يحوّل الألف كاملةً لدكانه (بعملته هو أيضاً) فتصله ألفاً
+        self.shop.display_currency = "TRY"; self.shop.save()
+        self.client.force_authenticate(self.agent)
+        r = self.client.post(f"/api/agent/dealers/{self.shop.id}/wallet/", {"action": "topup", "amount": "1000"},
+                             format="json")
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(Decimal(r.json()["dealer_balance"]), Decimal("50") * Decimal("41.3") + 1000)
+
+    def test_owner_statement_hides_agent_internal_moves(self):
+        self.client.post(f"/api/agent/dealers/{self.shop.id}/wallet/", {"action": "topup", "amount": "41.3"},
+                         format="json")
+        self.client.force_authenticate(self.owner)
+        self.client.post(f"/api/dealers/{self.agent.id}/topup/", {"amount": "41.3"}, format="json")
+        url = f"/api/dealers/{self.agent.id}/transactions/"
+        store = self.client.get(url).json()
+        self.assertEqual([t["internal"] for t in store["results"]], [False])
+        self.assertTrue(store["dealer"]["is_big"])
+        agent_side = self.client.get(url + "?scope=agent").json()
+        self.assertEqual([t["internal"] for t in agent_side["results"]], [True])
+        self.assertEqual(self.client.get(url + "?scope=all").json()["totals"]["count"], 2)
+
+    def test_statement_is_paginated(self):
+        from core import services
+        w = Wallet.objects.get(user=self.shop)
+        for _ in range(25):
+            services.apply_transaction(w.id, Decimal("1"), "topup")
+        d = self.client.get(f"/api/agent/dealers/{self.shop.id}/statement/").json()
+        self.assertEqual((len(d["results"]), d["paging"]["pages"], d["totals"]["count"]), (20, 2, 25))
+        self.assertEqual(len(self.client.get(f"/api/agent/dealers/{self.shop.id}/statement/?page=2").json()["results"]), 5)
+
+
+class AgentInventoryTest(Base):
+    def test_manual_items_and_snapshots_are_his_own(self):
+        r = self.client.post("/api/agent/inventory/items/", {"name": "دَين خارجي"}, format="json")
+        self.assertEqual(r.status_code, 201, r.content)
+        self.assertEqual(r.json()["currency"], "TRY")
+        self.client.post(f"/api/agent/inventory/items/{r.json()['id']}/", {"amount": "-400"}, format="json")
+        live = self.client.get("/api/agent/inventory/live/").json()
+        self.assertEqual(live["manual"]["lines"][0]["base"], "-400.00")
+        # المحفظة 100$ = 4000 ل.ت، والدكان 50$ عليه ⇐ −2000، والبند −400
+        self.assertEqual(live["totals"]["total"], "1600.00")
+        s = self.client.post("/api/agent/inventory/snapshots/save/", {"kind": "daily"}, format="json")
+        self.assertEqual(s.status_code, 201, s.content)
+        self.assertEqual(s.json()["total"], "1600.00")
+        self.assertEqual(len(self.client.get("/api/agent/inventory/snapshots/").json()["results"]), 1)
+        # والمالك لا يرى بند الوكيل ولا لقطته
+        self.client.force_authenticate(self.owner)
+        own = self.client.get("/api/inventory/live/").json()
+        self.assertEqual(own["manual"]["lines"], [])
+        self.assertEqual(self.client.get("/api/inventory/snapshots/").json()["results"], [])
+        self.client.force_authenticate(self.agent)
+        self.assertEqual(self.client.post("/api/agent/inventory/refresh/", {}).status_code, 403)
+
+
+class DealerSettingsTest(Base):
+    def test_add_with_profile_and_manage(self):
+        r = self.client.post("/api/agent/dealers/", {
+            "name": "دكان", "login_id": "5550002222", "password": "abc123",
+            "whatsapp": "+905551234567", "id_image": "data:image/jpeg;base64,AAAA"}, format="json")
+        self.assertEqual(r.status_code, 201, r.content)
+        u = User.objects.get(login_id="5550002222")
+        self.assertEqual((u.whatsapp, u.id_image[:10]), ("905551234567", "data:image"))
+        url = f"/api/agent/dealers/{u.id}/settings/"
+        self.assertEqual(self.client.get(url).json()["whatsapp"], "+905551234567")
+        r = self.client.patch(url, {"password": "newpass1", "status": "passive"}, format="json")
+        self.assertTrue(r.json()["password_changed"])
+        u.refresh_from_db()
+        self.assertTrue(u.check_password("newpass1"))
+        self.assertEqual(u.status, "passive")
+        # ودكان غيره لا يُمسّ
+        self.assertEqual(self.client.get(f"/api/agent/dealers/{self.direct.id}/settings/").status_code, 404)

@@ -33,7 +33,7 @@ const COUNTRIES: { code: string; label: string }[] = [
 ];
 
 /** صورةٌ من الجهاز ⇐ data URL مصغّرة (JPEG) — تبقى الهوية مقروءة ويخفّ الحجم */
-async function shrinkToDataUrl(file: File, maxSide = 1600): Promise<string> {
+export async function shrinkToDataUrl(file: File, maxSide = 1600): Promise<string> {
   const url = URL.createObjectURL(file);
   try {
     const img = await new Promise<HTMLImageElement>((ok, bad) => {

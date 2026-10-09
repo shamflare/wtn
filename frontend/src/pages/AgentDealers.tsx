@@ -1,10 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import Icon from "../components/Icon";
+import StatementModal from "../components/StatementModal";
 import { symbolOf } from "../currency";
+import { shrinkToDataUrl } from "./Register";
 
 interface Row {
-  id: number; login_id: string; name: string;
+  id: number; login_id: string; name: string; whatsapp?: string; has_id?: boolean;
   balance: string; status: string; price_group: number | null;
 }
 interface Group { id: number; name: string; dealers: number }
@@ -23,6 +25,7 @@ export default function AgentDealers() {
   const [addOpen, setAddOpen] = useState(false);
   const [walletFor, setWalletFor] = useState<{ row: Row; action: "topup" | "deduct" } | null>(null);
   const [stmtFor, setStmtFor] = useState<Row | null>(null);
+  const [setFor, setSetFor] = useState<Row | null>(null);
   const [toast, setToast] = useState<{ ok: boolean; text: string } | null>(null);
 
   function load() {
@@ -87,7 +90,10 @@ export default function AgentDealers() {
               ) : rows.map((d) => (
                 <tr key={d.id}>
                   <td className="num" style={{ color: "var(--faint)", fontSize: 12.5 }}>{d.login_id}</td>
-                  <td className="cell-start" style={{ fontWeight: 700 }}>{d.name}</td>
+                  <td className="cell-start" style={{ fontWeight: 700 }}>
+                    {d.name}
+                    {d.whatsapp && <div style={{ fontSize: 11.5, color: "var(--muted)", fontWeight: 400, direction: "ltr", textAlign: "right" }}>{d.whatsapp}</div>}
+                  </td>
                   <td>
                     <span className={`num ${balCls(Number(d.balance))}`} style={{ fontSize: 14.5 }}>
                       {money(d.balance)}
@@ -116,6 +122,8 @@ export default function AgentDealers() {
                         onClick={() => setWalletFor({ row: d, action: "deduct" })} />
                       <IconBtn name="chart" color="var(--primary)" title="كشف حساب"
                         onClick={() => setStmtFor(d)} />
+                      <IconBtn name="settings" color="#475569" title="إعدادات الدكان وكلمة السر"
+                        onClick={() => setSetFor(d)} />
                     </div>
                   </td>
                 </tr>
@@ -136,7 +144,14 @@ export default function AgentDealers() {
           onDone={(text) => { setWalletFor(null); load(); setToast({ ok: true, text }); }} />
       )}
 
-      {stmtFor && <Statement row={stmtFor} onClose={() => setStmtFor(null)} />}
+      {stmtFor && (
+        <StatementModal dealerId={stmtFor.id} dealerName={stmtFor.name}
+          url={`/agent/dealers/${stmtFor.id}/statement/`} onClose={() => setStmtFor(null)} />
+      )}
+      {setFor && (
+        <DealerSettings row={setFor} onClose={() => setSetFor(null)}
+          onDone={(text) => { setSetFor(null); load(); setToast({ ok: true, text }); }} />
+      )}
 
       {toast && (
         <div onClick={() => setToast(null)} style={{
@@ -152,7 +167,7 @@ export default function AgentDealers() {
 
 /* ── إضافة دكان ── */
 function AddDealer({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
-  const [f, setF] = useState({ name: "", login_id: "", password: "" });
+  const [f, setF] = useState({ name: "", login_id: "", password: "", whatsapp: "", id_image: "" });
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -185,6 +200,14 @@ function AddDealer({ onClose, onDone }: { onClose: () => void; onDone: () => voi
           <input style={inp} type="password" value={f.password}
             name="new-shop-password" autoComplete="new-password"
             onChange={(e) => setF({ ...f, password: e.target.value })} />
+        </Fld>
+        <Fld label="رقم واتساب (مع رمز الدولة)">
+          <input style={{ ...inp, direction: "ltr", textAlign: "left" }} value={f.whatsapp}
+            name="new-shop-whatsapp" autoComplete="off" inputMode="tel" placeholder="+905XXXXXXXXX"
+            onChange={(e) => setF({ ...f, whatsapp: e.target.value })} />
+        </Fld>
+        <Fld label="صورة الهوية (توثيق)">
+          <Photo value={f.id_image} onChange={(v) => setF({ ...f, id_image: v })} />
         </Fld>
         {err && <div style={errBox}>{err}</div>}
         <div style={{ display: "flex", gap: 8 }}>
@@ -251,48 +274,125 @@ function WalletBox({ row, action, cur, onClose, onDone }: {
   );
 }
 
-/* ── كشف حساب دكان ── */
-function Statement({ row, onClose }: { row: Row; onClose: () => void }) {
-  const [data, setData] = useState<any>(null);
+/* ── إعدادات الدكان: بياناته ووثائقه وحالته وكلمة سرّه ── */
+function DealerSettings({ row, onClose, onDone }: {
+  row: Row; onClose: () => void; onDone: (text: string) => void;
+}) {
+  const [f, setF] = useState<any>(null);
+  const [pw, setPw] = useState("");
+  const [pw2, setPw2] = useState("");
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+
   useEffect(() => {
-    api.get(`/agent/dealers/${row.id}/statement/`).then((r) => setData(r.data));
+    api.get(`/agent/dealers/${row.id}/settings/`).then((r) => setF(r.data))
+      .catch((e) => setErr(e?.response?.data?.detail || "تعذّر جلب بيانات الدكان"));
   }, [row.id]);
 
-  const money = (v: string) => Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 });
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    if (pw && pw !== pw2) { setErr("كلمتا السر غير متطابقتين"); return; }
+    setBusy(true); setErr("");
+    try {
+      const r = await api.patch(`/agent/dealers/${row.id}/settings/`, {
+        name: f.name, whatsapp: f.whatsapp, id_image: f.id_image, shop_image: f.shop_image,
+        province: f.province, status: f.status, ...(pw ? { password: pw } : {}),
+      });
+      onDone(r.data.password_changed ? `حُفظت بيانات ${f.name} وغُيّرت كلمة سرّه` : `حُفظت بيانات ${f.name}`);
+    } catch (e: any) {
+      setErr(e?.response?.data?.detail || "تعذّر الحفظ");
+    } finally { setBusy(false); }
+  }
 
   return (
-    <Modal title={`كشف حساب — ${row.name}`} onClose={onClose} wide>
-      {!data ? <div style={{ padding: 20 }}>جارٍ التحميل...</div> : (
-        <>
-          <div style={{ marginBottom: 10, fontSize: 13.5 }}>
-            الرصيد الحالي:{" "}
-            <b className={`num ${Number(data.dealer.balance) < 0 ? "bal-neg" : "bal-pos"}`}>
-              {money(data.dealer.balance)} {symbolOf(data.currency)}
-            </b>
+    <Modal title={`إعدادات — ${row.name}`} onClose={onClose} wide>
+      {!f ? <div style={{ padding: 20 }}>{err || "جارٍ التحميل..."}</div> : (
+        <form onSubmit={save} autoComplete="off" style={{ display: "grid", gap: 12 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <Fld label="اسم الدكان">
+              <input style={inp} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
+            </Fld>
+            <Fld label="رقم الدخول">
+              <input style={{ ...inp, direction: "ltr", textAlign: "left", background: "var(--surface-2)" }}
+                value={f.login_id} readOnly />
+            </Fld>
+            <Fld label="رقم واتساب">
+              <input style={{ ...inp, direction: "ltr", textAlign: "left" }} value={f.whatsapp} placeholder="+905XXXXXXXXX"
+                onChange={(e) => setF({ ...f, whatsapp: e.target.value })} />
+            </Fld>
+            <Fld label="المحافظة / المدينة">
+              <input style={inp} value={f.province} onChange={(e) => setF({ ...f, province: e.target.value })} />
+            </Fld>
+            <Fld label="الحالة">
+              <select style={inp} value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}>
+                <option value="active">نشط — يدخل ويشتري</option>
+                <option value="passive">معطّل — لا يدخل</option>
+              </select>
+            </Fld>
+            <Fld label="الرصيد">
+              <div style={{ ...inp, display: "flex", alignItems: "center", padding: "0 10px", background: "var(--surface-2)",
+                border: "1px solid var(--border)" }}>
+                <b className="num">{Number(f.balance).toLocaleString("en-US", { minimumFractionDigits: 2 })}</b>
+                <span style={{ marginInlineStart: 6, color: "var(--muted)" }}>{symbolOf(f.currency)}</span>
+                <span style={{ marginInlineStart: "auto", fontSize: 11.5, color: "var(--faint)" }}>منذ {f.created_at}</span>
+              </div>
+            </Fld>
+            <Fld label="صورة الهوية"><Photo value={f.id_image} onChange={(v) => setF({ ...f, id_image: v })} /></Fld>
+            <Fld label="صورة المحل"><Photo value={f.shop_image} onChange={(v) => setF({ ...f, shop_image: v })} /></Fld>
           </div>
-          <div className="table-scroll" style={{ maxHeight: "55vh" }}>
-            <table className="grid">
-              <thead>
-                <tr><th>التاريخ</th><th>النوع</th><th>المبلغ</th><th>الرصيد بعدها</th><th className="cell-start">ملاحظة</th></tr>
-              </thead>
-              <tbody>
-                {data.results.length === 0 ? (
-                  <tr><td colSpan={5} style={{ padding: 22, color: "var(--muted)" }}>لا حركات بعد</td></tr>
-                ) : data.results.map((t: any) => (
-                  <tr key={t.id}>
-                    <td style={{ color: "var(--muted)", fontSize: 12.5 }}>{t.created_at}</td>
-                    <td style={{ fontSize: 12.5 }}>{t.type_label}</td>
-                    <td className={`num ${Number(t.amount) < 0 ? "bal-neg" : "bal-pos"}`}>{money(t.amount)}</td>
-                    <td className="num">{money(t.balance_after)}</td>
-                    <td className="cell-start" style={{ fontSize: 12.5, color: "var(--muted)" }}>{t.note}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div style={{ ...hint, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <Fld label="كلمة سر جديدة (اتركها فارغة لإبقائها)">
+              <input style={inp} type="password" autoComplete="new-password" value={pw}
+                onChange={(e) => setPw(e.target.value)} />
+            </Fld>
+            <Fld label="تأكيد كلمة السر">
+              <input style={{ ...inp, ...(pw && pw2 && pw !== pw2 ? { borderColor: "var(--danger)" } : {}) }}
+                type="password" autoComplete="new-password" value={pw2} onChange={(e) => setPw2(e.target.value)} />
+            </Fld>
+            {f.locked && <div style={{ gridColumn: "span 2", color: "var(--danger)" }}>
+              الحساب مقفل بعد محاولات دخول خاطئة — كلمة سر جديدة تفتحه.</div>}
           </div>
-        </>
+          {err && <div style={errBox}>{err}</div>}
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="btn g" disabled={busy}>{busy ? "جارٍ..." : "حفظ"}</button>
+            <button type="button" className="btn" style={{ background: "#8a999e" }} onClick={onClose}>إلغاء</button>
+          </div>
+        </form>
       )}
     </Modal>
+  );
+}
+
+/** صورة من الجهاز ⇐ data URL مصغّرة (كتسجيل الوكلاء) — مع معاينة وإزالة. */
+function Photo({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const input = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  async function pick(file?: File) {
+    if (!file || !file.type.startsWith("image/")) return;
+    setBusy(true);
+    try { onChange(await shrinkToDataUrl(file)); } finally { setBusy(false); }
+  }
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      <div onClick={() => !busy && input.current?.click()} style={{
+        width: 70, height: 52, borderRadius: 8, cursor: "pointer", overflow: "hidden", flexShrink: 0,
+        border: value ? "1px solid var(--border)" : "2px dashed var(--border)", display: "grid", placeItems: "center",
+        color: "var(--faint)", fontSize: 11, background: "var(--surface-2)",
+      }}>
+        {busy ? "..." : value ? <img src={value} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : "📷"}
+      </div>
+      <button type="button" className="btn" style={{ height: 32 }} onClick={() => input.current?.click()} disabled={busy}>
+        {value ? "تغيير" : "رفع صورة"}
+      </button>
+      {value && (
+        <>
+          <a href={value} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: "var(--primary)" }}>عرض</a>
+          <button type="button" onClick={() => onChange("")}
+            style={{ background: "none", border: 0, color: "var(--danger)", cursor: "pointer", fontSize: 12 }}>إزالة</button>
+        </>
+      )}
+      <input ref={input} type="file" accept="image/*" hidden onChange={(e) => pick(e.target.files?.[0])} />
+    </div>
   );
 }
 

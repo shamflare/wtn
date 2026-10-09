@@ -64,13 +64,15 @@ def _group(key, label, lines, *, hint="", enabled=True, auto=True):
     }
 
 
-def build(tenant) -> dict:
+def build(tenant, agent=None) -> dict:
     """
     اللقطة الحالية كاملةً: المجموعات التلقائية + البنود اليدوية + المجاميع.
 
     كل مبلغ **موقّع**: الموجب لنا والسالب علينا. فالمجموع الكلي = صافي رأس
     المال مباشرةً، بلا طرحٍ لاحق يمكن أن يُنسى.
     """
+    if agent is not None:
+        return _build_agent(tenant, agent)
     conf = config_for(tenant)
     base = cur.base_currency(tenant)
     groups = []
@@ -150,7 +152,7 @@ def build(tenant) -> dict:
     manual_lines = [
         _line(tenant, m.name, m.amount, m.currency, note=m.note,
               source="manual", item_id=m.id)
-        for m in ManualItem.objects.filter(tenant=tenant, active=True)
+        for m in ManualItem.objects.filter(tenant=tenant, owner__isnull=True, active=True)
     ]
     manual = _group(
         "manual", "البنود اليدوية", manual_lines,
@@ -175,7 +177,7 @@ def build(tenant) -> dict:
         by_currency[l["currency"]] += Decimal(l["amount"])
 
     previous = Snapshot.objects.filter(
-        tenant=tenant, kind=Snapshot.Kind.DAILY
+        tenant=tenant, owner__isnull=True, kind=Snapshot.Kind.DAILY
     ).order_by("-taken_at", "-id").first()
     prev_total = previous.total_base if previous else ZERO
 
@@ -211,3 +213,96 @@ def build(tenant) -> dict:
         "sources": [{"key": k, "label": lbl, "enabled": conf.enabled(k)} for k, lbl in SOURCES],
         "notes": notes,
     }
+
+
+# ─────────────────────────── جرد الوكيل الكبير ───────────────────────────
+
+def _summarise(tenant, groups, manual, previous, *, base, sources, notes):
+    """المجاميع والملخّص — مشتركة بين جرد المتجر وجرد الوكيل الكبير."""
+    counted = [g for g in groups if g["enabled"]] + [manual]
+    all_lines = [l for g in counted for l in g["lines"]]
+    vals = [Decimal(l["base"]) for l in all_lines if l["base"] is not None]
+    total = sum(vals, ZERO)
+    by_currency = {}
+    for l in all_lines:
+        by_currency.setdefault(l["currency"], ZERO)
+        by_currency[l["currency"]] += Decimal(l["amount"])
+    prev_total = previous.total_base if previous else ZERO
+    return {
+        "base_currency": base,
+        "rates": {k: str(v) for k, v in (tenant.exchange_rates or {}).items()},
+        "groups": groups, "manual": manual,
+        "by_currency": {k: str(v.quantize(CENT)) for k, v in sorted(by_currency.items())},
+        "totals": {
+            "total": str(total),
+            "assets": str(sum((v for v in vals if v > 0), ZERO)),
+            "liabilities": str(-sum((v for v in vals if v < 0), ZERO)),
+            "previous_total": str(prev_total),
+            "profit": str(total - prev_total),
+        },
+        "previous": {
+            "id": previous.id, "taken_at": previous.taken_at.strftime("%Y-%m-%d %H:%M"),
+            "total": str(prev_total),
+        } if previous else None,
+        "sources": sources,
+        "notes": notes,
+    }
+
+
+def _build_agent(tenant, agent) -> dict:
+    """
+    جرد الوكيل الكبير — لا مزوّدين ولا اشتراك منصّة عنده:
+    رصيده لدى المتجر · حساباته ونقده · محافظ دكاكينه (معكوسة) · بنوده اليدوية.
+    """
+    base = cur.base_currency(tenant)
+    wallet = Wallet.objects.filter(user=agent).first()
+    own = wallet.balance if wallet else ZERO
+    groups = [
+        _group("agent_wallet", "رصيدي لدى المتجر",
+               [_line(tenant, "محفظتي", own, base)],
+               hint="الموجب مالٌ لك عند المتجر، والسالب دَينٌ عليك له."),
+        _group("receiving", "حساباتي والنقد", [
+            _line(tenant, f"{a.title} · {a.get_method_display()}", a.balance, base, item_id=a.id)
+            for a in ReceivingAccount.objects.filter(
+                tenant=tenant, owner=agent, status=ReceivingAccount.Status.ACTIVE
+            ).order_by("sort_order", "id")
+        ], hint="حساباتك المفعّلة من «الوكلاء ← حساباتي»."),
+    ]
+    agg = Wallet.objects.filter(user__parent=agent, user__role=User.Role.BAYI).aggregate(
+        net=Sum("balance"),
+        credit=Sum("balance", filter=Q(balance__gt=0)), credit_n=Count("id", filter=Q(balance__gt=0)),
+        debt=Sum("balance", filter=Q(balance__lt=0)), debt_n=Count("id", filter=Q(balance__lt=0)),
+    )
+    show = lambda v: cur.to_display(agent, v or ZERO)  # noqa: E731
+    groups.append(_group("dealer_wallets", "محافظ دكاكيني", [_line(
+        tenant, "صافي محافظ دكاكيني", -(agg["net"] or ZERO), base,
+        note=(f"{agg['credit_n'] or 0} برصيد موجب = {show(agg['credit'])} عليك · "
+              f"{agg['debt_n'] or 0} برصيد سالب = {show(-(agg['debt'] or ZERO))} لك"),
+    )], hint="رصيد الدكان الموجب مالٌ قبضتَه ولم تقدّم مقابله — يُطرح لا يُجمع."))
+    manual = _group("manual", "البنود اليدوية", [
+        _line(tenant, m.name, m.amount, m.currency, note=m.note, source="manual", item_id=m.id)
+        for m in ManualItem.objects.filter(tenant=tenant, owner=agent, active=True)
+    ], hint="ما لا يعرفه النظام: دَينٌ خارجي، مصروف، نقدٌ في الصندوق…", auto=False)
+    previous = Snapshot.objects.filter(
+        tenant=tenant, owner=agent, kind=Snapshot.Kind.DAILY).order_by("-taken_at", "-id").first()
+    return _summarise(tenant, groups, manual, previous, base=base, sources=[], notes=[])
+
+
+def for_viewer(data: dict, agent) -> dict:
+    """
+    الجرد بعملة الوكيل الكبير لعرضه: الحساب كلّه بعملة الدفتر (ومنه تُحفظ اللقطات)،
+    والتحويل عند الخروج وحده.
+    """
+    if agent is None:
+        return data
+    show = lambda v: str(cur.to_display(agent, v)) if v is not None else None  # noqa: E731
+    for g in data["groups"] + [data["manual"]]:
+        g["total_base"] = show(g["total_base"])
+        for l in g["lines"]:
+            l["base"] = show(l["base"])
+    data["totals"] = {k: show(v) for k, v in data["totals"].items()}
+    if data["previous"]:
+        data["previous"]["total"] = show(data["previous"]["total"])
+    data["base_currency"] = cur.display_currency(agent)
+    data["rates"] = {}
+    return data

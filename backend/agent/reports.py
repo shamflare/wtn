@@ -190,66 +190,6 @@ def report_dealers_view(request):
 
 @api_view(["GET"])
 @permission_classes(AGENT)
-def inventory_view(request):
-    """
-    جرده الحيّ: ما له وما عليه الآن، بعملة عرضه. كل مبلغ موقّع (الموجب له والسالب
-    عليه) فالمجموع صافي رأس ماله مباشرةً.
-
-    - رصيده لدى المتجر: موجبه مالٌ له عند المتجر، وسالبه دَينٌ عليه.
-    - حساباته والنقد: حسابات الاستلام المفعّلة من «حساباتي».
-    - محافظ دكاكينه **بالإشارة المعكوسة**: رصيد الدكان الموجب قبضه الوكيل ولم يقدّم
-      مقابله بعد (عليه)، وسالبه دَينٌ للوكيل على دكانه (له).
-    """
-    agent = request.user
-    show = lambda v: currency.to_display(agent, v or 0)  # noqa: E731
-    wallet = getattr(agent, "wallet", None)
-    own = wallet.balance if wallet else ZERO
-
-    accounts = list(ReceivingAccount.objects.filter(
-        tenant=agent.tenant, owner=agent, status=ReceivingAccount.Status.ACTIVE))
-    acc_total = sum((a.balance for a in accounts), ZERO)
-
-    agg = Wallet.objects.filter(user__parent=agent, user__role=User.Role.BAYI).aggregate(
-        net=Sum("balance"),
-        credit=Sum("balance", filter=Q(balance__gt=0)), credit_n=Count("id", filter=Q(balance__gt=0)),
-        debt=Sum("balance", filter=Q(balance__lt=0)), debt_n=Count("id", filter=Q(balance__lt=0)),
-    )
-    dealers_net = -(agg["net"] or ZERO)
-
-    pending = PaymentNotification.objects.filter(
-        owner=agent, status=PaymentNotification.Status.PENDING
-    ).aggregate(n=Count("id"), s=Sum("credit_amount"))
-
-    lines = [
-        {"key": "wallet", "name": "رصيدي لدى المتجر", "amount": str(show(own)),
-         "note": "الموجب مالٌ لك عند المتجر، والسالب دَينٌ عليك له."},
-        {"key": "accounts", "name": "حساباتي والنقد", "amount": str(show(acc_total)),
-         "note": " · ".join(f"{a.title}: {show(a.balance)}" for a in accounts) or "لا حسابات مفعّلة — أضفها من «حساباتي»."},
-        {"key": "dealers", "name": "صافي محافظ دكاكيني", "amount": str(show(dealers_net)),
-         "note": (f"{agg['credit_n'] or 0} برصيد موجب = {show(agg['credit'] or 0)} عليك · "
-                  f"{agg['debt_n'] or 0} برصيد سالب = {show(-(agg['debt'] or ZERO))} لك")},
-    ]
-    total = own + acc_total + dealers_net
-    amounts = [own, acc_total, dealers_net]
-
-    games, mobile = _success(agent, request.query_params)
-    profit = ((games.aggregate(s=Sum("agent_profit"))["s"] or ZERO)
-              + (mobile.aggregate(s=Sum("agent_profit"))["s"] or ZERO))
-    return Response({
-        "lines": lines,
-        "totals": {
-            "total": str(show(total)),
-            "assets": str(show(sum((a for a in amounts if a > 0), ZERO))),
-            "liabilities": str(show(-sum((a for a in amounts if a < 0), ZERO))),
-            "profit": str(show(profit)),
-        },
-        "pending_deposits": {"count": pending["n"] or 0, "amount": str(show(pending["s"] or 0))},
-        "currency": currency.display_currency(agent),
-    })
-
-
-@api_view(["GET"])
-@permission_classes(AGENT)
 def alerts_view(request):
     """عدّادات هيدر الوكيل الكبير: ما ينتظر قراره هو."""
     agent = request.user

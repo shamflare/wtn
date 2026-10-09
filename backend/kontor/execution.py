@@ -74,7 +74,8 @@ def create_order(dealer, package: KontorPackage, gsm: str, dealer_sell_price=Non
 
     from orders.services import big_agent_of
     agent = big_agent_of(dealer)
-    buyer = dealer_price(dealer, package).quantize(CENT)                 # ما يدفعه المشتري
+    from core.currency import LEDGER
+    buyer = dealer_price(dealer, package).quantize(LEDGER)                 # ما يدفعه المشتري
     sell = store_price(agent or dealer, package).quantize(CENT)          # ما يقبضه المتجر
     cost = (package.cost_price or Decimal("0")).quantize(CENT)
     # حرّاس المال: بلا كلفة محوّلة (لا سعر صرف) أو بلا سعر أو بسعر دون الكلفة ⇐ لا بيع
@@ -89,7 +90,7 @@ def create_order(dealer, package: KontorPackage, gsm: str, dealer_sell_price=Non
         retail = (package.recommended_price or Decimal("0")).quantize(CENT)
     else:
         try:
-            retail = Decimal(str(dealer_sell_price).replace(",", ".")).quantize(CENT)
+            retail = Decimal(str(dealer_sell_price).replace(",", ".")).quantize(LEDGER)
         except (InvalidOperation, ValueError):
             raise KontorOrderError("سعر البيع غير صالح")
         if retail < 0:
@@ -114,7 +115,7 @@ def create_order(dealer, package: KontorPackage, gsm: str, dealer_sell_price=Non
         try:
             wallet_services.apply_transaction(
                 agent_wallet.id, buyer, WalletTransaction.Type.TOPUP,
-                created_by=dealer, note=f"بيع {package.name} لـ{dealer.name} ⟵ {gsm}",
+                created_by=dealer, note=f"بيع {package.name} لـ{dealer.name} ⟵ {gsm}", internal=True,
             )
             wallet_services.apply_transaction(
                 agent_wallet.id, -sell, WalletTransaction.Type.ORDER_DEBIT,
@@ -149,13 +150,13 @@ def _refund(order: KontorOrder, note: str):
     # الوكيل الكبير أوّلاً: يستردّ من المتجر ثم يردّ لدكانه — والدكان يستردّ ما دفعه هو
     agent_wallet = getattr(order.agent, "wallet", None) if order.agent_id else None
     if agent_wallet is not None:
-        for amount, label in ((order.sell_price, "استرداد من المتجر"),
-                              (-order.buyer_price, "ردّ لدكانه")):
+        for amount, label, internal in ((order.sell_price, "استرداد من المتجر", False),
+                                        (-order.buyer_price, "ردّ لدكانه", True)):
             wallet_services.apply_transaction(
                 agent_wallet.id, amount,
                 WalletTransaction.Type.TOPUP if amount > 0 else WalletTransaction.Type.ORDER_DEBIT,
                 note=f"{label} — خط M{order.id}", ref_type="kontor_order", ref_id=order.id,
-                allow_below_limit=True,
+                allow_below_limit=True, internal=internal,
             )
     wallet_services.apply_transaction(
         wallet.id, order.buyer_price or order.sell_price, WalletTransaction.Type.REFUND,

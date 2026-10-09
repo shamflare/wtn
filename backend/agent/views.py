@@ -78,14 +78,19 @@ def dealers_view(request):
         login_id = clean_login_id(data.get("login_id"))
         if not login_id or not data.get("password") or not data.get("name"):
             return Response({"detail": "الاسم ورقم الدخول وكلمة السر مطلوبة"}, status=400)
+        if len(str(data["password"])) < 5:
+            return Response({"detail": "كلمة السر قصيرة (5 أحرف على الأقل)"}, status=400)
         if User.objects.filter(login_id=login_id).exists():
             return Response({"detail": "رقم الدخول مستخدم مسبقاً"}, status=400)
+        extra, err = _profile_fields(data, agent)
+        if err:
+            return Response({"detail": err}, status=400)
         with transaction.atomic():
             # الدكان يرث عملة وكيله: يرى أسعاره ورسائله بالعملة التي يتعاملان بها
             u = User(tenant=agent.tenant, parent=agent, role=User.Role.BAYI,
                      login_id=login_id, name=data["name"], status=User.Status.ACTIVE,
                      display_currency=agent.display_currency or "",
-                     modules={"oyun": True, "shopping": True})
+                     modules={"oyun": True, "shopping": True}, **extra)
             u.set_password(data["password"])
             u.save()
             Wallet.objects.create(tenant=agent.tenant, user=u, balance=Decimal("0"))
@@ -100,11 +105,98 @@ def dealers_view(request):
             "balance": str(currency.to_display(agent, w.balance)) if w else "0.00",
             "status": u.status,
             "price_group": u.agent_price_group_id,
+            "whatsapp": f"+{u.whatsapp}" if u.whatsapp else "",
+            "has_id": bool(u.id_image),
         })
     return Response({
         "count": len(rows), "results": rows,
         "currency": currency.display_currency(agent),
     })
+
+
+def _profile_fields(data, agent):
+    """
+    بيانات الدكان التي يديرها وكيله: واتساب (مطبَّعاً) · صورة الهوية والمحل · المحافظة.
+    ⇐ (الحقول، رسالة الخطأ). ما لم يُرسَل لا يُمسّ.
+    """
+    from core.registration import _image
+    from whatsapp.phone import normalize
+    out = {}
+    if "whatsapp" in data:
+        raw = str(data.get("whatsapp") or "").strip()
+        wa = normalize(raw, agent.country or "") if raw else ""
+        if raw and not wa:
+            return {}, "اكتب رقم واتساب مع رمز الدولة، مثل +905551234567"
+        out["whatsapp"] = wa
+        out["phone"] = wa
+    for field, label in (("id_image", "صورة الهوية"), ("shop_image", "صورة المحل")):
+        if field in data:
+            img, err = _image(data.get(field), label, required=False)
+            if err:
+                return {}, err
+            out[field] = img
+    if "province" in data:
+        out["province"] = str(data.get("province") or "")[:80]
+    return out, ""
+
+
+def _dealer_profile(agent, u):
+    w = getattr(u, "wallet", None)
+    return {
+        "id": u.id, "login_id": u.login_id, "name": u.name,
+        "whatsapp": f"+{u.whatsapp}" if u.whatsapp else "",
+        "id_image": u.id_image, "shop_image": u.shop_image, "province": u.province,
+        "status": u.status, "price_group": u.agent_price_group_id,
+        "balance": str(currency.to_display(agent, w.balance)) if w else "0.00",
+        "currency": currency.display_currency(agent),
+        "locked": u.is_locked,
+        "created_at": u.created_at.strftime("%Y-%m-%d"),
+    }
+
+
+@api_view(["GET", "PATCH"])
+@permission_classes(AGENT)
+def dealer_settings_view(request, dealer_id):
+    """
+    إعدادات دكانٍ من دكاكينه: بياناته ووثائقه، وحالته، وكلمة سرّه — يغيّرها وكيله
+    بنفسه (`password`) فيفتح قفله إن كان مقفلاً.
+    """
+    agent = request.user
+    u = User.objects.filter(pk=dealer_id, parent=agent, role=User.Role.BAYI).select_related("wallet").first()
+    if u is None:
+        return Response({"detail": "الدكان ليس من دكاكينك"}, status=404)
+    if request.method == "GET":
+        return Response(_dealer_profile(agent, u))
+
+    data = request.data
+    extra, err = _profile_fields(data, agent)
+    if err:
+        return Response({"detail": err}, status=400)
+    fields = list(extra)
+    for k, v in extra.items():
+        setattr(u, k, v)
+    if "name" in data:
+        name = str(data.get("name") or "").strip()[:120]
+        if not name:
+            return Response({"detail": "اسم الدكان مطلوب"}, status=400)
+        u.name = name
+        fields.append("name")
+    if "status" in data:
+        if data["status"] not in (User.Status.ACTIVE, User.Status.PASSIVE):
+            return Response({"detail": "حالة غير معروفة"}, status=400)
+        u.status = data["status"]
+        fields.append("status")
+    pw = str(data.get("password") or "")
+    if pw:
+        if len(pw) < 5:
+            return Response({"detail": "كلمة السر قصيرة (5 أحرف على الأقل)"}, status=400)
+        u.set_password(pw)
+        u.locked_at = None
+        u.failed_login_count = 0
+        fields += ["password", "locked_at", "failed_login_count"]
+    if fields:
+        u.save(update_fields=fields)
+    return Response(_dealer_profile(agent, u) | {"password_changed": bool(pw)})
 
 
 @api_view(["GET", "POST", "DELETE"])
@@ -278,6 +370,7 @@ def dealer_wallet_view(request, dealer_id):
                 created_by=agent,
                 note=note or (f"تحويل إلى {dealer.name}" if action == "topup"
                               else f"سحب من {dealer.name}"),
+                internal=True,
             )
             wallet_services.apply_transaction(
                 dealer_wallet.id, sign * amount,
@@ -286,6 +379,7 @@ def dealer_wallet_view(request, dealer_id):
                 created_by=agent,
                 note=note or (f"شحن من وكيلك {agent.name}" if action == "topup"
                               else f"سحب لصالح وكيلك {agent.name}"),
+                internal=True,
             )
     except wallet_services.WalletError as e:
         return Response({"detail": str(e)}, status=400)
@@ -309,23 +403,16 @@ def dealer_statement_view(request, dealer_id):
     if dealer is None or getattr(dealer, "wallet", None) is None:
         return Response({"detail": "الدكان ليس من دكاكينك"}, status=404)
 
-    show = currency.to_display
-    rows = [{
-        "id": t.id,
-        "type": t.type,
-        "type_label": t.get_type_display(),
-        "amount": str(show(agent, t.amount)),
-        "balance_after": str(show(agent, t.balance_after)),
-        "note": t.note,
-        "created_at": t.created_at.strftime("%Y-%m-%d %H:%M"),
-    } for t in dealer.wallet.transactions.all()[:100]]
+    from core.statement import build
+    show = lambda v: currency.to_display(agent, v)  # noqa: E731
     return Response({
         "dealer": {
             "id": dealer.id, "name": dealer.name,
-            "balance": str(show(agent, dealer.wallet.balance)),
+            "balance": str(show(dealer.wallet.balance)),
         },
-        "results": rows,
+        "types": [{"key": k, "label": label} for k, label in WalletTransaction.Type.choices],
         "currency": currency.display_currency(agent),
+        **build(dealer.wallet, request.query_params, show),
     })
 
 

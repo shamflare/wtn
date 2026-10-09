@@ -44,14 +44,14 @@ class Order(models.Model):
         User, null=True, blank=True, on_delete=models.PROTECT, related_name="agent_orders"
     )
     # ما دفعه المشتري فعلاً: يساوي sell_price بلا وسيط، ويزيد عنه بربح الوسيط.
-    buyer_price = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"))
-    agent_profit = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"))
+    buyer_price = models.DecimalField(max_digits=16, decimal_places=6, default=Decimal("0"))
+    agent_profit = models.DecimalField(max_digits=16, decimal_places=6, default=Decimal("0"))
 
     # أرقام **الوكيل**: بكم باع لزبونه وكم ربح. شراؤه هو `buyer_price` أعلاه.
     # سعر التوصية تخمين من صاحب المتجر، والوكيل قد يبيع أغلى أو أرخص — لذا
     # يُثبَّت السعر الفعلي وقت البيع ولا يُشتقّ لاحقاً من المنتج.
-    dealer_sell_price = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"))
-    dealer_profit = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"))
+    dealer_sell_price = models.DecimalField(max_digits=16, decimal_places=6, default=Decimal("0"))
+    dealer_profit = models.DecimalField(max_digits=16, decimal_places=6, default=Decimal("0"))
 
     status = models.CharField(max_length=12, choices=Status.choices, default=Status.PENDING)
     provider = models.ForeignKey(
@@ -65,8 +65,8 @@ class Order(models.Model):
     last_sync_at = models.DateTimeField(null=True, blank=True)                # آخر استعلام حالة
     dealer_note = models.CharField(max_length=255, blank=True, default="")
 
-    balance_before = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
-    balance_after = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
+    balance_before = models.DecimalField(max_digits=18, decimal_places=6, default=Decimal("0"))
+    balance_after = models.DecimalField(max_digits=18, decimal_places=6, default=Decimal("0"))
 
     # `order_uuid` الذي يرسله عميل الواجهة الخارجية — **مفتاح منع التكرار**.
     # الشبكة تنقطع بعد أن نشحن وقبل أن يصله الردّ، فيعيد المحاولة. بدون هذا

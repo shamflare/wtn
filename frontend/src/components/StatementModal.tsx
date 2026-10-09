@@ -3,13 +3,20 @@ import { api } from "../api";
 import Icon from "../components/Icon";
 import { downloadCsv } from "../csv";
 import { money, symbolOf } from "../currency";
+import DateRange, { type Dates } from "./DateRange";
+import Pager, { type Paging } from "./Pager";
 
 interface Txn {
-  id: number; type: string; type_label: string;
+  id: number; type: string; type_label: string; internal?: boolean;
   amount: string; balance_after: string; note: string; created_at: string;
 }
 interface Data {
-  dealer: { id: number; name: string; balance: string; currency: string };
+  dealer: { id: number; name: string; balance: string; currency?: string; is_big?: boolean;
+            balance_own?: string; own_currency?: string };
+  currency?: string;
+  types?: { key: string; label: string }[];
+  totals: { count: number; in: string; out: string };
+  paging: Paging;
   results: Txn[];
 }
 
@@ -18,35 +25,57 @@ const TYPE_COLOR: Record<string, string> = {
   topup: "var(--ok)", manual_credit: "var(--ok)", refund: "var(--ok)",
   order_debit: "var(--danger)", manual_debit: "var(--danger)", adjustment: "#3b82f6",
 };
+const ALL: Dates = { date_from: "", date_to: "" };
 
+/**
+ * كشف حساب محفظة — لصاحب المتجر (كشف وكيله)، وللوكيل الكبير (`url`) كشف دكانه.
+ *
+ * الفلاتر والصفحات من الخادم (20 صفّاً). ومحفظة الوكيل الكبير تُفتح على حركاته مع
+ * **المتجر** وحدها؛ وزرّ «حركاته مع دكاكينه» يعرض ما بينه وبينهم — للاطّلاع فقط.
+ */
 export default function StatementModal({
-  dealerId, dealerName, onClose,
-}: { dealerId: number; dealerName: string; onClose: () => void }) {
+  dealerId, dealerName, onClose, url,
+}: { dealerId: number; dealerName: string; onClose: () => void; url?: string }) {
   const [data, setData] = useState<Data | null>(null);
   const [err, setErr] = useState("");
-  const [kind, setKind] = useState("all");
+  const [dir, setDir] = useState("all");
+  const [type, setType] = useState("all");
+  const [dates, setDates] = useState<Dates>(ALL);
+  const [scope, setScope] = useState<"store" | "agent">("store");
+  const [page, setPage] = useState(1);
+  const endpoint = url || `/dealers/${dealerId}/transactions/`;
 
+  function params(extra: Record<string, any> = {}) {
+    const p: Record<string, any> = { page, dir, type, scope, ...extra };
+    if (dates.date_from) p.date_from = dates.date_from;
+    if (dates.date_to) p.date_to = dates.date_to;
+    return p;
+  }
   useEffect(() => {
-    api.get(`/dealers/${dealerId}/transactions/`)
+    api.get(endpoint, { params: params() })
       .then((r) => setData(r.data))
       .catch((e) => setErr(e?.response?.data?.detail || "تعذّر جلب كشف الحساب"));
-  }, [dealerId]);
+  }, [endpoint, page, dir, type, dates, scope]);
+  // تغيير الفلتر يعيد إلى الصفحة الأولى
+  function reset<T>(set: (v: T) => void) {
+    return (v: T) => { set(v); setPage(1); };
+  }
 
-  const rows = (data?.results || []).filter((t) =>
-    kind === "all" ? true : kind === "in" ? Number(t.amount) > 0 : Number(t.amount) < 0);
+  const rows = data?.results || [];
+  const cur = symbolOf(data?.dealer.currency || data?.currency || "");
 
-  const totals = rows.reduce((a, t) => {
-    const v = Number(t.amount);
-    return v > 0 ? { ...a, in: a.in + v } : { ...a, out: a.out + v };
-  }, { in: 0, out: 0 });
-
-  const cur = symbolOf(data?.dealer.currency || "");
-
-  function exportCsv() {
+  /** التصدير يشمل كل ما طابق الفلتر — لا الصفحة الظاهرة وحدها. */
+  async function exportCsv() {
+    const all: Txn[] = [];
+    for (let p = 1; ; p++) {
+      const r = await api.get(endpoint, { params: params({ page: p, page_size: 100 }) });
+      all.push(...r.data.results);
+      if (p >= r.data.paging.pages) break;
+    }
     downloadCsv(
       `كشف-حساب-${dealerName}`,
       ["التاريخ", "النوع", "المبلغ", "الرصيد بعدها", "ملاحظة"],
-      rows.map((t) => [t.created_at, t.type_label, t.amount, t.balance_after, t.note]),
+      all.map((t) => [t.created_at, t.type_label, t.amount, t.balance_after, t.note]),
     );
   }
 
@@ -66,18 +95,43 @@ export default function StatementModal({
           <div style={{ padding: 16 }}>
             <div style={statRow}>
               <Stat label="الرصيد الحالي" value={`${money(data.dealer.balance)} ${cur}`}
+                sub={data.dealer.own_currency && data.dealer.own_currency !== data.dealer.currency
+                  ? `${money(data.dealer.balance_own || 0)} ${symbolOf(data.dealer.own_currency)}` : undefined}
                 tone={Number(data.dealer.balance) < 0 ? "var(--danger)" : "var(--ok)"} />
-              <Stat label="مجموع الوارد" value={`${money(totals.in)} ${cur}`} tone="var(--ok)" />
-              <Stat label="مجموع الصادر" value={`${money(totals.out)} ${cur}`} tone="var(--danger)" />
-              <Stat label="عدد الحركات" value={String(rows.length)} tone="var(--text)" />
+              <Stat label="مجموع الوارد" value={`${money(data.totals.in)} ${cur}`} tone="var(--ok)" />
+              <Stat label="مجموع الصادر" value={`${money(data.totals.out)} ${cur}`} tone="var(--danger)" />
+              <Stat label="عدد الحركات" value={String(data.totals.count)} tone="var(--text)" />
             </div>
 
-            <div style={{ display: "flex", gap: 8, alignItems: "center", margin: "14px 0 10px" }}>
+            {data.dealer.is_big && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+                <div className="segment">
+                  <button className={scope === "store" ? "active" : ""} onClick={() => reset(setScope)("store")}>
+                    حركاته مع المتجر
+                  </button>
+                  <button className={scope === "agent" ? "active" : ""} onClick={() => reset(setScope)("agent")}>
+                    حركاته مع دكاكينه
+                  </button>
+                </div>
+                <span style={{ fontSize: 12, color: "var(--muted)" }}>
+                  {scope === "store"
+                    ? "ما بينك وبين الوكيل الكبير وحده."
+                    : "للاطّلاع فقط: بيعه لدكاكينه وحوالاته إليهم وإيداعاتهم عنده — دفترٌ بينه وبينهم."}
+                </span>
+              </div>
+            )}
+
+            <div style={{ display: "flex", gap: 8, alignItems: "center", margin: "12px 0 10px", flexWrap: "wrap" }}>
+              <DateRange value={dates} onChange={reset(setDates)} compact />
               <div className="segment">
                 {([["all", "الكل"], ["in", "وارد"], ["out", "صادر"]] as [string, string][]).map(([k, l]) => (
-                  <button key={k} className={kind === k ? "active" : ""} onClick={() => setKind(k)}>{l}</button>
+                  <button key={k} className={dir === k ? "active" : ""} onClick={() => reset(setDir)(k)}>{l}</button>
                 ))}
               </div>
+              <select value={type} onChange={(e) => reset(setType)(e.target.value)} style={{ height: 32 }}>
+                <option value="all">كل الأنواع</option>
+                {(data.types || []).map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
+              </select>
               <button className="btn" style={{ height: 32, marginInlineStart: "auto" }}
                 onClick={exportCsv} disabled={rows.length === 0}>
                 <Icon name="excel" size={14} style={{ marginInlineEnd: 5, verticalAlign: -2 }} />
@@ -90,7 +144,7 @@ export default function StatementModal({
               </button>
             </div>
 
-            <div className="table-scroll" style={{ maxHeight: "48vh" }}>
+            <div className="table-scroll">
               <table className="grid">
                 <thead>
                   <tr>
@@ -119,8 +173,11 @@ export default function StatementModal({
               </table>
             </div>
 
-            <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 10 }}>
-              يعرض آخر 100 حركة. الأرقام بعملة دفتر المتجر ({data.dealer.currency}).
+            <Pager paging={data.paging} onPage={setPage} />
+            <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>
+              {data.dealer.currency
+                ? <>الأرقام بعملة دفتر المتجر ({data.dealer.currency}).</>
+                : <>الأرقام بعملتك ({data.currency}).</>}
             </div>
           </div>
         )}
@@ -129,11 +186,12 @@ export default function StatementModal({
   );
 }
 
-function Stat({ label, value, tone }: { label: string; value: string; tone: string }) {
+function Stat({ label, value, tone, sub }: { label: string; value: string; tone: string; sub?: string }) {
   return (
     <div style={statCard}>
       <div style={{ fontSize: 11.5, color: "var(--muted)", fontWeight: 700 }}>{label}</div>
       <div style={{ fontSize: 17, fontWeight: 800, color: tone, marginTop: 4 }}>{value}</div>
+      {sub && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>{sub}</div>}
     </div>
   );
 }

@@ -83,7 +83,7 @@ def resolve_dealer_sell_price(product: Product, raw=None) -> Decimal:
         raise OrderError("سعر البيع غير صالح")
     if value < 0:
         raise OrderError("سعر البيع لا يصحّ أن يكون سالباً")
-    return value.quantize(Decimal("0.01"))
+    return value.quantize(currency.LEDGER)   # كتبه بعملته — بدقّة الدفتر لا بالسنت
 
 
 CENT = Decimal("0.01")
@@ -131,10 +131,11 @@ def create_order(dealer: User, product: Product, *, player_id="", customer_phone
     qty = clean_quantity(product, quantity)
     k = product.factor(qty)
     agent = big_agent_of(dealer)
-    buyer_price = (resolve_sell_price(dealer, product) * k).quantize(CENT)          # ما يدفعه المشتري
+    # بدقّة الدفتر: سعر وكيله الكبير كتبه بعملته
+    buyer_price = (resolve_sell_price(dealer, product) * k).quantize(currency.LEDGER)          # ما يدفعه المشتري
     store_price = (resolve_store_price(agent or dealer, product) * k).quantize(CENT)  # ما يقبضه المتجر
     cost = (product.cost_price * k).quantize(CENT)
-    retail = (resolve_dealer_sell_price(product) * k).quantize(CENT) if dealer_sell_price in (None, "") \
+    retail = (resolve_dealer_sell_price(product) * k).quantize(currency.LEDGER) if dealer_sell_price in (None, "") \
         else resolve_dealer_sell_price(product, dealer_sell_price)
     if product.is_amount and buyer_price <= 0:
         raise OrderError("الكمية صغيرة جداً — قيمتها أقل من سنت")
@@ -161,7 +162,7 @@ def create_order(dealer: User, product: Product, *, player_id="", customer_phone
         try:
             wallet_services.apply_transaction(
                 agent_wallet.id, buyer_price, WalletTransaction.Type.TOPUP,
-                created_by=dealer, note=f"بيع {product.name} لـ{dealer.name}",
+                created_by=dealer, note=f"بيع {product.name} لـ{dealer.name}", internal=True,
             )
             wallet_services.apply_transaction(
                 agent_wallet.id, -store_price, WalletTransaction.Type.ORDER_DEBIT,
@@ -203,17 +204,18 @@ def _agent_legs(order: Order, *, sign: int) -> None:
     wallet = getattr(order.agent, "wallet", None)
     if wallet is None:
         return
+    # (المبلغ، البيان، مع دكانه؟) — ساق الدكان داخلية، وساق المتجر بينه وبين المتجر
     legs = (
-        [(order.buyer_price, "بيع"), (-order.sell_price, "شراء من المتجر")] if sign == 1
-        else [(order.sell_price, "استرداد من المتجر"), (-order.buyer_price, "ردّ لدكانه")]
+        [(order.buyer_price, "بيع", True), (-order.sell_price, "شراء من المتجر", False)] if sign == 1
+        else [(order.sell_price, "استرداد من المتجر", False), (-order.buyer_price, "ردّ لدكانه", True)]
     )
-    for amount, label in legs:
+    for amount, label, internal in legs:
         wallet_services.apply_transaction(
             wallet.id,
             amount,
             WalletTransaction.Type.TOPUP if amount > 0 else WalletTransaction.Type.ORDER_DEBIT,
             note=f"{label} — طلب {order.receipt_no}",
-            ref_type="order", ref_id=order.id, allow_below_limit=True,
+            ref_type="order", ref_id=order.id, allow_below_limit=True, internal=internal,
         )
 
 

@@ -15,7 +15,8 @@ from core.currency import CENT
 HUNDRED = Decimal("100")
 
 
-def price_from_margin(cost: Decimal, mode: str, value: Decimal, round_up: bool = False):
+def price_from_margin(cost: Decimal, mode: str, value: Decimal, round_up: bool = False,
+                      quantum: Decimal = CENT):
     """
     السعر الناتج عن قاعدة، أو None إن تعذّر.
 
@@ -30,7 +31,7 @@ def price_from_margin(cost: Decimal, mode: str, value: Decimal, round_up: bool =
     price = (
         cost * (Decimal("1") + Decimal(value) / HUNDRED) if mode == "percent"
         else cost + Decimal(value)
-    ).quantize(CENT)
+    ).quantize(quantum)
     if round_up:
         price = ((price * 2).to_integral_value(rounding=ROUND_CEILING) / 2).quantize(CENT)
     return price if price >= 0 else None
@@ -41,11 +42,12 @@ def agent_row_price(row, cost: Decimal, round_ok: bool = True) -> Decimal:
     سعر خلية الوكيل الكبير الفعلي الآن: قاعدتها على تكلفته الحالية إن كانت
     مرتبطة، وإلا الرقم المكتوب. ولا ينزل تحت التكلفة — لا بيع بخسارة صامتة.
     """
+    from core.currency import LEDGER
     price = row.price
     if row.margin_mode and row.margin_value is not None:
         price = price_from_margin(cost, row.margin_mode, row.margin_value,
-                                  round_ok and row.margin_round) or price
-    return max(Decimal(price).quantize(CENT), Decimal(cost).quantize(CENT))
+                                  round_ok and row.margin_round, LEDGER) or price
+    return max(Decimal(price).quantize(LEDGER), Decimal(cost).quantize(LEDGER))
 
 
 def rounds(product, round_up: bool) -> bool:

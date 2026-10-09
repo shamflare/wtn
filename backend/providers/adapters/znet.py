@@ -232,6 +232,12 @@ class ZnetAdapter(BaseAdapter):
             return ExecutionResult(status="unsupported", note=msg, raw=text)
         code = parts[1] if len(parts) > 1 else ""
         pin = parts[2] if len(parts) > 2 else ""
-        msg = parts[3] if len(parts) > 3 else ""
+        # ملاحظة مسؤول ZNET هي **كل** ما بعد الحقل الثالث: قد يكتب فيها `|`
+        # فتنقسم، وأخذ الجزء الأول وحده كان يقطعها.
+        msg = " | ".join(p for p in parts[3:] if p)
         mapping = {"1": "processing", "2": "success", "3": "failed"}
-        return ExecutionResult(status=mapping.get(code, "processing"), pin=pin, note=msg, raw=text)
+        status = mapping.get(code, "processing")
+        if status == "failed" and pin and not msg:
+            # إلغاءٌ بلا كود: ما كُتب في خانة الكود هو سبب الإلغاء لا كود
+            msg, pin = pin, ""
+        return ExecutionResult(status=status, pin=pin, note=msg, raw=text)

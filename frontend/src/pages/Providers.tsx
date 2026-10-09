@@ -366,15 +366,15 @@ function ProviderModal({ edit, onClose, onDone }:
               <label style={lbl}>رابط الخدمة (base_url) *</label>
               <input style={inp} dir="ltr" placeholder="https://panel.znet.com.tr" value={c("base_url")} onChange={(e) => setC("base_url", e.target.value)} />
               <label style={lbl}>kod (رقم الجوال) *</label>
-              <input style={inp} dir="ltr" value={c("kod")} onChange={(e) => setC("kod", e.target.value)} />
+              <input style={inp} dir="ltr" autoComplete="off" value={c("kod")} onChange={(e) => setC("kod", e.target.value)} />
               <label style={lbl}>sifre (كلمة السر) *</label>
-              <input style={inp} dir="ltr" type="password" value={c("sifre")} onChange={(e) => setC("sifre", e.target.value)} />
+              <input style={inp} dir="ltr" type="password" autoComplete="new-password" value={c("sifre")} onChange={(e) => setC("sifre", e.target.value)} />
             </>
           )}
           {kind === "zdk" && (
             <>
               <label style={lbl}>التوكن (api-token) *</label>
-              <input style={inp} dir="ltr" type="password" value={c("api_token")} onChange={(e) => setC("api_token", e.target.value)} />
+              <input style={inp} dir="ltr" type="password" autoComplete="new-password" value={c("api_token")} onChange={(e) => setC("api_token", e.target.value)} />
               <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>
                 ZDK لا يستخدم اسم مستخدم ولا كلمة سر — التوكن وحده يعرّف حسابك.
               </div>

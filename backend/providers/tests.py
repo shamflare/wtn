@@ -438,3 +438,23 @@ class CostConversionUsesProviderCurrencyTest(TestCase):
     def test_profit_follows_the_corrected_cost(self):
         order = self._apply("USD", "41.50")
         self.assertEqual(order.profit, order.sell_price - Decimal("41.50"))
+
+
+class ZnetNoteTest(TestCase):
+    """ملاحظة مسؤول ZNET تصل كاملة — وإن احتوت `|`."""
+
+    def test_note_with_pipes_is_kept_whole(self):
+        from providers.adapters.znet import ZnetAdapter
+        r = ZnetAdapter.parse_status("OK|3| |الرقم خطأ | أعد المحاولة")
+        self.assertEqual(r.status, "failed")
+        self.assertEqual(r.note, "الرقم خطأ | أعد المحاولة")
+
+    def test_cancel_reason_written_in_pin_box(self):
+        from providers.adapters.znet import ZnetAdapter
+        r = ZnetAdapter.parse_status("OK|3|الحساب محظور|")
+        self.assertEqual((r.status, r.note, r.pin), ("failed", "الحساب محظور", ""))
+
+    def test_success_keeps_pin_and_note(self):
+        from providers.adapters.znet import ZnetAdapter
+        r = ZnetAdapter.parse_status("OK|2|AB12-CD34|تم الشحن")
+        self.assertEqual((r.status, r.pin, r.note), ("success", "AB12-CD34", "تم الشحن"))

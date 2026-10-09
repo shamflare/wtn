@@ -291,6 +291,7 @@ def admin_orders_view(request):
         "cost_price": str(o.cost_price), "sell_price": str(o.sell_price), "profit": str(o.profit),
         "status": o.status, "status_label": o.get_status_display(),
         "provider": o.provider.name if o.provider else "", "note": o.provider_note,
+        "trace": o.trace,
         "tekil": o.tekil, "balance_before": str(o.balance_before), "balance_after": str(o.balance_after),
         "created_at": o.created_at.strftime("%Y-%m-%d %H:%M"),
         "updated_at": o.updated_at.strftime("%Y-%m-%d %H:%M"),

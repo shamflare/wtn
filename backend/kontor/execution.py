@@ -178,10 +178,10 @@ def _send(order: KontorOrder, provider) -> tuple[str, str]:
     from .services import provider_creds
     creds = provider_creds(provider)
     if not creds:
-        return REJECTED, f"{provider.name}: إعداد ناقص"
+        return REJECTED, "إعداد ناقص"
     code = _code_for(order.package, provider)
     if not code:
-        return REJECTED, f"{provider.name}: الباقة غير مربوطة لديه"
+        return REJECTED, "الباقة غير مربوطة لديه"
     base, kod, sifre = creds
     params = {
         "bayi_kodu": kod, "sifre": sifre,
@@ -192,12 +192,12 @@ def _send(order: KontorOrder, provider) -> tuple[str, str]:
         resp = requests.get(f"{base.rstrip('/')}/servis/tl_servis.php", params=params, timeout=(5, 40))
     except requests.RequestException as e:
         if _never_sent(e):
-            return REJECTED, f"{provider.name}: تعذّر الاتصال"
-        return UNKNOWN, f"{provider.name}: انقطع الردّ بعد الإرسال — يُتابَع"
+            return REJECTED, "تعذّر الاتصال"
+        return UNKNOWN, "انقطع الردّ بعد الإرسال — يُتابَع"
     status, note, _cost = _parse_place(resp.text)
     if status in (1, 8):  # 8: أُرسل سابقاً بنفس المعرّف — يُتحقَّق بالمتابعة
         return SENT, note
-    return REJECTED, f"{provider.name}: {note}"[:280]
+    return REJECTED, note[:280]
 
 
 def _never_sent(e: Exception) -> bool:
@@ -232,20 +232,28 @@ def _adopt(order: KontorOrder, provider, note: str):
 
 
 def _try_chain(order: KontorOrder, chain: list, trail: list) -> bool:
-    """يجرّب المزوّدين بالترتيب. True إن التقطه أحدهم (أُرسل أو حالته مجهولة فتُتابَع)."""
+    """
+    يجرّب المزوّدين بالترتيب. True إن التقطه أحدهم (أُرسل أو حالته مجهولة فتُتابَع).
+    `trail` يجمع (اسم المزوّد، رسالته) لكل رفض.
+    """
     for prov in chain:
         result, note = _send(order, prov)
         if result in (SENT, UNKNOWN):
             _adopt(order, prov, note)
             return True
-        trail.append(note)
+        trail.append((prov.name, note))
     return False
 
 
 def _fail_and_refund(order: KontorOrder, trail: list, why: str):
+    """
+    الوكيل يقرأ رسالة **آخر** مزوّد رفض كما كتبها (سبب الإلغاء) بلا اسمه؛
+    والمسار كاملاً بالأسماء في `trace` لصاحب المتجر.
+    """
     order.status = KontorOrder.Status.FAILED
-    order.provider_note = (" | ".join(trail) or why)[:300]
-    order.save(update_fields=["status", "provider_note", "updated_at"])
+    order.provider_note = ((trail[-1][1] if trail else "") or why)[:300]
+    order.trace = (" | ".join(f"{name}: {note}" for name, note in trail) or why)[:500]
+    order.save(update_fields=["status", "provider_note", "trace", "updated_at"])
     _refund(order, f"إرجاع — {why}: {order.provider_note[:120]} (طلب #{order.id})")
     order.status = KontorOrder.Status.REFUNDED
     order.save(update_fields=["status", "updated_at"])
@@ -267,15 +275,30 @@ def execute(order: KontorOrder) -> KontorOrder:
 
 
 def _parse_status(text: str):
-    """1:...=نجح · 2:...=قيد التنفيذ · 3:...=أُلغي ⇐ (code:int|None, note)."""
+    """
+    1:شرح:مبلغ=نجح · 2:شرح:مبلغ=قيد التنفيذ · 3:سبب=أُلغي ⇐ (code:int|None, note).
+    المبلغ في آخر الردّ ليس من الملاحظة فيُنزع؛ والشرح نفسه قد يحوي `:` فيبقى كاملاً.
+    """
     s = (text or "").strip()
     if not s or ":" not in s:
         return None, s[:280]
     head, _, rest = s.partition(":")
     try:
-        return int(head), rest.strip()
+        code = int(head)
     except ValueError:
         return None, s[:280]
+    body, sep, tail = rest.rpartition(":")
+    if sep and _is_amount(tail):
+        rest = body
+    return code, rest.strip()
+
+
+def _is_amount(s: str) -> bool:
+    try:
+        Decimal(s.strip().replace(",", "."))
+        return True
+    except (InvalidOperation, ValueError):
+        return False
 
 
 def poll(order: KontorOrder) -> KontorOrder:
@@ -303,8 +326,13 @@ def poll(order: KontorOrder) -> KontorOrder:
         order.status = KontorOrder.Status.SUCCESS
         order.provider_note = note[:300]
         order.save(update_fields=["status", "provider_note", "updated_at"])
+    elif code == 2:
+        # ما زال قيد التنفيذ — لكن قد يكتب مسؤول المزوّد ملاحظةً قبل الحسم
+        if note and note != order.provider_note:
+            order.provider_note = note[:300]
+            order.save(update_fields=["provider_note", "updated_at"])
     elif code == 3:
-        trail = [f"{prov.name}: {note}"[:280]]
+        trail = [(prov.name, note[:280])]
         chain = provider_chain(order.package) if order.package_id else []  # باقة محذوفة ⇐ لا بديل
         ids = [p.id for p in chain]
         rest = chain[ids.index(prov.id) + 1:] if prov.id in ids else [p for p in chain if p.id != prov.id]

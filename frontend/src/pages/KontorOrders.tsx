@@ -7,7 +7,7 @@ import { empty, input, money, OpBadge, OPERATORS, pageTitle, pageWrap } from "./
 interface Order {
   id: number; gsm: string; operator: string; dealer: string; dealer_id: number;
   package_name: string; znet_id: string; cost_price: string; sell_price: string; profit: string;
-  status: string; status_label: string; provider: string; note: string; tekil: string;
+  status: string; status_label: string; provider: string; note: string; trace?: string; tekil: string;
   balance_before: string; balance_after: string; created_at: string; updated_at: string;
 }
 interface Summary { counts: Record<string, number>; total: number; sales: string; profit: string }
@@ -137,6 +137,7 @@ export default function KontorOrders() {
                   <tr><td colSpan={10} style={{ background: "var(--row-alt)", textAlign: "start", padding: "12px 18px" }}>
                     <div style={detailGrid}>
                       <Info k="رد المزوّد" v={o.note || "—"} wide />
+                      {o.trace && <Info k="مسار المحاولات" v={o.trace} wide />}
                       <Info k="المزوّد" v={o.provider || "—"} />
                       <Info k="مرجعنا لدى ZNET" v={o.tekil || "—"} mono />
                       <Info k="رصيد الوكيل قبل ⇐ بعد" v={`${money(o.balance_before)} ⇐ ${money(o.balance_after)}`} mono />

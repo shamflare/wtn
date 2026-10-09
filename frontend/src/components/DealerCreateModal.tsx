@@ -90,13 +90,14 @@ export default function DealerCreateModal({ onClose, onDone }: Props) {
             style={inp}
             value={loginId}
             onChange={(e) => setLoginId(e.target.value)}
-            placeholder="مثال: 5550000123"
+            placeholder="مثال: 5XXXXXXXXX"
+            autoComplete="off"
           />
 
           <label style={lbl}>كلمة السر *</label>
           <input
             style={inp}
-            type="password"
+            type="password" autoComplete="new-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="كلمة السر"

@@ -600,3 +600,13 @@ class LinkCodeTest(APITestCase):
                                            format="json").status_code, 400)
         self.assertEqual(self.client.patch(f"/api/kontor/packages/{p.id}/", {"link_code": "a b"},
                                            format="json").status_code, 400)
+
+
+class KontorStatusNoteTest(TestCase):
+    """ردّ tl_kontrol: المبلغ في آخره ليس من الملاحظة."""
+
+    def test_amount_is_stripped_from_note(self):
+        from kontor.execution import _parse_status
+        self.assertEqual(_parse_status("1:olumlu_islem:5.50"), (1, "olumlu_islem"))
+        self.assertEqual(_parse_status("2:islemde:5.50"), (2, "islemde"))
+        self.assertEqual(_parse_status("3:Numara hatalı: tekrar deneyin"), (3, "Numara hatalı: tekrar deneyin"))

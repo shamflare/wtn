@@ -169,17 +169,21 @@ function AddDealer({ onClose, onDone }: { onClose: () => void; onDone: () => voi
 
   return (
     <Modal title="إضافة دكان تحتي" onClose={onClose}>
-      <form onSubmit={submit} style={{ display: "grid", gap: 12 }}>
+      {/* حسابٌ جديد لا دخول: بلا هذا يملأ المتصفح الحقول ببيانات دخول الوكيل نفسه */}
+      <form onSubmit={submit} autoComplete="off" style={{ display: "grid", gap: 12 }}>
         <Fld label="اسم الدكان">
-          <input style={inp} value={f.name} autoFocus
+          <input style={inp} value={f.name} autoFocus name="shop-name" autoComplete="off"
+            placeholder="مثال: دكان النور"
             onChange={(e) => setF({ ...f, name: e.target.value })} />
         </Fld>
         <Fld label="رقم الدخول">
           <input style={{ ...inp, direction: "ltr", textAlign: "left" }} value={f.login_id}
+            name="new-shop-login" autoComplete="off" inputMode="numeric" placeholder="5XXXXXXXXX"
             onChange={(e) => setF({ ...f, login_id: e.target.value })} />
         </Fld>
         <Fld label="كلمة السر">
           <input style={inp} type="password" value={f.password}
+            name="new-shop-password" autoComplete="new-password"
             onChange={(e) => setF({ ...f, password: e.target.value })} />
         </Fld>
         {err && <div style={errBox}>{err}</div>}

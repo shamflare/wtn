@@ -350,7 +350,10 @@ class KontorOrder(models.Model):
     tekil = models.CharField(max_length=40, blank=True, default="", db_index=True)  # معرّفنا الفريد لدى ZNET
     # معرّف العميل الخارجي (order_uuid) — يمنع الشحن المزدوج عند إعادة المحاولة عبر الـ API
     client_uuid = models.UUIDField(null=True, blank=True, db_index=True)
+    # ما يقرؤه الوكيل: رسالة المزوّد كما كتبها (ملاحظة مسؤوله، سبب الإلغاء) —
+    # بلا اسم مزوّد. ومسار المحاولات كاملاً بأسماء المزوّدين لصاحب المتجر وحده.
     provider_note = models.CharField(max_length=300, blank=True, default="")
+    trace = models.CharField(max_length=500, blank=True, default="")
     balance_before = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
     balance_after = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
 

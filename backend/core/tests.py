@@ -975,3 +975,42 @@ class SelfRegistrationTest(APITestCase):
         self.assertEqual(self.client.get("/api/storefront/").json()["store"]["currencies"], ["USD", "TRY"])
         self.client.force_authenticate(self.admin)
         self.assertEqual(self.client.get("/api/dealers/").json()["pending"][0]["display_currency"], "TRY")
+
+
+class RoleGateTest(APITestCase):
+    """
+    حاجز الأدوار (core/access.py): الوكيل بنوعيه لا يطرق إلا أبوابه.
+    بتوكن حقيقي لا `force_authenticate` — فالحاجز يعيش في المصادقة نفسها.
+    """
+
+    def setUp(self):
+        from rest_framework_simplejwt.tokens import RefreshToken
+        self.tenant = Tenant.objects.create(subdomain="rg", name="متجر")
+        mk = lambda lid, role: User.objects.create(
+            login_id=lid, name=lid, tenant=self.tenant, role=role)
+        self.admin = mk("rg-admin", User.Role.TENANT_ADMIN)
+        self.big = mk("rg-big", User.Role.ANA_BAYI)
+        self.bayi = mk("rg-bayi", User.Role.BAYI)
+        self.tok = {u: str(RefreshToken.for_user(u).access_token)
+                    for u in (self.admin, self.big, self.bayi)}
+
+    def _get(self, user, path):
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.tok[user]}")
+        return self.client.get(path)
+
+    def test_dealers_are_locked_out_of_admin_doors(self):
+        for path in ("/api/payments/methods/", "/api/payments/accounts/",
+                     "/api/payments/notifications/", "/api/orders/",
+                     "/api/orders/reports/dealers/", "/api/dealers/", "/api/ledger/",
+                     "/api/settings/site/", "/api/inventory/live/", "/api/kontor/orders/"):
+            for user in (self.big, self.bayi):
+                self.assertEqual(self._get(user, path).status_code, 403, (user.login_id, path))
+
+    def test_own_doors_stay_open(self):
+        self.assertEqual(self._get(self.bayi, "/api/auth/me/").status_code, 200)
+        self.assertEqual(self._get(self.bayi, "/api/payments/store/deposits/").status_code, 200)
+        self.assertEqual(self._get(self.big, "/api/agent/summary/").status_code, 200)
+        self.assertEqual(self._get(self.bayi, "/api/agent/summary/").status_code, 403)
+
+    def test_owner_is_not_gated(self):
+        self.assertEqual(self._get(self.admin, "/api/payments/methods/").status_code, 200)

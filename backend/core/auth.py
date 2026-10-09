@@ -14,6 +14,8 @@
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
+from .access import check_path
+
 FOREIGN_STORE = "هذا الحساب ليس من هذا المتجر."
 
 
@@ -31,4 +33,6 @@ class StoreBoundJWTAuthentication(JWTAuthentication):
         if store is not None and user.tenant_id != store.id:
             raise AuthenticationFailed(FOREIGN_STORE)
 
+        # والدور: الوكيل لا يطرق الأبواب الإدارية (core/access.py)
+        check_path(user, request.path)
         return result

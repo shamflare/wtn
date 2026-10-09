@@ -221,14 +221,20 @@ def dealer_settings_view(request):
     ops = [c.value for c in Operator]
 
     if request.method == "GET":
-        dealers = User.objects.filter(tenant=tenant, role=User.Role.BAYI).order_by("name")
+        # الوكيل الكبير معهم: مجموعته هنا هي سعر شرائه من المتجر لدكاكينه. ودكاكينه
+        # تظهر لإذن الاستعلام وحده — سعرها يضعه وكيلها لا المتجر
+        dealers = (User.objects.filter(tenant=tenant, role__in=[User.Role.BAYI, User.Role.ANA_BAYI])
+                   .select_related("parent").order_by("name"))
         settings = {(s.dealer_id, s.operator): s
                     for s in KontorDealerSetting.objects.filter(tenant=tenant)}
         data = []
         for d in dealers:
             per_op = {op: {"group": (s := settings.get((d.id, op))) and s.group_id,
                            "can_query": s.can_query if s else True} for op in ops}
-            data.append({"id": d.id, "name": d.name, "login_id": d.login_id, "operators": per_op})
+            agent = d.parent if d.parent_id and d.parent.role == User.Role.ANA_BAYI else None
+            data.append({"id": d.id, "name": d.name, "login_id": d.login_id, "operators": per_op,
+                         "is_big": d.role == User.Role.ANA_BAYI,
+                         "agent": agent.name if agent else ""})
         return Response({
             "operators": ops,
             "groups": KontorPriceGroupSerializer(
@@ -238,7 +244,8 @@ def dealer_settings_view(request):
 
     rows = request.data if isinstance(request.data, list) else [request.data]
     for row in rows:
-        dealer = User.objects.filter(pk=row.get("dealer"), tenant=tenant, role=User.Role.BAYI).first()
+        dealer = User.objects.filter(pk=row.get("dealer"), tenant=tenant,
+                                     role__in=[User.Role.BAYI, User.Role.ANA_BAYI]).first()
         op = row.get("operator")
         if not dealer or op not in ops:
             continue

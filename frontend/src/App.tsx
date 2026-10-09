@@ -41,6 +41,9 @@ import AgentHome from "./pages/AgentHome";
 import AgentDealers from "./pages/AgentDealers";
 import AgentPrices from "./pages/AgentPrices";
 import AgentOrders from "./pages/AgentOrders";
+import AgentWallet from "./pages/AgentWallet";
+import AgentInventory from "./pages/AgentInventory";
+import Tickets from "./components/Tickets";
 import Home from "./pages/Home";
 
 // حارس صلاحيات: يمنع الوصول لغير المصرّح ويوجّه كل دور للوحته
@@ -81,8 +84,18 @@ export default function App() {
           {/* لوحة الوكيل الكبير — هيكل لوحة صاحب المتجر نفسه بأقسام ثلاثة */}
           <Route path="/bigagent" element={Agent(<AgentHome />)} />
           <Route path="/bigagent/dealers" element={Agent(<AgentDealers />)} />
-          <Route path="/bigagent/price-groups" element={Agent(<AgentPrices />)} />
-          <Route path="/bigagent/orders" element={Agent(<AgentOrders />)} />
+          <Route path="/bigagent/price-groups" element={Agent(<AgentPrices section="games" />)} />
+          <Route path="/bigagent/orders" element={Agent(<AgentOrders kind="games" />)} />
+          <Route path="/bigagent/mobile/orders" element={Agent(<AgentOrders kind="mobile" />)} />
+          <Route path="/bigagent/mobile/prices" element={Agent(<AgentPrices section="mobile" />)} />
+          <Route path="/bigagent/payments" element={Agent(<PaymentTracking agent />)} />
+          <Route path="/bigagent/payment-methods" element={Agent(<PaymentMethods agent />)} />
+          <Route path="/bigagent/accounts" element={Agent(<Accounts agent />)} />
+          <Route path="/bigagent/support" element={Agent(<Tickets title="الرسائل — مراسلة إدارة المتجر" />)} />
+          <Route path="/bigagent/wallet" element={Agent(<AgentWallet />)} />
+          <Route path="/bigagent/reports" element={Agent(<Reports agent />)} />
+          <Route path="/bigagent/reports/profits" element={Agent(<DealerReport title="تقرير أرباحي من دكاكيني" highlight="profit" agent />)} />
+          <Route path="/bigagent/reports/inventory" element={Agent(<AgentInventory />)} />
           {/* متجر الشراء للدكاكين وحدها — الوكيل الكبير يدير ولا يشتري لنفسه */}
           <Route path="/store/*" element={<Guard roles={["bayi"]} bare><Store /></Guard>} />
 

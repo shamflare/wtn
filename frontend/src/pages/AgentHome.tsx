@@ -7,8 +7,8 @@ import { symbolOf } from "../currency";
 /**
  * رئيسية الوكيل الكبير.
  *
- * لا يشحن ألعاباً من هنا — يدير دكاكينه. فالأرقام الأربعة هي ما يقرّر عليه:
- * رصيده، عدد دكاكينه، طلباتهم الناجحة، وربحه منها (فرق سعرَيه، لا ربح المتجر).
+ * لا يشحن من هنا — يدير دكاكينه. صفٌّ لماله (رصيده وما يتاح له وأرصدة دكاكينه)
+ * وصفٌّ ليومه (طلبات دكاكينه الناجحة اليوم ومبيعاته وربحه — ألعاباً وموبايل).
  */
 export default function AgentHome() {
   const [s, setS] = useState<any>(null);
@@ -32,10 +32,24 @@ export default function AgentHome() {
       <div className="summary">
         <Stat icon="wallet" label="رصيدي" value={`${money(s.balance)} ${cur}`}
           cls={balCls(Number(s.balance))} />
+        <Stat icon="dollar" label="المتاح للصرف" value={`${money(s.available)} ${cur}`} />
         <Stat icon="users" label="دكاكيني" value={s.dealers} />
-        <Stat icon="chart" label="طلبات ناجحة" value={s.orders} />
-        <Stat icon="dollar" label="أرباحي منها" value={`${money(s.profit)} ${cur}`} cls="bal-pos" />
+        <Stat icon="wallet" label="أرصدة دكاكيني" value={`${money(s.dealers_balance)} ${cur}`} />
       </div>
+      <div className="summary" style={{ marginTop: 12 }}>
+        <Stat icon="chart" label="طلبات اليوم (الناجحة)" value={s.today.orders} />
+        <Stat icon="cart" label="مبيعات اليوم" value={`${money(s.today.sales)} ${cur}`} />
+        <Stat icon="dollar" label="ربح اليوم" value={`${money(s.today.profit)} ${cur}`} cls="bal-pos" />
+        <Stat icon="chart" label="ربحي منذ البداية" value={`${money(s.profit)} ${cur}`} cls="bal-pos" />
+      </div>
+
+      {s.deposits_pending > 0 && (
+        <Link to="/bigagent/payments" className="card" style={{ display: "block", marginTop: 14, padding: "12px 16px",
+          fontSize: 13.5, color: "var(--text)", textDecoration: "none" }}>
+          <Icon name="card" size={15} style={{ color: "#b45309", marginInlineEnd: 6, verticalAlign: -2 }} />
+          <b>{s.deposits_pending}</b> إيداع من دكاكينك بانتظار قرارك — <span style={{ color: "var(--primary)" }}>متابعة الدفع ←</span>
+        </Link>
+      )}
 
       <div className="card" style={{ marginTop: 18 }}>
         <div className="card-title" style={{ justifyContent: "space-between" }}>

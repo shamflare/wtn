@@ -81,8 +81,10 @@ def dealers_view(request):
         if User.objects.filter(login_id=login_id).exists():
             return Response({"detail": "رقم الدخول مستخدم مسبقاً"}, status=400)
         with transaction.atomic():
+            # الدكان يرث عملة وكيله: يرى أسعاره ورسائله بالعملة التي يتعاملان بها
             u = User(tenant=agent.tenant, parent=agent, role=User.Role.BAYI,
                      login_id=login_id, name=data["name"], status=User.Status.ACTIVE,
+                     display_currency=agent.display_currency or "",
                      modules={"oyun": True, "shopping": True})
             u.set_password(data["password"])
             u.save()

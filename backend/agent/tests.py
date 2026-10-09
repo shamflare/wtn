@@ -169,3 +169,24 @@ class AgentPaymentsTest(Base):
         self.assertEqual(r.status_code, 400)
         self.assertIn("رصيدك لا يكفي", r.json()["detail"])
         self.assertEqual(Wallet.objects.get(user=self.shop).balance, Decimal("50"))
+
+
+class AgentAccountsCurrencyTest(Base):
+    def test_balance_in_agent_currency(self):
+        r = self.client.post("/api/agent/payments/accounts/", {"title": "صندوقي", "balance": "400"}, format="json")
+        self.assertEqual(r.status_code, 201, r.content)
+        self.assertEqual(r.json()["balance"], "400.00")
+        from payments.models import ReceivingAccount
+        acc = ReceivingAccount.objects.get(title="صندوقي")
+        self.assertEqual((acc.balance, acc.owner_id), (Decimal("10.00"), self.agent.id))   # 400 ل.ت = 10$
+        self.assertEqual(self.client.get("/api/agent/payments/accounts/").json()[0]["balance"], "400.00")
+        inv = self.client.get("/api/agent/inventory/").json()
+        self.assertEqual(inv["lines"][1]["amount"], "400.00")
+
+
+class AddDealerTest(Base):
+    def test_new_shop_inherits_agent_currency(self):
+        r = self.client.post("/api/agent/dealers/", {"name": "دكان", "login_id": "5550001111", "password": "x12345"},
+                             format="json")
+        self.assertEqual(r.status_code, 201, r.content)
+        self.assertEqual(User.objects.get(login_id="5550001111").display_currency, "TRY")

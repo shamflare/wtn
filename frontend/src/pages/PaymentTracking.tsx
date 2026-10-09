@@ -18,7 +18,9 @@ const DOT: Record<string, string> = { pending: "wait", approved: "ok", rejected:
 const ROW_TONE: Record<string, string> = { pending: "row-wait" };
 const EMPTY = { dealer: "", method: "", q: "", min: "", max: "", date_from: "", date_to: "" };
 
-export default function PaymentTracking() {
+export default function PaymentTracking({ agent }: { agent?: boolean } = {}) {
+  // الوكيل الكبير يدير طرقه وحساباته وإيداعات دكاكينه هو — الصفحة نفسها بأبوابه
+  const P = agent ? "/agent/payments" : "/payments";
   const base = useBaseCurrency();
   const [reqs, setReqs] = useState<Req[]>([]);
   const [status, setStatus] = useState("all");
@@ -37,14 +39,14 @@ export default function PaymentTracking() {
     setLoading(true);
     const params: any = { status: st };
     Object.entries(filters).forEach(([k, v]) => { if (v) params[k] = v; });
-    api.get("/payments/notifications/", { params })
+    api.get(`${P}/notifications/`, { params })
       .then((r) => setReqs(r.data.results))
       .finally(() => setLoading(false));
   }
   useEffect(() => {
     load();
-    api.get("/dealers/").then((r) => setDealers(r.data.results)).catch(() => {});
-    api.get("/payments/methods/")
+    api.get(agent ? "/agent/dealers/" : "/dealers/").then((r) => setDealers(r.data.results)).catch(() => {});
+    api.get(`${P}/methods/`)
       .then((r) => setMethods((r.data.results || r.data).map((m: any) => ({ id: m.id, name: m.name }))))
       .catch(() => {});
   }, []);
@@ -80,7 +82,7 @@ export default function PaymentTracking() {
     if (picked.length === 0) return;
     setBulkBusy(action); setBulkMsg(null);
     try {
-      const r = await api.post("/payments/notifications/bulk-action/", {
+      const r = await api.post(`${P}/notifications/bulk-action/`, {
         requests: picked, action, note: bulkNote.trim(),
       });
       const failed = (r.data.results || []).filter((x: any) => !x.ok);

@@ -81,32 +81,62 @@ const SUBNAV_RAPORLAR = [
 ];
 
 /**
- * لوحة الوكيل الكبير: **نفس الهيكل، صلاحيات أقلّ**.
+ * لوحة الوكيل الكبير: **نفس هيكل لوحة صاحب المتجر**، على دكاكينه وحدها.
  *
- * هو لا يشحن ألعاباً من الموقع ولا يملك كتالوجاً ولا مزوّدين — يدير دكاكينه
- * وأسعارهم. فثلاثة أقسام تكفيه، وما عداها لا يُعرض له أصلاً كي لا يطرق باباً
- * مغلقاً.
+ * هو شبه مستقلّ: يسعّر لدكاكينه الألعاب والموبايل، ويستقبل أموالهم بطرق دفعه هو،
+ * وله تقاريره وجرده ومحفظته. وما يخصّ المتجر نفسه (الكتالوج، المزوّدون، أسعار
+ * الصرف) لا يُعرض له.
  */
 const AGENT_TABS = [
   { key: "home", label: "الرئيسية", icon: "home", to: "/bigagent" },
-  { key: "oyunpin", label: "الألعاب", icon: "games", to: "/bigagent/price-groups" },
+  { key: "oyunpin", label: "الألعاب", icon: "games", to: "/bigagent/orders" },
+  { key: "kontor", label: "موبايل", icon: "phone", to: "/bigagent/mobile/orders" },
   { key: "bayiler", label: "الوكلاء", icon: "users", to: "/bigagent/dealers" },
+  { key: "wallet", label: "محفظتي", icon: "wallet", to: "/bigagent/wallet" },
+  { key: "raporlar", label: "التقارير", icon: "chart", to: "/bigagent/reports" },
 ];
-const SUBNAV_AGENT_OYUNPIN = [
-  { label: "متابعة الطلبات", to: "/bigagent/orders" },
-  { label: "مجموعات الأسعار", to: "/bigagent/price-groups" },
-];
-const SUBNAV_AGENT_BAYILER = [
-  { label: "قائمة الوكلاء", to: "/bigagent/dealers" },
-];
-
-function agentSubnavFor(path: string) {
-  if (path === "/bigagent") return [];                       // الرئيسية بلا قائمة
-  if (path.startsWith("/bigagent/price-groups") || path.startsWith("/bigagent/orders")) {
-    return SUBNAV_AGENT_OYUNPIN;
-  }
-  return SUBNAV_AGENT_BAYILER;
+const AGENT_SUBNAV: Record<string, { label: string; to: string }[]> = {
+  oyunpin: [
+    { label: "متابعة الطلبات", to: "/bigagent/orders" },
+    { label: "مجموعات الأسعار", to: "/bigagent/price-groups" },
+  ],
+  kontor: [
+    { label: "الطلبات", to: "/bigagent/mobile/orders" },
+    { label: "مجموعات الأسعار", to: "/bigagent/mobile/prices" },
+  ],
+  bayiler: [
+    { label: "قائمة الوكلاء", to: "/bigagent/dealers" },
+    { label: "متابعة الدفع", to: "/bigagent/payments" },
+    { label: "طرق الدفع", to: "/bigagent/payment-methods" },
+    { label: "حساباتي", to: "/bigagent/accounts" },
+    { label: "الرسائل", to: "/bigagent/support" },
+  ],
+  wallet: [],
+  raporlar: [
+    { label: "تقرير الطلبات", to: "/bigagent/reports" },
+    { label: "تقرير الأرباح", to: "/bigagent/reports/profits" },
+    { label: "الجرد", to: "/bigagent/reports/inventory" },
+  ],
+};
+/** القسم النشط في لوحة الوكيل من المسار. */
+function agentSection(path: string): string {
+  if (path === "/bigagent") return "home";
+  if (path.startsWith("/bigagent/mobile")) return "kontor";
+  if (path.startsWith("/bigagent/orders") || path.startsWith("/bigagent/price-groups")) return "oyunpin";
+  if (path.startsWith("/bigagent/wallet")) return "wallet";
+  if (path.startsWith("/bigagent/reports")) return "raporlar";
+  return "bayiler";
 }
+function agentSubnavFor(path: string) {
+  return AGENT_SUBNAV[agentSection(path)] || [];
+}
+// شريط «ما ينتظر قرارك» للوكيل الكبير — `GET /api/agent/alerts/`
+const AGENT_ALERTS: typeof ALERTS = [
+  { key: "tickets", icon: "chat", to: "/bigagent/support", label: "رسائل لم تُقرأ" },
+  { key: "orders_pending", icon: "games", to: "/bigagent/orders", label: "طلبات دكاكيني قيد الانتظار" },
+  { key: "deposits_pending", icon: "card", to: "/bigagent/payments", label: "إيداعات دكاكيني تنتظر قراري", hot: true },
+  { key: "dealers_negative", icon: "user", to: "/bigagent/dealers", label: "دكاكين برصيد سالب" },
+];
 
 function subnavFor(path: string) {
   if (path.startsWith("/home")) return [];   // الرئيسية بلا قائمة فرعية
@@ -167,9 +197,9 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
 
   /** عدّادات شريط التنبيه — نداء واحد كل دقيقة، ومرّة عند كل تنقّل. */
   useEffect(() => {
-    if (isAgent) return;      // عدّادات صاحب المتجر لا تعنيه
     let alive = true;
-    const pull = () => api.get("/alerts/")
+    // للوكيل الكبير عدّاداته هو: إيداعات دكاكينه وطلباتهم ورسائله
+    const pull = () => api.get(isAgent ? "/agent/alerts/" : "/alerts/")
       .then((r) => alive && setCounts(r.data))
       .catch(() => {});
     pull();
@@ -219,11 +249,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
           {mainTabs.map((t) => {
             // التبويب النشط واحد فقط — يُحدَّد من المسار الحالي
             const active = isAgent
-              ? (t.key === "home" && loc.pathname === "/bigagent") ||
-                (t.key === "oyunpin" &&
-                  (loc.pathname.startsWith("/bigagent/price-groups") ||
-                   loc.pathname.startsWith("/bigagent/orders"))) ||
-                (t.key === "bayiler" && loc.pathname.startsWith("/bigagent/dealers"))
+              ? t.key === agentSection(loc.pathname)
               : (t.key === "home" && loc.pathname.startsWith("/home")) ||
                 (t.key === "oyunpin" && loc.pathname.startsWith("/oyunpin")) ||
                 (t.key === "kontor" && loc.pathname.startsWith("/kontor")) ||
@@ -247,7 +273,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
           })}
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          {(isAgent ? [] : ALERTS).map((a) => {
+          {(isAgent ? AGENT_ALERTS : ALERTS).map((a) => {
             const n = counts[a.key] || 0;
             const live = n > 0;
             return (

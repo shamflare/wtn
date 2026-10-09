@@ -7,7 +7,10 @@ import { empty, input, note, OpBadge, opOf, pageTitle, pageWrap, Switch, Toast }
 
 interface Group { id: number; name: string }
 interface OpSetting { group: number | null; can_query: boolean }
-interface Dealer { id: number; name: string; login_id: string; operators: Record<string, OpSetting> }
+interface Dealer {
+  id: number; name: string; login_id: string; operators: Record<string, OpSetting>;
+  is_big?: boolean; agent?: string;   // وكيل كبير · أو دكانٌ تابع لوكيل كبير (اسمه)
+}
 
 export default function KontorDealers() {
   const [operators, setOperators] = useState<string[]>([]);
@@ -97,14 +100,19 @@ export default function KontorDealers() {
               {shown.map((d) => (
                 <tr key={d.id}>
                   <td className="cell-start">
-                    <div style={{ fontWeight: 700 }}>{d.name}</div>
-                    <div style={{ fontSize: 11.5, color: "var(--muted)" }}>{d.login_id}</div>
+                    <div style={{ fontWeight: 700 }}>
+                      {d.name}
+                      {d.is_big && <span style={bigTag}>وكيل كبير</span>}
+                    </div>
+                    <div style={{ fontSize: 11.5, color: "var(--muted)" }}>
+                      {d.login_id}{d.agent && <> · تابع لـ<b>{d.agent}</b> — سعره يضعه وكيله</>}
+                    </div>
                   </td>
                   {operators.map((op) => {
                     const s = d.operators[op];
                     return (
                       <td key={op}>
-                        <select value={s.group ?? ""} style={{ ...cellSelect, fontWeight: s.group ? 700 : 400,
+                        <select value={s.group ?? ""} disabled={!!d.agent} style={{ ...cellSelect, fontWeight: s.group ? 700 : 400,
                           color: s.group ? "var(--primary-dark)" : "var(--muted)" }}
                           title={s.group ? `مجموعة ${groupName(s.group)}` : "يشتري بالسعر الموصى"}
                           onChange={(e) => save([{ dealer: d.id, operator: op,
@@ -138,4 +146,9 @@ const colSelect: React.CSSProperties = {
 };
 const cellSelect: React.CSSProperties = {
   width: 140, height: 30, borderRadius: 6, border: "1px solid var(--border)", background: "var(--surface)", padding: "0 6px",
+};
+
+const bigTag: React.CSSProperties = {
+  marginInlineStart: 6, fontSize: 10.5, fontWeight: 700, color: "#7c3aed", background: "#ede9fe",
+  borderRadius: 999, padding: "1px 7px",
 };

@@ -37,7 +37,9 @@ const BLANK = (): Method => ({
 });
 
 /* ═════════ الصفحة ═════════ */
-export default function PaymentMethods() {
+export default function PaymentMethods({ agent }: { agent?: boolean } = {}) {
+  // الوكيل الكبير يدير طرقه وحساباته وإيداعات دكاكينه هو — الصفحة نفسها بأبوابه
+  const P = agent ? "/agent/payments" : "/payments";
   const [methods, setMethods] = useState<Method[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [loading, setLoading] = useState(true);
@@ -45,23 +47,23 @@ export default function PaymentMethods() {
 
   function load() {
     setLoading(true);
-    api.get("/payments/methods/")
+    api.get(`${P}/methods/`)
       .then((r) => setMethods(r.data.results || r.data))
       .finally(() => setLoading(false));
   }
   useEffect(() => {
     load();
-    api.get("/payments/accounts/").then((r) => setAccounts(r.data.results || r.data)).catch(() => {});
+    api.get(`${P}/accounts/`).then((r) => setAccounts(r.data.results || r.data)).catch(() => {});
   }, []);
 
   async function remove(m: Method) {
     if (!confirm(`حذف طريقة الدفع «${m.name}»؟ الطلبات السابقة تبقى محفوظة.`)) return;
-    await api.delete(`/payments/methods/${m.id}/`);
+    await api.delete(`${P}/methods/${m.id}/`);
     load();
   }
 
   async function toggle(m: Method) {
-    await api.patch(`/payments/methods/${m.id}/`, {
+    await api.patch(`${P}/methods/${m.id}/`, {
       status: m.status === "active" ? "passive" : "active",
     });
     load();
@@ -153,7 +155,7 @@ export default function PaymentMethods() {
       </div>
 
       {editing && (
-        <MethodEditor method={editing} accounts={accounts}
+        <MethodEditor method={editing} accounts={accounts} P={P}
           onClose={() => setEditing(null)}
           onSaved={() => { setEditing(null); load(); }} />
       )}
@@ -178,8 +180,8 @@ function MiniCard({ m }: { m: Method }) {
 
 /* ═════════ محرّر طريقة الدفع — كل تفصيل ═════════ */
 function MethodEditor({
-  method, accounts, onClose, onSaved,
-}: { method: Method; accounts: Account[]; onClose: () => void; onSaved: () => void }) {
+  method, accounts, onClose, onSaved, P,
+}: { method: Method; accounts: Account[]; onClose: () => void; onSaved: () => void; P: string }) {
   const [f, setF] = useState<Method>(method);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -222,8 +224,8 @@ function MethodEditor({
       fields_list: f.fields_list.map((x, i) => ({ ...x, sort_order: i })),
     };
     try {
-      if (isNew) await api.post("/payments/methods/", body);
-      else await api.put(`/payments/methods/${f.id}/`, body);
+      if (isNew) await api.post(`${P}/methods/`, body);
+      else await api.put(`${P}/methods/${f.id}/`, body);
       onSaved();
     } catch (e: any) {
       setErr(e?.response?.data?.detail || "تعذّر الحفظ — راجع الحقول");

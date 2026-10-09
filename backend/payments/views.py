@@ -61,8 +61,30 @@ class ReceivingAccountViewSet(viewsets.ModelViewSet):
         return ReceivingAccount.objects.filter(
             tenant=self.request.user.tenant, owner=owner_scope(self.request.user))
 
+    # الوكيل الكبير يكتب رصيد حسابه ويقرؤه بعملته؛ والمخزَّن بعملة الدفتر كالجرد كلّه
+    def _balance_in(self, serializer):
+        agent = owner_scope(self.request.user)
+        if agent is not None and "balance" in serializer.validated_data:
+            serializer.validated_data["balance"] = currency.from_display(
+                agent, serializer.validated_data["balance"])
+
+    def finalize_response(self, request, response, *args, **kwargs):
+        agent = owner_scope(request.user) if request.user.is_authenticated else None
+        data = getattr(response, "data", None)
+        if agent is not None and response.status_code < 300 and data is not None:
+            rows = data if isinstance(data, list) else data.get("results", [data]) if isinstance(data, dict) else []
+            for r in rows:
+                if isinstance(r, dict) and r.get("balance") not in (None, ""):
+                    r["balance"] = str(currency.to_display(agent, r["balance"]))
+        return super().finalize_response(request, response, *args, **kwargs)
+
     def perform_create(self, serializer):
+        self._balance_in(serializer)
         serializer.save(tenant=self.request.user.tenant, owner=owner_scope(self.request.user))
+
+    def perform_update(self, serializer):
+        self._balance_in(serializer)
+        serializer.save()
 
 
 class PaymentMethodViewSet(viewsets.ModelViewSet):

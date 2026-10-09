@@ -1,7 +1,7 @@
 """روابط الـ API للقلب."""
 from django.urls import path
 
-from . import registration, alerts, cards, tickets, views
+from . import registration, alerts, cards, finance, tickets, views
 
 urlpatterns = [
     # هويّة متجر هذا العنوان — مفتوحةٌ بلا توكن، تقرأها صفحة الدخول
@@ -37,6 +37,11 @@ urlpatterns = [
     path("my-cards/seen/", cards.mark_cards_seen_view, name="my-cards-seen"),
     path("notifications/", tickets.notifications_view, name="notifications"),
     path("alerts/", alerts.alerts_view, name="alerts"),
+    # تقارير المال لصاحب المتجر (core/finance.py)
+    path("finance/agents/", finance.agents_view, name="finance-agents"),
+    path("finance/manual/", finance.manual_view, name="finance-manual"),
+    path("finance/deposits/", finance.deposits_view, name="finance-deposits"),
+    path("finance/debts/", finance.debts_view, name="finance-debts"),
     # فواتير المستأجر الحالي
     path("invoices/", views.my_invoices_view, name="my-invoices"),
 ]

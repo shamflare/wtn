@@ -44,6 +44,7 @@ import AgentOrders from "./pages/AgentOrders";
 import AgentWallet from "./pages/AgentWallet";
 import Tickets from "./components/Tickets";
 import Home from "./pages/Home";
+import FinanceReports from "./pages/FinanceReports";
 
 // حارس صلاحيات: يمنع الوصول لغير المصرّح ويوجّه كل دور للوحته
 function Guard({ children, roles, bare }:
@@ -141,6 +142,10 @@ export default function App() {
           <Route path="/reports" element={Admin(<Reports />)} />
           <Route path="/reports/profits" element={Admin(<DealerReport title="تقرير الأرباح (حسب الوكيل) — الألعاب والموبايل" highlight="profit" />)} />
           <Route path="/reports/inventory" element={Admin(<Inventory />)} />
+          <Route path="/reports/agents" element={Admin(<FinanceReports kind="agents" />)} />
+          <Route path="/reports/manual" element={Admin(<FinanceReports kind="manual" />)} />
+          <Route path="/reports/deposits" element={Admin(<FinanceReports kind="deposits" />)} />
+          <Route path="/reports/debts" element={Admin(<FinanceReports kind="debts" />)} />
           {/* «كشف الوكلاء» كان نفس بيانات «تقرير الأرباح» بعنوان آخر — حلّ محلّه الجرد */}
           <Route path="/reports/dealers" element={<Navigate to="/reports/inventory" replace />} />
 

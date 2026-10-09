@@ -78,6 +78,10 @@ const SUBNAV_RAPORLAR = [
   { label: "تقرير الطلبات", to: "/reports" },
   { label: "تقرير الأرباح", to: "/reports/profits" },
   { label: "الجرد النهائي", to: "/reports/inventory" },
+  { label: "الوكلاء الكبار", to: "/reports/agents" },
+  { label: "الحركات اليدوية", to: "/reports/manual" },
+  { label: "الإيداعات", to: "/reports/deposits" },
+  { label: "عمر الديون", to: "/reports/debts" },
 ];
 
 /**

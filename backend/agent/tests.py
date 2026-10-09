@@ -278,3 +278,46 @@ class DealerSettingsTest(Base):
         self.assertEqual(u.status, "passive")
         # ودكان غيره لا يُمسّ
         self.assertEqual(self.client.get(f"/api/agent/dealers/{self.direct.id}/settings/").status_code, 404)
+
+
+class FinanceReportsTest(Base):
+    """تقارير المال لصاحب المتجر: الوكلاء الكبار · اليدوي · الإيداعات · عمر الديون."""
+
+    def setUp(self):
+        super().setUp()
+        AgentProductPrice.objects.create(tenant=self.t, group=self.group, product=self.prod, price=Decimal("1.50"))
+        o = create_order(self.shop, self.prod)
+        o.status = Order.Status.SUCCESS; o.save()
+        self.client.force_authenticate(self.owner)
+
+    def test_agents_report(self):
+        r = self.client.get("/api/finance/agents/").json()
+        row = next(x for x in r["results"] if x["id"] == self.agent.id)
+        self.assertEqual((row["count"], row["profit"], row["agent_profit"]), (1, "0.20", "0.50"))
+        # ما يدين به المتجر لشبكته = رصيده + أرصدة دكاكينه
+        self.assertEqual(Decimal(row["exposure"]), Decimal(row["balance"]) + Decimal(row["shops_balance"]))
+
+    def test_manual_report_and_debts(self):
+        Wallet.objects.filter(user=self.direct).update(credit_limit=Decimal("-100"))
+        self.client.post(f"/api/dealers/{self.direct.id}/deduct/", {"amount": "30"}, format="json")
+        m = self.client.get("/api/finance/manual/").json()
+        self.assertEqual([x["type"] for x in m["results"]], ["manual_debit"])
+        self.assertEqual(m["results"][0]["by"], self.owner.name)
+        d = self.client.get("/api/finance/debts/").json()
+        self.assertEqual([x["id"] for x in d["results"]], [self.direct.id])   # 10 − 30 = −20
+        self.assertEqual(d["results"][0]["days"], 0)
+
+    def test_deposits_report(self):
+        from payments.models import PaymentMethod
+        m = PaymentMethod.objects.create(tenant=self.t, name="شام", currency="TRY", commission_percent=Decimal("10"))
+        self.client.force_authenticate(self.direct)
+        r = self.client.post("/api/payments/store/deposits/create/", {"method": m.id, "amount": "400"}, format="json")
+        self.client.force_authenticate(self.owner)
+        self.client.post(f"/api/payments/notifications/{r.json()['id']}/approve/", {}, format="json")
+        d = self.client.get("/api/finance/deposits/").json()
+        self.assertEqual((d["totals"]["count"], d["results"][0]["credit"], d["results"][0]["commission"]),
+                         (1, "9.00", "1.00"))   # 400 ل.ت = 10$ ، عمولة 10%
+
+    def test_dealers_locked_out(self):
+        self.client.force_authenticate(self.agent)
+        self.assertEqual(self.client.get("/api/finance/agents/").status_code, 403)

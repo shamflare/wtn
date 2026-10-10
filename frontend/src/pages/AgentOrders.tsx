@@ -107,8 +107,8 @@ export default function AgentOrders({ kind }: { kind: "games" | "mobile" }) {
                 <th className="cell-start">الباقة</th>
                 <th>{mobile ? "الشركة" : "اللعبة"}</th>
                 <th>{mobile ? "رقم الخط" : "معرّف اللاعب"}</th>
-                <th>دفع لي</th>
-                <th>تكلفتي</th>
+                <th>التكلفة</th>
+                <th>البيع</th>
                 <th>ربحي</th>
                 <th>الحالة</th>
                 <th>التاريخ</th>
@@ -134,8 +134,8 @@ export default function AgentOrders({ kind }: { kind: "games" | "mobile" }) {
                       </td>
                       <td style={{ color: "var(--muted)", fontSize: 13 }}>{o.game_name}</td>
                       <td className="num" style={{ fontSize: 12.5 }}>{o.player_id || "—"}</td>
-                      <td className="num sell">{money(o.sell_price)}</td>
                       <td className="num buy" style={{ color: "var(--muted)" }}>{money(o.cost)}</td>
+                      <td className="num sell">{money(o.sell_price)}</td>
                       <td className="num bal-pos" style={{ fontWeight: 700 }}>
                         {o.status === "success" ? money(o.profit) : <span style={{ color: "var(--faint)" }}>—</span>}
                       </td>

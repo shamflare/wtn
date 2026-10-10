@@ -95,10 +95,10 @@ export default function App() {
           {/* لوحة الوكيل الكبير — هيكل لوحة صاحب المتجر نفسه بأقسام ثلاثة */}
           <Route path="/bigagent" element={Agent(<AgentHome />)} />
           <Route path="/bigagent/dealers" element={Agent(<AgentDealers />)} />
-          <Route path="/bigagent/price-groups" element={Agent(<AgentPrices section="games" />)} />
-          <Route path="/bigagent/orders" element={Agent(<AgentOrders kind="games" />)} />
-          <Route path="/bigagent/mobile/orders" element={Agent(<AgentOrders kind="mobile" />)} />
-          <Route path="/bigagent/mobile/prices" element={Agent(<AgentPrices section="mobile" />)} />
+          <Route path="/bigagent/price-groups" element={Agent(<AgentPrices key="games" section="games" />)} />
+          <Route path="/bigagent/orders" element={Agent(<AgentOrders key="games" kind="games" />)} />
+          <Route path="/bigagent/mobile/orders" element={Agent(<AgentOrders key="mobile" kind="mobile" />)} />
+          <Route path="/bigagent/mobile/prices" element={Agent(<AgentPrices key="mobile" section="mobile" />)} />
           <Route path="/bigagent/payments" element={Agent(<PaymentTracking agent />)} />
           <Route path="/bigagent/payment-methods" element={Agent(<PaymentMethods agent />)} />
           <Route path="/bigagent/accounts" element={Agent(<Accounts agent />)} />
@@ -155,10 +155,10 @@ export default function App() {
           <Route path="/reports" element={Admin(<Reports />)} />
           <Route path="/reports/profits" element={Admin(<DealerReport title="تقرير الأرباح (حسب الوكيل) — الألعاب والموبايل" highlight="profit" />)} />
           <Route path="/reports/inventory" element={Admin(<Inventory />)} />
-          <Route path="/reports/agents" element={Admin(<FinanceReports kind="agents" />)} />
-          <Route path="/reports/manual" element={Admin(<FinanceReports kind="manual" />)} />
-          <Route path="/reports/deposits" element={Admin(<FinanceReports kind="deposits" />)} />
-          <Route path="/reports/debts" element={Admin(<FinanceReports kind="debts" />)} />
+          <Route path="/reports/agents" element={Admin(<FinanceReports key="agents" kind="agents" />)} />
+          <Route path="/reports/manual" element={Admin(<FinanceReports key="manual" kind="manual" />)} />
+          <Route path="/reports/deposits" element={Admin(<FinanceReports key="deposits" kind="deposits" />)} />
+          <Route path="/reports/debts" element={Admin(<FinanceReports key="debts" kind="debts" />)} />
           {/* «كشف الوكلاء» كان نفس بيانات «تقرير الأرباح» بعنوان آخر — حلّ محلّه الجرد */}
           <Route path="/reports/dealers" element={<Navigate to="/reports/inventory" replace />} />
 

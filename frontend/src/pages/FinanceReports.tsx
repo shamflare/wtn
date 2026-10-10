@@ -44,7 +44,10 @@ export default function FinanceReports({ kind }: { kind: Kind }) {
     if (type) params.type = type;
     if (dealer) params.dealer = dealer;
     if (by) params.by = by;
-    api.get(`/finance/${kind}/`, { params }).then((r) => setD(r.data)).catch(() => setD({ results: [] }));
+    // نوسم النتيجة بنوعها: لا يُرسم تقريرٌ ببيانات تقريرٍ آخر وصلت متأخّرة
+    api.get(`/finance/${kind}/`, { params })
+      .then((r) => setD({ ...r.data, kind }))
+      .catch(() => setD({ kind, results: [], totals: {}, summary: [], buckets: [], paging: null }));
   }, [kind, dates, page, type, dealer, by]);
 
   const sym = symbolOf(d?.currency || "");
@@ -96,7 +99,7 @@ export default function FinanceReports({ kind }: { kind: Kind }) {
         المبالغ بعملة الدفتر <b>{sym}</b>
       </div>
 
-      {!d ? <div style={{ padding: 30, color: "var(--muted)" }}>جارٍ التحميل...</div>
+      {!d || d.kind !== kind ? <div style={{ padding: 30, color: "var(--muted)" }}>جارٍ التحميل...</div>
         : kind === "agents" ? <Agents d={d} sym={sym} />
         : kind === "manual" ? <Manual d={d} sym={sym} onPage={setPage} />
         : kind === "deposits" ? <Deposits d={d} sym={sym} />

@@ -7,7 +7,7 @@ import { shrinkToDataUrl } from "./Register";
 
 interface Row {
   id: number; login_id: string; name: string; whatsapp?: string; has_id?: boolean;
-  balance: string; status: string; price_group: number | null;
+  balance: string; status: string; price_group: number | null; kontor_price_group?: number | null;
 }
 interface Group { id: number; name: string; dealers: number }
 
@@ -20,6 +20,7 @@ interface Group { id: number; name: string; dealers: number }
 export default function AgentDealers() {
   const [rows, setRows] = useState<Row[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
+  const [mobileGroups, setMobileGroups] = useState<Group[]>([]);
   const [cur, setCur] = useState("");
   const [loading, setLoading] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
@@ -33,15 +34,20 @@ export default function AgentDealers() {
     api.get("/agent/dealers/")
       .then((r) => { setRows(r.data.results || []); setCur(r.data.currency || ""); })
       .finally(() => setLoading(false));
-    api.get("/agent/price-groups/").then((r) => setGroups(r.data.results || [])).catch(() => setGroups([]));
+    // مجموعات الألعاب ومجموعات الرصيد معزولة — والدكان في واحدةٍ من كلٍّ منهما
+    api.get("/agent/price-groups/", { params: { section: "games" } })
+      .then((r) => setGroups(r.data.results || [])).catch(() => setGroups([]));
+    api.get("/agent/price-groups/", { params: { section: "mobile" } })
+      .then((r) => setMobileGroups(r.data.results || [])).catch(() => setMobileGroups([]));
   }
   useEffect(() => load(), []);
 
-  async function setGroup(dealer: number, price_group: string) {
+  async function setGroup(dealer: number, price_group: string, section: "games" | "mobile" = "games") {
+    const key = section === "mobile" ? "kontor_price_group" : "price_group";
     try {
-      await api.post("/agent/dealer-group/", { dealer, price_group: price_group || null });
+      await api.post("/agent/dealer-group/", { dealer, section, price_group: price_group || null });
       setRows((ds) => ds.map((d) => (d.id === dealer
-        ? { ...d, price_group: price_group ? Number(price_group) : null } : d)));
+        ? { ...d, [key]: price_group ? Number(price_group) : null } : d)));
       setToast({ ok: true, text: "حُفظت مجموعة الأسعار — تسري على طلبه التالي" });
     } catch (e: any) {
       setToast({ ok: false, text: e?.response?.data?.detail || "تعذّر الحفظ" });
@@ -75,16 +81,17 @@ export default function AgentDealers() {
                 <th>رقم الدخول</th>
                 <th className="cell-start">اسم الدكان</th>
                 <th>الرصيد</th>
-                <th>مجموعة أسعاره</th>
+                <th>مجموعة الألعاب</th>
+                <th>مجموعة الرصيد</th>
                 <th>الحالة</th>
                 <th>إجراءات</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={6} style={{ padding: 30, color: "var(--muted)" }}>جارٍ التحميل...</td></tr>
+                <tr><td colSpan={7} style={{ padding: 30, color: "var(--muted)" }}>جارٍ التحميل...</td></tr>
               ) : rows.length === 0 ? (
-                <tr><td colSpan={6} style={{ padding: 30, color: "var(--muted)" }}>
+                <tr><td colSpan={7} style={{ padding: 30, color: "var(--muted)" }}>
                   لا دكاكين بعد — أضف أوّل دكان.
                 </td></tr>
               ) : rows.map((d) => (
@@ -105,6 +112,13 @@ export default function AgentDealers() {
                       title="بأسعار هذه المجموعة يشتري منّي">
                       <option value="">— بلا مجموعة (بسعر تكلفتي) —</option>
                       {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+                    </select>
+                  </td>
+                  <td>
+                    <select value={d.kontor_price_group ?? ""} onChange={(e) => setGroup(d.id, e.target.value, "mobile")}
+                      title="بأسعار هذه المجموعة يشحن الرصيد منّي">
+                      <option value="">— بلا مجموعة (بسعر تكلفتي) —</option>
+                      {mobileGroups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
                     </select>
                   </td>
                   <td>

@@ -209,6 +209,11 @@ class User(AbstractBaseUser, PermissionsMixin):
         "catalog.AgentPriceGroup", null=True, blank=True,
         on_delete=models.SET_NULL, related_name="dealers",
     )
+    # ومجموعة **الرصيد (الموبايل)** عند وكيله الكبير — معزولةٌ عن مجموعة الألعاب
+    agent_kontor_price_group = models.ForeignKey(
+        "catalog.AgentPriceGroup", null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="kontor_dealers",
+    )
     # عملة العرض في لوحة الوكيل — فارغة تعني عملة الموقع.
     # عرضٌ فقط: الدفتر كلّه يبقى بعملة الموقع (انظر core/currency.py).
     display_currency = models.CharField(max_length=8, blank=True, default="")

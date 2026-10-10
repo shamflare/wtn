@@ -105,6 +105,7 @@ def dealers_view(request):
             "balance": str(currency.to_display(agent, w.balance)) if w else "0.00",
             "status": u.status,
             "price_group": u.agent_price_group_id,
+            "kontor_price_group": u.agent_kontor_price_group_id,
             "whatsapp": f"+{u.whatsapp}" if u.whatsapp else "",
             "has_id": bool(u.id_image),
         })
@@ -147,6 +148,7 @@ def _dealer_profile(agent, u):
         "whatsapp": f"+{u.whatsapp}" if u.whatsapp else "",
         "id_image": u.id_image, "shop_image": u.shop_image, "province": u.province,
         "status": u.status, "price_group": u.agent_price_group_id,
+        "kontor_price_group": u.agent_kontor_price_group_id,
         "balance": str(currency.to_display(agent, w.balance)) if w else "0.00",
         "currency": currency.display_currency(agent),
         "locked": u.is_locked,
@@ -207,22 +209,25 @@ def dealer_settings_view(request, dealer_id):
 @permission_classes(AGENT)
 def price_groups_view(request):
     """
-    مجموعات أسعار الوكيل الكبير لدكاكينه.
+    مجموعات أسعار الوكيل الكبير لدكاكينه — **لكل قسمٍ مجموعاته**: `section=games|mobile`
+    (الألعاب افتراضاً). الدكان في مجموعةٍ من كلٍّ منهما.
 
-    GET    → المجموعات + عدد دكاكين كل واحدة
-    POST   → إنشاء مجموعة {name}
-    DELETE → حذف مجموعة {id} (دكاكينها تعود بلا مجموعة)
+    GET    ?section= → المجموعات + عدد دكاكين كل واحدة
+    POST   {name, section} → إنشاء مجموعة
+    DELETE {id} → حذف مجموعة (دكاكينها تعود بلا مجموعة في ذلك القسم)
     """
     agent = request.user
+    section = _section_of(request)
 
     if request.method == "POST":
         name = str(request.data.get("name") or "").strip()[:60]
         if not name:
             return Response({"detail": "الاسم مطلوب"}, status=400)
-        if AgentPriceGroup.objects.filter(agent=agent, name=name).exists():
+        if AgentPriceGroup.objects.filter(agent=agent, section=section, name=name).exists():
             return Response({"detail": "لديك مجموعة بهذا الاسم"}, status=400)
-        g = AgentPriceGroup.objects.create(tenant=agent.tenant, agent=agent, name=name)
-        return Response({"id": g.id, "name": g.name, "dealers": 0}, status=http.HTTP_201_CREATED)
+        g = AgentPriceGroup.objects.create(tenant=agent.tenant, agent=agent, name=name, section=section)
+        return Response({"id": g.id, "name": g.name, "section": g.section, "dealers": 0},
+                        status=http.HTTP_201_CREATED)
 
     if request.method == "DELETE":
         g = AgentPriceGroup.objects.filter(pk=request.data.get("id"), agent=agent).first()
@@ -232,17 +237,32 @@ def price_groups_view(request):
         return Response(status=204)
 
     rows = [
-        {"id": g.id, "name": g.name, "dealers": g.dealers.count()}
-        for g in AgentPriceGroup.objects.filter(agent=agent).order_by("id")
+        {"id": g.id, "name": g.name, "section": g.section, "dealers": group_dealers(g)}
+        for g in AgentPriceGroup.objects.filter(agent=agent, section=section).order_by("id")
     ]
     return Response({"count": len(rows), "results": rows})
+
+
+def _section_of(request) -> str:
+    s = request.query_params.get("section") or request.data.get("section") or "games"
+    return "mobile" if s == "mobile" else "games"
+
+
+def group_dealers(g) -> int:
+    """عدد دكاكين المجموعة — بحسب قسمها."""
+    return (g.kontor_dealers if g.section == "mobile" else g.dealers).count()
 
 
 @api_view(["POST"])
 @permission_classes(AGENT)
 def set_dealer_group_view(request):
-    """وضع دكان في إحدى مجموعات الوكيل الكبير — {dealer, price_group|null}."""
+    """
+    وضع دكان في إحدى مجموعات الوكيل الكبير — {dealer, section, price_group|null}.
+    مجموعة الألعاب ومجموعة الرصيد مستقلّتان: كلٌّ في حقلها.
+    """
     agent = request.user
+    section = _section_of(request)
+    field = "agent_kontor_price_group" if section == "mobile" else "agent_price_group"
     dealer = User.objects.filter(
         pk=request.data.get("dealer"), parent=agent, role=User.Role.BAYI
     ).first()
@@ -251,14 +271,14 @@ def set_dealer_group_view(request):
 
     gid = request.data.get("price_group")
     if gid in (None, ""):
-        dealer.agent_price_group = None
+        setattr(dealer, field, None)
     else:
-        group = AgentPriceGroup.objects.filter(pk=gid, agent=agent).first()
+        group = AgentPriceGroup.objects.filter(pk=gid, agent=agent, section=section).first()
         if group is None:
             return Response({"detail": "المجموعة غير موجودة"}, status=404)
-        dealer.agent_price_group = group
-    dealer.save(update_fields=["agent_price_group"])
-    return Response({"dealer": dealer.id, "price_group": dealer.agent_price_group_id})
+        setattr(dealer, field, group)
+    dealer.save(update_fields=[field])
+    return Response({"dealer": dealer.id, "section": section, "price_group": getattr(dealer, f"{field}_id")})
 
 
 @api_view(["GET", "POST"])

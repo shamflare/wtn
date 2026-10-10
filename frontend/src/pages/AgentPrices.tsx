@@ -68,7 +68,7 @@ export default function AgentPrices({ section }: { section: "games" | "mobile" }
     const name = prompt("اسم المجموعة الجديدة (مثال: الذهبية):");
     if (!name?.trim()) return;
     try {
-      await api.post("/agent/price-groups/", { name: name.trim() });
+      await api.post("/agent/price-groups/", { name: name.trim(), section });
       load();
     } catch (e: any) { say(false, e?.response?.data?.detail || "تعذّر الإنشاء"); }
   }
@@ -133,8 +133,9 @@ export default function AgentPrices({ section }: { section: "games" | "mobile" }
       </div>
       <div style={note}>
         <b>تكلفتي</b> = ما تدفعه أنت للمتجر. اضغط أي خلية لتسعيرها لدكاكين تلك المجموعة؛ الخلية
-        الفارغة (—) تعني أن دكانها يشتري <b>بتكلفتك</b> بلا ربح لك. ضع كل دكان في مجموعته من
-        «الوكلاء ← قائمة الوكلاء» — والمجموعة نفسها تسعّر له الألعاب والموبايل معاً.
+        الفارغة (—) تعني أن دكانها يشتري <b>بتكلفتك</b> بلا ربح لك. مجموعات {mobile ? "الرصيد" : "الألعاب"}
+        هنا معزولةٌ عن مجموعات {mobile ? "الألعاب" : "الرصيد"} — وكل دكانٍ تضعه في مجموعةٍ من كلٍّ منهما
+        من «الوكلاء ← قائمة الوكلاء».
         <div style={{ marginTop: 6 }}>
           الخلية التي عليها وسم مثل <sup style={{ ...linkTag, position: "static" }}>10%</sup>{" "}
           <b>مرتبطة بتكلفتك</b>: إن غيّر المتجر سعره تبعته تلقائياً. التعديل اليدوي يفكّ الارتباط.
@@ -365,7 +366,7 @@ function DeleteModal({ groups, onClose, onDone }: {
             </select>
           </Field>
           <div style={{ ...preview, background: "#fdf3f3", borderColor: "#f0caca", color: "#8a3535" }}>
-            تُحذف أسعار المجموعة كلّها (الألعاب والموبايل)
+            تُحذف أسعار المجموعة كلّها
             {!!g?.dealers && <>، و<b>{g.dealers} دكان</b> يصيرون «بلا مجموعة» فيشترون بتكلفتك</>}. لا رجعة في هذا.
           </div>
         </div>

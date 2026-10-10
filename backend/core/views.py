@@ -377,6 +377,39 @@ def _get_dealer_wallet(request, dealer_id):
 MAX_IMAGE_CHARS = 3_000_000  # ≈ 2.2 ميغابايت بعد ترميز base64
 
 
+def _kontor_group_state(u, tenant) -> dict:
+    """
+    مجموعة رصيد الوكيل كما تُعرض في نافذة إعداداته: مجموعةٌ واحدة لكل الشركات.
+    («إعدادات الوكلاء» في قسم الموبايل تبقى لمن يريد مجموعةً مختلفة لكل شركة —
+    وحينها تظهر هنا «مختلفة حسب الشركة».)
+    """
+    from kontor.models import KontorDealerSetting, KontorPriceGroup, Operator
+    ops = {s.operator: s.group_id for s in KontorDealerSetting.objects.filter(dealer=u)}
+    vals = {ops.get(op) for op in Operator.values}
+    current = vals.pop() if len(vals) == 1 else "mixed"
+    return {
+        "kontor_price_group": current,
+        "kontor_price_groups": [{"id": g.id, "name": g.name}
+                                for g in KontorPriceGroup.objects.filter(tenant=tenant).order_by("id")],
+    }
+
+
+def _set_kontor_group(u, tenant, gid):
+    """يضع الوكيل في مجموعة الرصيد نفسها لكل الشركات (فارغ ⇐ السعر الموصى)."""
+    from kontor.models import KontorDealerSetting, KontorPriceGroup, Operator
+    if gid == "mixed":
+        return None                     # لم يُغيَّر — يبقى كما ضُبط لكل شركة
+    group = None
+    if gid not in (None, ""):
+        group = KontorPriceGroup.objects.filter(pk=gid, tenant=tenant).first()
+        if group is None:
+            return Response({"detail": "مجموعة أسعار الرصيد غير موجودة"}, status=404)
+    for op in Operator.values:
+        KontorDealerSetting.objects.update_or_create(
+            tenant=tenant, dealer=u, operator=op, defaults={"group": group})
+    return None
+
+
 def _dealer_settings_row(u):
     from catalog.models import PriceGroup
 
@@ -406,6 +439,8 @@ def _dealer_settings_row(u):
             {"id": g.id, "name": g.name}
             for g in PriceGroup.objects.filter(tenant=tenant).order_by("id")
         ],
+        # مجموعة أسعار الرصيد (الموبايل) — معزولةٌ عن مجموعة الألعاب
+        **_kontor_group_state(u, tenant),
         # التبويب الأول
         "display_currency": u.display_currency or "",
         # بعملة الوكيل — وتُحوَّل عند الحفظ إلى عملة الدفتر
@@ -535,6 +570,11 @@ def dealer_settings_view(request, dealer_id):
                 return Response({"detail": "مجموعة الأسعار غير موجودة"}, status=404)
             u.price_group = group
         fields.append("price_group")
+
+    if "kontor_price_group" in data:
+        err = _set_kontor_group(u, tenant, data["kontor_price_group"])
+        if err:
+            return err
 
     for key in ("phone", "province", "country"):
         if key in data:

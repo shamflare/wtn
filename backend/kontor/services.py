@@ -412,7 +412,7 @@ def dealer_price(dealer, package) -> Decimal:
     agent = big_agent_of(dealer)
     if agent is None:
         return store_price(dealer, package)
-    return agent_price(agent, dealer.agent_price_group_id, package)
+    return agent_price(agent, dealer.agent_kontor_price_group_id, package)   # مجموعة الرصيد لا الألعاب
 
 
 def dealer_can_query(dealer, operator) -> bool:

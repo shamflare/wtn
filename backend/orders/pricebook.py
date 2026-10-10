@@ -71,9 +71,9 @@ class MobilePrices:
         payer = self.agent or buyer
         self._groups, self._prices = self._load(payer)
         self._agent_rows = {}
-        if self.agent is not None and buyer.agent_price_group_id:
+        if self.agent is not None and buyer.agent_kontor_price_group_id:   # مجموعة الرصيد
             self._agent_rows = {r.package_id: r for r in
-                                AgentKontorPrice.objects.filter(group_id=buyer.agent_price_group_id)}
+                                AgentKontorPrice.objects.filter(group_id=buyer.agent_kontor_price_group_id)}
 
     @staticmethod
     def _load(payer):

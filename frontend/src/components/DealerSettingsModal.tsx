@@ -19,6 +19,9 @@ interface Settings {
   // انتقلا إلى هنا بعد حذف صفحة «أسعار الوكلاء»
   oyun_load_limit: string; price_group: number | null;
   price_groups: { id: number; name: string }[];
+  /** مجموعة الرصيد (الموبايل) لكل الشركات — "mixed" إن اختلفت بين الشركات */
+  kontor_price_group: number | null | "mixed";
+  kontor_price_groups: { id: number; name: string }[];
   // الشجرة: وكيل كبير أم دكان يتبع كبيراً
   parent: number | null; parent_name: string; children_count: number;
   big_agents: { id: number; name: string }[];
@@ -105,7 +108,7 @@ export default function DealerSettingsModal({
     // كلمة سرّ بلا تأكيد كانت تُرسَل ناقصة فيظنّ المالك أنه غيّرها وهي لم تتغيّر
     if (pw && !pw2) { setMsg({ ok: false, text: "أكّد كلمة السر في الحقل الثاني قبل الحفظ" }); return; }
     if (pw && pw !== pw2) { setMsg({ ok: false, text: "كلمتا السر غير متطابقتين" }); return; }
-    if (pw && pw.length < 5) { setMsg({ ok: false, text: "كلمة السر قصيرة (5 أحرف على الأقل)" }); return; }
+    if (pw && pw.length < 6) { setMsg({ ok: false, text: "كلمة السر قصيرة (6 أحرف على الأقل)" }); return; }
     setBusy(true); setMsg(null);
     try {
       const r = await api.post(`/dealers/${dealerId}/settings/`, {
@@ -114,6 +117,7 @@ export default function DealerSettingsModal({
         status: f.status,
         oyun_load_limit: f.oyun_load_limit || "0",
         price_group: f.price_group,
+        kontor_price_group: f.kontor_price_group,
         role: f.role,
         parent: f.role === "ana_bayi" ? null : f.parent,
         phone: f.phone,
@@ -237,11 +241,22 @@ export default function DealerSettingsModal({
                     التسعير والتحميل
                   </div>
                   <div style={grid2}>
-                    <Fld label="مجموعة الأسعار">
+                    <Fld label="مجموعة أسعار الألعاب">
                       <select value={f.price_group ?? ""} style={inp}
                         onChange={(e) => set("price_group", e.target.value ? Number(e.target.value) : null)}>
                         <option value="">— بدون مجموعة —</option>
                         {f.price_groups.map((g) => (
+                          <option key={g.id} value={g.id}>مجموعة {g.name}</option>
+                        ))}
+                      </select>
+                    </Fld>
+                    <Fld label="مجموعة أسعار الرصيد (الموبايل)">
+                      <select value={f.kontor_price_group ?? ""} style={inp}
+                        onChange={(e) => set("kontor_price_group",
+                          e.target.value === "mixed" ? "mixed" : e.target.value ? Number(e.target.value) : null)}>
+                        <option value="">— بدون مجموعة (السعر الموصى) —</option>
+                        {f.kontor_price_group === "mixed" && <option value="mixed">مختلفة حسب الشركة</option>}
+                        {(f.kontor_price_groups || []).map((g) => (
                           <option key={g.id} value={g.id}>مجموعة {g.name}</option>
                         ))}
                       </select>

@@ -21,7 +21,7 @@ from kontor.models import AgentKontorPrice, KontorPackage
 from kontor.services import store_price as kontor_store_price
 from orders.services import resolve_store_price
 
-from .views import AGENT
+from .views import AGENT, group_dealers
 
 
 def _section(request):
@@ -57,7 +57,7 @@ def _rows_model(section):
 def price_matrix_view(request):
     agent = request.user
     section = _section(request)
-    groups = list(AgentPriceGroup.objects.filter(agent=agent).order_by("id"))
+    groups = list(AgentPriceGroup.objects.filter(agent=agent, section=section).order_by("id"))
     Model, fk = _rows_model(section)
     explicit = {(getattr(r, f"{fk}_id"), r.group_id): r for r in Model.objects.filter(group__agent=agent)}
     show = lambda v: str(currency.to_display(agent, v))  # noqa: E731
@@ -89,7 +89,7 @@ def price_matrix_view(request):
         cur["products"].append(row)
     return Response({
         "section": section,
-        "groups": [{"id": g.id, "name": g.name, "dealers": g.dealers.count()} for g in groups],
+        "groups": [{"id": g.id, "name": g.name, "dealers": group_dealers(g)} for g in groups],
         "blocks": blocks,
         "currency": currency.display_currency(agent),
     })
@@ -112,7 +112,7 @@ def set_price_view(request):
     """
     agent = request.user
     section = _section(request)
-    group = AgentPriceGroup.objects.filter(pk=request.data.get("group"), agent=agent).first()
+    group = AgentPriceGroup.objects.filter(pk=request.data.get("group"), agent=agent, section=section).first()
     if group is None:
         return Response({"detail": "المجموعة غير موجودة"}, status=404)
     item, cost = _item(agent, section, request.data.get("product"))
@@ -148,7 +148,7 @@ def bulk_price_view(request):
     agent = request.user
     section = _section(request)
     ids = [int(g) for g in (request.data.get("groups") or []) if str(g).isdigit()]
-    groups = list(AgentPriceGroup.objects.filter(agent=agent, id__in=ids))
+    groups = list(AgentPriceGroup.objects.filter(agent=agent, section=section, id__in=ids))
     if not groups:
         return Response({"detail": "اختر مجموعة واحدة على الأقل"}, status=400)
     mode = request.data.get("mode")
@@ -193,7 +193,8 @@ def clear_prices_view(request):
     agent = request.user
     section = _section(request)
     Model, fk = _rows_model(section)
-    qs = Model.objects.filter(group__agent=agent, group_id__in=request.data.get("groups") or [])
+    qs = Model.objects.filter(group__agent=agent, group__section=section,
+                              group_id__in=request.data.get("groups") or [])
     if request.data.get("products"):
         qs = qs.filter(**{f"{fk}_id__in": request.data["products"]})
     n, _ = qs.delete()

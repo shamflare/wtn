@@ -91,13 +91,20 @@ class AgentPriceGroup(models.Model):
     agent = models.ForeignKey(
         "core.User", on_delete=models.CASCADE, related_name="owned_price_groups"
     )
+    class Section(models.TextChoices):
+        GAMES = "games", "الألعاب"
+        MOBILE = "mobile", "الرصيد (الموبايل)"
+
     name = models.CharField(max_length=60)
+    # المجموعة لقسمٍ واحد: مجموعات الألعاب معزولةٌ عن مجموعات الرصيد، والدكان في
+    # مجموعةٍ من كلٍّ منهما (User.agent_price_group · User.agent_kontor_price_group)
+    section = models.CharField(max_length=8, choices=Section.choices, default=Section.GAMES)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         db_table = "agent_price_groups"
         constraints = [
-            models.UniqueConstraint(fields=["agent", "name"], name="uniq_agent_group_name")
+            models.UniqueConstraint(fields=["agent", "section", "name"], name="uniq_agent_group_section_name")
         ]
         ordering = ["id"]
 

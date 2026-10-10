@@ -252,10 +252,10 @@ class AgentLegTest(Base):
         self.agent = User.objects.create(login_id="big", name="كبير", tenant=self.tenant,
                                          role=User.Role.ANA_BAYI)
         self.agent_wallet = Wallet.objects.create(tenant=self.tenant, user=self.agent, balance=Decimal("0"))
-        g = AgentPriceGroup.objects.create(tenant=self.tenant, agent=self.agent, name="ذهبي")
+        g = AgentPriceGroup.objects.create(tenant=self.tenant, agent=self.agent, name="ذهبي", section="mobile")
         AgentKontorPrice.objects.create(tenant=self.tenant, group=g, package=self.p, price=Decimal("1100"))
         self.dealer.parent = self.agent
-        self.dealer.agent_price_group = g
+        self.dealer.agent_kontor_price_group = g          # مجموعة الرصيد — لا الألعاب
         self.dealer.save()
 
     def test_sale_goes_through_the_agent(self):

@@ -102,10 +102,17 @@ class PricingTest(Base):
         self.assertEqual((cell["price"], cell["margin"]["mode"]), ("88.00", "percent"))
 
     def test_mobile_bulk_and_fixed_margin_in_agent_currency(self):
+        mg = AgentPriceGroup.objects.create(tenant=self.t, agent=self.agent, name="رصيد", section="mobile")
+        self.shop.agent_kontor_price_group = mg
+        self.shop.save()
+        # مجموعة ألعاب لا تُسعَّر بها الرصيد
+        self.assertEqual(self.client.post("/api/agent/bulk-price/", {
+            "section": "mobile", "groups": [self.group.id], "mode": "fixed", "value": "40"},
+            format="json").status_code, 400)
         r = self.client.post("/api/agent/bulk-price/", {
-            "section": "mobile", "groups": [self.group.id], "mode": "fixed", "value": "40"}, format="json")
+            "section": "mobile", "groups": [mg.id], "mode": "fixed", "value": "40"}, format="json")
         self.assertEqual(r.status_code, 200, r.content)
-        row = AgentKontorPrice.objects.get(group=self.group, package=self.pkg)
+        row = AgentKontorPrice.objects.get(group=mg, package=self.pkg)
         self.assertEqual(row.margin_value, Decimal("1.00"))               # 40 ل.ت = 1$
         from kontor.services import dealer_price
         self.assertEqual(dealer_price(self.shop, self.pkg), Decimal("6.00"))
@@ -427,3 +434,59 @@ class SmallHardeningTest(DepositSafetyTest):
         self.game.save()
         with self.assertRaises(OrderError):
             create_order(self.direct, self.prod)
+
+
+class SeparateGroupsTest(Base):
+    """مجموعات الألعاب معزولة عن مجموعات الرصيد، والدكان في مجموعةٍ من كلٍّ منهما."""
+
+    def test_sections_are_separate(self):
+        self.client.post("/api/agent/price-groups/", {"name": "ذهبي", "section": "mobile"}, format="json")
+        games = [g["name"] for g in self.client.get("/api/agent/price-groups/?section=games").json()["results"]]
+        mobile = [g["name"] for g in self.client.get("/api/agent/price-groups/?section=mobile").json()["results"]]
+        self.assertEqual((games, mobile), (["ذهبي"], ["ذهبي"]))   # الاسم نفسه مسموح في القسمين
+        mg = AgentPriceGroup.objects.get(section="mobile")
+        # دكانٌ لا يوضع في مجموعة رصيد على أنها ألعاب
+        r = self.client.post("/api/agent/dealer-group/", {"dealer": self.shop.id, "price_group": mg.id,
+                                                          "section": "games"}, format="json")
+        self.assertEqual(r.status_code, 404)
+        r = self.client.post("/api/agent/dealer-group/", {"dealer": self.shop.id, "price_group": mg.id,
+                                                          "section": "mobile"}, format="json")
+        self.assertEqual(r.status_code, 200)
+        self.shop.refresh_from_db()
+        self.assertEqual((self.shop.agent_price_group_id, self.shop.agent_kontor_price_group_id),
+                         (self.group.id, mg.id))
+
+    def test_migration_split_keeps_old_prices(self):
+        """المجموعة القديمة المشتركة: أسعار رصيدها تنتقل لتوأمٍ رصيد، ودكاكينها معها."""
+        import importlib
+        AgentKontorPrice.objects.create(tenant=self.t, group=self.group, package=self.pkg, price=Decimal("5.5"))
+        mig = importlib.import_module("kontor.migrations.0019_split_agent_groups")
+        from django.apps import apps
+        mig.split(apps, None)
+        twin = AgentPriceGroup.objects.get(section="mobile", name=self.group.name)
+        self.assertEqual(AgentKontorPrice.objects.get(package=self.pkg).group_id, twin.id)
+        self.shop.refresh_from_db()
+        self.assertEqual(self.shop.agent_kontor_price_group_id, twin.id)
+        from kontor.services import dealer_price
+        self.assertEqual(dealer_price(self.shop, self.pkg), Decimal("5.50"))
+
+
+class OwnerKontorGroupTest(Base):
+    """نافذة إعدادات الوكيل عند المالك: مجموعة أسعار الرصيد بجانب مجموعة الألعاب."""
+
+    def test_owner_sets_one_mobile_group_for_all_operators(self):
+        from kontor.models import KontorDealerSetting, KontorPriceGroup
+        kg = KontorPriceGroup.objects.create(tenant=self.t, name="ذهبية")
+        self.client.force_authenticate(self.owner)
+        url = f"/api/dealers/{self.direct.id}/settings/"
+        self.assertIsNone(self.client.get(url).json()["kontor_price_group"])
+        r = self.client.post(url, {"kontor_price_group": kg.id}, format="json")
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(set(KontorDealerSetting.objects.filter(dealer=self.direct).values_list("group_id", flat=True)),
+                         {kg.id})
+        self.assertEqual(self.client.get(url).json()["kontor_price_group"], kg.id)
+        # مختلفةٌ لكل شركة ⇐ «mixed» ولا تُمسّ إن عادت كما هي
+        KontorDealerSetting.objects.filter(dealer=self.direct, operator="Vodafone").update(group=None)
+        self.assertEqual(self.client.get(url).json()["kontor_price_group"], "mixed")
+        self.client.post(url, {"kontor_price_group": "mixed"}, format="json")
+        self.assertIsNone(KontorDealerSetting.objects.get(dealer=self.direct, operator="Vodafone").group_id)

@@ -186,6 +186,10 @@ def store_deposits_view(request):
 def store_deposit_create_view(request):
     """إنشاء طلب إضافة رصيد — يبقى قيد المراجعة حتى يقرّر صاحب الطريقة (المتجر أو الوكيل الكبير)."""
     tenant = request.user.tenant
+    if PaymentNotification.objects.filter(dealer=request.user, status=PaymentNotification.Status.PENDING).count() >= 5:
+        return Response({"detail": "لديك 5 طلبات إيداع قيد المراجعة — انتظر البتّ فيها"}, status=400)
+    if not isinstance(request.data.get("values") or {}, dict):
+        return Response({"detail": "بيانات غير صحيحة"}, status=400)
     try:
         method = PaymentMethod.objects.prefetch_related("fields").get(
             pk=request.data.get("method"), tenant=tenant, status=PaymentMethod.Status.ACTIVE,
@@ -216,7 +220,7 @@ def store_deposit_create_view(request):
     sent = request.data.get("values") or {}
     values = {}
     for f in method.fields.all():
-        val = str(sent.get(str(f.id), "")).strip()
+        val = str(sent.get(str(f.id), "")).strip()[:2000]
         if f.required and not val:
             return Response({"detail": f"الحقل «{f.label}» مطلوب"}, status=400)
         if val:

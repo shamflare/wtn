@@ -46,6 +46,17 @@ class ProviderSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["tenant", "created_at"]
 
+    def validate_config(self, config):
+        """رابط المزوّد عنوانٌ عامّ على الإنترنت — لا داخلي (core/netguard.py)."""
+        from core import netguard
+        base = str((config or {}).get("base_url") or "").strip()
+        if base:
+            try:
+                netguard.check(base)
+            except netguard.UnsafeURL as e:
+                raise serializers.ValidationError(f"رابط المزوّد: {e}")
+        return config
+
     def _base(self, obj, value):
         """None = لا سعر صرف مضبوط لهذه العملة — تقولها الواجهة صراحةً."""
         from core import currency as cur

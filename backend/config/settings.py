@@ -256,3 +256,9 @@ if FRONTEND_DIST.is_dir():
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+
+# الإنتاج خلف HTTPS: كوكيز الجلسة لا تُرسل على اتصالٍ غير مشفّر
+if not DEBUG:
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True

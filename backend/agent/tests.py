@@ -413,3 +413,17 @@ class AgentReversalAbuseTest(Base):
         self.assertIn("لا يكفي", r.json()["detail"])
         self.assertEqual(Wallet.objects.get(user=self.agent).balance, before)
         self.assertEqual(Wallet.objects.get(user=self.shop).balance, Decimal("0"))
+
+
+class SmallHardeningTest(DepositSafetyTest):
+    def test_pending_deposits_capped_at_five(self):
+        for _ in range(5):
+            self.assertEqual(self._deposit("1").status_code, 201)
+        self.assertEqual(self._deposit("1").status_code, 400)
+
+    def test_disabled_game_cannot_be_bought(self):
+        from orders.services import OrderError
+        self.game.status = "passive"
+        self.game.save()
+        with self.assertRaises(OrderError):
+            create_order(self.direct, self.prod)

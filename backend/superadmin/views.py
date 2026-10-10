@@ -390,8 +390,8 @@ def tenant_detail_view(request, tenant_id):
         )
         if admin is None:
             return Response({"detail": "لا حساب صاحب متجر لهذا المتجر"}, status=400)
-        if len(admin_password) < 5:
-            return Response({"detail": "كلمة السر قصيرة (5 أحرف على الأقل)"}, status=400)
+        if len(admin_password) < 8:
+            return Response({"detail": "كلمة السر قصيرة (8 أحرف على الأقل)"}, status=400)
         admin.set_password(admin_password)
         admin_fields = ["password"]
         # كلمة سرّ جديدة تفتح القفل دائماً — كما في تعديل الوكيل (core/views.py):

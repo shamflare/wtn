@@ -4,7 +4,11 @@ import random
 import time
 from decimal import Decimal, InvalidOperation
 
+import re
+
 import requests
+
+from core import netguard
 
 from .base import BalanceResult, BaseAdapter, ExecutionResult, PackageList
 
@@ -32,7 +36,7 @@ class ZnetAdapter(BaseAdapter):
             return ExecutionResult(status="failed", note="إعداد ZNET ناقص (base_url/kod/sifre)")
 
         referans = self._gen_referans()
-        path = config.get("orders_path") or "servis/pin_ekle.php"
+        path = _path(config, "orders_path", "servis/pin_ekle.php")
         # ZNET يطلب `oyun` (معرّف اللعبة) **و** `kupur` (كود الكوبون) معاً —
         # إرسال `oyun` وحده يردّ "Kupur Bilgisi Bulunamadı".
         package_id, extra = self.link_for(order, provider)
@@ -47,12 +51,12 @@ class ZnetAdapter(BaseAdapter):
         if kupur:
             params["kupur"] = kupur
         try:
-            resp = requests.get(
+            resp = netguard.get(
                 f"{base}/{path}", params=params,
                 headers={"Accept": "application/json"}, timeout=(5, 30),
             )
-        except requests.RequestException as e:
-            return ExecutionResult(status="failed", note=f"تعذّر الاتصال بـ ZNET: {e}")
+        except (requests.RequestException, netguard.UnsafeURL) as e:
+            return ExecutionResult(status="failed", note=_conn_note("ZNET", e))
 
         return self.parse_place(resp.text, referans, resp.status_code)
 
@@ -60,15 +64,15 @@ class ZnetAdapter(BaseAdapter):
         base = self._base(config)
         if not base or not config.get("kod") or not config.get("sifre"):
             return BalanceResult(ok=False, note="إعداد ZNET ناقص (base_url/kod/sifre)")
-        path = config.get("balance_path") or "servis/bakiye_kontrol.php"
+        path = _path(config, "balance_path", "servis/bakiye_kontrol.php")
         try:
-            resp = requests.get(
+            resp = netguard.get(
                 f"{base}/{path}",
                 params={"kod": config["kod"], "sifre": config["sifre"]},
                 timeout=(5, 20),
             )
-        except requests.RequestException as e:
-            return BalanceResult(ok=False, note=f"تعذّر الاتصال بـ ZNET: {e}")
+        except (requests.RequestException, netguard.UnsafeURL) as e:
+            return BalanceResult(ok=False, note=_conn_note("ZNET", e))
         return self.parse_balance(resp.text, resp.status_code)
 
     def fetch_status(self, order, config: dict, provider=None) -> ExecutionResult:
@@ -79,16 +83,16 @@ class ZnetAdapter(BaseAdapter):
             return ExecutionResult(status="unsupported", note="إعداد ZNET ناقص")
         if not ref:
             return ExecutionResult(status="unsupported", note="لا مرجع (referans) لهذا الطلب")
-        path = config.get("status_path") or "servis/pin_kontrol.php"
+        path = _path(config, "status_path", "servis/pin_kontrol.php")
         try:
-            resp = requests.get(
+            resp = netguard.get(
                 f"{base}/{path}",
                 params={"kod": config["kod"], "sifre": config["sifre"],
                         "tahsilat_api_islem_id": ref},
                 headers={"Accept": "application/json"}, timeout=(5, 20),
             )
-        except requests.RequestException as e:
-            return ExecutionResult(status="unsupported", note=f"تعذّر الاتصال بـ ZNET: {e}")
+        except (requests.RequestException, netguard.UnsafeURL) as e:
+            return ExecutionResult(status="unsupported", note=_conn_note("ZNET", e))
         if resp.status_code >= 400:
             return ExecutionResult(status="unsupported", note=f"HTTP {resp.status_code}",
                                    raw=resp.text)
@@ -99,15 +103,15 @@ class ZnetAdapter(BaseAdapter):
         base = self._base(config)
         if not base or not config.get("kod") or not config.get("sifre"):
             return PackageList(ok=False, note="إعداد ZNET ناقص (base_url/kod/sifre)")
-        path = config.get("catalog_path") or "servis/pin_listesi.php"
+        path = _path(config, "catalog_path", "servis/pin_listesi.php")
         try:
-            resp = requests.get(
+            resp = netguard.get(
                 f"{base}/{path}",
                 params={"kod": config["kod"], "sifre": config["sifre"]},
                 headers={"Accept": "application/json"}, timeout=(5, 30),
             )
-        except requests.RequestException as e:
-            return PackageList(ok=False, note=f"تعذّر الاتصال بـ ZNET: {e}")
+        except (requests.RequestException, netguard.UnsafeURL) as e:
+            return PackageList(ok=False, note=_conn_note("ZNET", e))
         return self.parse_packages(resp.text, resp.status_code)
 
     @classmethod
@@ -200,7 +204,7 @@ class ZnetAdapter(BaseAdapter):
                 "مفعّلة · الـ IP الثابت غير مطابق"
             ))
         msg = parts[1] if len(parts) > 1 else text
-        return BalanceResult(ok=False, note=msg.strip(), raw=text)
+        return BalanceResult(ok=False, note=netguard.brief(msg), raw=text)
 
     def parse_place(self, text: str, referans: str, http_status: int = 200) -> ExecutionResult:
         """تحليل استجابة pin_ekle: OK|cost|balance أو code|message."""
@@ -241,3 +245,22 @@ class ZnetAdapter(BaseAdapter):
             # إلغاءٌ بلا كود: ما كُتب في خانة الكود هو سبب الإلغاء لا كود
             msg, pin = pin, ""
         return ExecutionResult(status=status, pin=pin, note=msg, raw=text)
+
+
+def _conn_note(name: str, e: Exception) -> str:
+    """
+    سبب تعذّر الاتصال **بلا الرابط**: نصّ استثناء requests يحوي الرابط كاملاً بمعاملاته
+    (kod/sifre) — ويظهر في ملاحظات الطلب لصاحب المتجر. والعنوان الداخلي يُذكر صراحةً.
+    """
+    if isinstance(e, netguard.UnsafeURL):
+        return f"رابط المزوّد مرفوض: {e}"
+    return f"تعذّر الاتصال بـ {name} ({type(e).__name__})"
+
+
+PATH_RE = re.compile(r"^servis/[A-Za-z0-9_]+\.php$")
+
+
+def _path(config: dict, key: str, default: str) -> str:
+    """مسارٌ مخصّص يُقبل بنمط ZNET وحده (servis/xxx.php) — لا مسارَ عشوائياً على الخادم."""
+    v = str(config.get(key) or "").strip().lstrip("/")
+    return v if PATH_RE.match(v) else default

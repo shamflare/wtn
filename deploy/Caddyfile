@@ -6,10 +6,28 @@
 	email alayatl.tr@gmail.com
 }
 
+# ترويسات أمان المتصفح (safe.md §11) — لكل العناوين.
+# CSP: السكربتات من الموقع نفسه وحده، فثغرة حقنٍ مستقبلية لا تُشغّل سكربتاً غريباً يسرق الجلسة.
+# `?` = لا تُكتب فوق ترويسةٍ وضعها Django بنفسه (صور المتجر لها CSP أشدّ).
+# /tareq وصفحات النماذج مستقلّة بسكربتاتها المضمّنة — خارج الـ CSP.
+(security) {
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
+		-Server
+	}
+	@app not path /tareq* /*-prototype.html
+	header @app ?Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: http:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+	header @app ?X-Frame-Options "DENY"
+}
+
 # العناوين من `SITE_ADDRESSES` في deploy/.env — فالملفّ نفسه يخدم كل نسخةٍ بدومينها
 # (ahlacard.com لعميل، wtn4.com لنا). وغيابُه يُبقي wtn4.com كما كان.
 {$SITE_ADDRESSES:wtn4.com, www.wtn4.com, api.wtn4.com} {
 	encode zstd gzip
+	import security
 
 	# الردود على `/client/api/` تخصّ عملاء خارجيين لا متصفّحات، ولا تُخزَّن
 	header /client/api/* Cache-Control "no-store"

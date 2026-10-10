@@ -35,6 +35,9 @@ def _valid(gsm: str) -> bool:
 @permission_classes([IsAuthenticated])
 def detect_view(request):
     """كشف شركة الخط (جلسة حيّة). {gsm} ⇐ {operator, operator_label}."""
+    from core.ratelimit import hit
+    if hit(f"detect:{request.user.id}", 30, 60):
+        return Response({"detail": "استعلاماتٌ كثيرة — انتظر دقيقة"}, status=429)
     gsm = _clean_gsm(request.data.get("gsm", ""))
     if not _valid(gsm):
         return Response({"detail": "رقم غير صحيح — 10 خانات تبدأ بـ5"}, status=400)
@@ -160,6 +163,12 @@ def store_offers_view(request):
     op = request.data.get("operator", "")
     if not _valid(gsm):
         return Response({"detail": "رقم غير صحيح"}, status=400)
+    from kontor.models import Operator
+    if op not in Operator.values:
+        return Response({"detail": "شركة غير معروفة"}, status=400)
+    from core.ratelimit import hit
+    if hit(f"offers:{user.id}", 20, 60):
+        return Response({"detail": "استعلاماتٌ كثيرة — انتظر دقيقة"}, status=429)
     if not dealer_can_query(user, op):
         return Response({"detail": "استعلام العروض غير مسموح لك لهذه الشركة"}, status=403)
     try:
@@ -197,7 +206,8 @@ def buy_view(request):
     gsm = _clean_gsm(request.data.get("gsm", ""))
     if not _valid(gsm):
         return Response({"detail": "رقم غير صحيح"}, status=400)
-    pkg = KontorPackage.objects.filter(pk=request.data.get("package"), tenant=user.tenant).first()
+    pid = str(request.data.get("package") or "")
+    pkg = KontorPackage.objects.filter(pk=pid, tenant=user.tenant).first() if pid.isdigit() else None
     if not pkg:
         return Response({"detail": "الباقة غير موجودة"}, status=404)
     # سعر بيع الوكيل لزبونه يكتبه بعملة عرضه — يُحفظ بعملة الدفتر

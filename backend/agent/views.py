@@ -78,8 +78,8 @@ def dealers_view(request):
         login_id = clean_login_id(data.get("login_id"))
         if not login_id or not data.get("password") or not data.get("name"):
             return Response({"detail": "الاسم ورقم الدخول وكلمة السر مطلوبة"}, status=400)
-        if len(str(data["password"])) < 5:
-            return Response({"detail": "كلمة السر قصيرة (5 أحرف على الأقل)"}, status=400)
+        if len(str(data["password"])) < 6:
+            return Response({"detail": "كلمة السر قصيرة (6 أحرف على الأقل)"}, status=400)
         if User.objects.filter(login_id=login_id).exists():
             return Response({"detail": "رقم الدخول مستخدم مسبقاً"}, status=400)
         extra, err = _profile_fields(data, agent)
@@ -191,8 +191,8 @@ def dealer_settings_view(request, dealer_id):
         fields.append("status")
     pw = str(data.get("password") or "")
     if pw:
-        if len(pw) < 5:
-            return Response({"detail": "كلمة السر قصيرة (5 أحرف على الأقل)"}, status=400)
+        if len(pw) < 6:
+            return Response({"detail": "كلمة السر قصيرة (6 أحرف على الأقل)"}, status=400)
         u.set_password(pw)
         u.locked_at = None
         u.lock_until = None

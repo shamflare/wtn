@@ -16,6 +16,8 @@ from urllib.parse import quote
 
 import requests
 
+from core import netguard
+
 from .base import BalanceResult, BaseAdapter, ExecutionResult, PackageList
 
 
@@ -116,13 +118,13 @@ class ZdkAdapter(BaseAdapter):
                 params[k] = str(v)
 
         try:
-            resp = requests.get(
+            resp = netguard.get(
                 f"{base}/client/api/newOrder/{quote(str(package_id))}/params",
                 params=params, headers=self._headers(config), timeout=(5, 30),
             )
             data = resp.json()
-        except requests.RequestException as e:
-            return ExecutionResult(status="failed", note=f"تعذّر الاتصال بـ ZDK: {e}")
+        except (requests.RequestException, netguard.UnsafeURL) as e:
+            return ExecutionResult(status="failed", note=_conn_note("ZDK", e))
         except ValueError:
             return ExecutionResult(status="failed", note="استجابة ZDK غير صالحة", raw=resp.text)
 
@@ -141,13 +143,13 @@ class ZdkAdapter(BaseAdapter):
         if self._is_uuid(ref):
             params["uuid"] = "1"
         try:
-            resp = requests.get(
+            resp = netguard.get(
                 f"{base}/client/api/check", params=params,
                 headers=self._headers(config), timeout=(5, 20),
             )
             data = resp.json()
-        except requests.RequestException as e:
-            return ExecutionResult(status="unsupported", note=f"تعذّر الاتصال بـ ZDK: {e}")
+        except (requests.RequestException, netguard.UnsafeURL) as e:
+            return ExecutionResult(status="unsupported", note=_conn_note("ZDK", e))
         except ValueError:
             return ExecutionResult(status="unsupported", note="استجابة ZDK غير صالحة",
                                    raw=getattr(resp, "text", ""))
@@ -167,13 +169,13 @@ class ZdkAdapter(BaseAdapter):
         if not config.get("api_token"):
             return PackageList(ok=False, note="إعداد ZDK ناقص (api-token)")
         try:
-            resp = requests.get(
+            resp = netguard.get(
                 f"{base}/client/api/products",
                 headers=self._headers(config), timeout=(5, 30),
             )
             data = resp.json()
-        except requests.RequestException as e:
-            return PackageList(ok=False, note=f"تعذّر الاتصال بـ ZDK: {e}")
+        except (requests.RequestException, netguard.UnsafeURL) as e:
+            return PackageList(ok=False, note=_conn_note("ZDK", e))
         except ValueError:
             return PackageList(ok=False, note="استجابة ZDK غير صالحة", raw=resp.text)
 
@@ -206,13 +208,13 @@ class ZdkAdapter(BaseAdapter):
         if not config.get("api_token"):
             return BalanceResult(ok=False, note="إعداد ZDK ناقص (api-token)")
         try:
-            resp = requests.get(
+            resp = netguard.get(
                 f"{base}/client/api/profile",
                 headers=self._headers(config), timeout=(5, 20),
             )
             data = resp.json()
-        except requests.RequestException as e:
-            return BalanceResult(ok=False, note=f"تعذّر الاتصال بـ ZDK: {e}")
+        except (requests.RequestException, netguard.UnsafeURL) as e:
+            return BalanceResult(ok=False, note=_conn_note("ZDK", e))
         except ValueError:
             return BalanceResult(ok=False, note="استجابة ZDK غير صالحة", raw=resp.text)
 
@@ -281,3 +283,13 @@ class ZdkAdapter(BaseAdapter):
             cost=self._cost_of(d),
             raw=str(data)[:2000],
         )
+
+
+def _conn_note(name: str, e: Exception) -> str:
+    """
+    سبب تعذّر الاتصال **بلا الرابط**: نصّ استثناء requests يحوي الرابط كاملاً بمعاملاته
+    (kod/sifre) — ويظهر في ملاحظات الطلب لصاحب المتجر. والعنوان الداخلي يُذكر صراحةً.
+    """
+    if isinstance(e, netguard.UnsafeURL):
+        return f"رابط المزوّد مرفوض: {e}"
+    return f"تعذّر الاتصال بـ {name} ({type(e).__name__})"

@@ -13,6 +13,7 @@
 
 *.wtn4.com {
 	encode zstd gzip
+	import security
 
 	tls {
 		dns cloudflare {env.CF_API_TOKEN}

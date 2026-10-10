@@ -406,8 +406,8 @@ def store_change_password_view(request):
     new = request.data.get("new_password") or ""
     if not user.check_password(current):
         return Response({"detail": "كلمة السر الحالية غير صحيحة"}, status=400)
-    if len(new) < 5:
-        return Response({"detail": "كلمة السر الجديدة قصيرة (5 أحرف على الأقل)"}, status=400)
+    if len(new) < 6:
+        return Response({"detail": "كلمة السر الجديدة قصيرة (6 أحرف على الأقل)"}, status=400)
     user.set_password(new)
     user.save(update_fields=["password"])
     return Response({"detail": "تم تغيير كلمة السر"})

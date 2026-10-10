@@ -1124,3 +1124,32 @@ class DisabledDealerTokenTest(RoleGateTest):
         self.bayi.status = User.Status.PASSIVE
         self.bayi.save()
         self.assertEqual(self._get(self.bayi, "/api/auth/me/").status_code, 401)
+
+
+class NetGuardTest(TestCase):
+    """حارس SSRF: http وhttps إلى عنوانٍ عامّ — لا داخلي ولا محلّي ولا اسم خدمة."""
+
+    def test_internal_targets_refused(self):
+        from django.test import override_settings
+        from core import netguard
+        with override_settings(NET_GUARD=True):
+            for bad in ("http://169.254.169.254/latest", "http://127.0.0.1:8000", "http://localhost/",
+                        "http://web:8000/api", "http://kontor-session:8700/detect", "http://10.0.0.5/",
+                        "http://192.168.1.1/", "ftp://example.com/", "http://[::1]/"):
+                with self.assertRaises(netguard.UnsafeURL, msg=bad):
+                    netguard.check(bad)
+            netguard.check("http://8.8.8.8/servis/x.php")          # عنوانٌ عامّ بلا S — مقبول
+
+    def test_redirect_to_internal_is_not_followed(self):
+        from unittest import mock
+        from django.test import override_settings
+        from core import netguard
+        hop = mock.Mock(status_code=302, headers={"Location": "http://169.254.169.254/"}, text="")
+        with override_settings(NET_GUARD=True), mock.patch("requests.get", return_value=hop) as g:
+            with self.assertRaises(netguard.UnsafeURL):
+                netguard.get("http://8.8.8.8/servis/x.php", timeout=1)
+            self.assertEqual(g.call_count, 1)                       # لم يُطرق العنوان الداخلي
+
+    def test_html_reply_is_not_echoed(self):
+        from core import netguard
+        self.assertIn("غير متوقّع", netguard.brief("<html><body>secret</body></html>"))

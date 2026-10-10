@@ -249,7 +249,8 @@ def auto_link(tenant, provider) -> dict:
 def fetch_feed(base_url: str, kod: str, sifre: str) -> str:
     """يجلب نصّ paket_listesi من ZNET (يرمي requests.RequestException عند الفشل)."""
     url = f"{base_url.rstrip('/')}/servis/paket_listesi.php"
-    resp = requests.get(url, params={"bayi_kodu": kod, "sifre": sifre}, timeout=(5, 30))
+    from core import netguard
+    resp = netguard.get(url, params={"bayi_kodu": kod, "sifre": sifre}, timeout=(5, 30))
     return resp.text
 
 

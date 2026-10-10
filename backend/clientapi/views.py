@@ -210,7 +210,7 @@ def new_order_view(request, product_id):
 
     product = Product.objects.filter(
         pk=product_id, tenant=user.tenant,
-    ).select_related("game").first()
+    ).select_related("game").first() if str(product_id).isdigit() else None
     if product is None:
         return errors.error(errors.PRODUCT_NOT_FOUND, http_status=404)
     if product.status != Product.Status.ACTIVE or product.game.status != "active":

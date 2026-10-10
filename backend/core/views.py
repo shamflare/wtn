@@ -584,8 +584,8 @@ def dealer_settings_view(request, dealer_id):
 
     new_password = str(data.get("new_password") or "")
     if new_password:
-        if len(new_password) < 5:
-            return Response({"detail": "كلمة السر قصيرة (5 أحرف على الأقل)"}, status=400)
+        if len(new_password) < 6:
+            return Response({"detail": "كلمة السر قصيرة (6 أحرف على الأقل)"}, status=400)
         u.set_password(new_password)
         fields.append("password")
         # كلمة سرّ جديدة تفتح القفل دائماً — وهو المخرج الوحيد منه عمداً:

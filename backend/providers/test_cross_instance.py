@@ -55,7 +55,7 @@ class CrossInstanceRoutingTest(APITestCase):
         self.adapter = ZdkAdapter()
 
         # الشبكة بين الخادمين: كل `requests.get` يصل إلى الواجهة الخارجية للمورّد
-        def bridge(url, params=None, headers=None, timeout=None):
+        def bridge(url, params=None, headers=None, timeout=None, allow_redirects=True):
             assert urlparse(url).netloc == "supplier.example"
             r = self.client.get(urlparse(url).path, params or {},
                                 HTTP_API_TOKEN=(headers or {}).get("api-token", ""))

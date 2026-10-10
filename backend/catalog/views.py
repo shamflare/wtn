@@ -886,6 +886,9 @@ def image_upload_view(request):
     f = request.FILES.get("file")
     if f is None:
         return Response({"detail": "لم يصل ملف"}, status=400)
+    from core.ratelimit import hit
+    if request.user.role in (User.Role.BAYI, User.Role.ANA_BAYI) and hit(f"img:{request.user.id}", 30, 3600):
+        return Response({"detail": "صورٌ كثيرة خلال ساعة — حاول لاحقاً"}, status=429)
     if f.size > _IMAGE_MAX_BYTES:
         return Response({"detail": "الصورة كبيرة — الحدّ 1.5 ميغابايت"}, status=400)
     data = f.read()

@@ -12,6 +12,8 @@
 from decimal import Decimal, InvalidOperation
 
 import requests
+
+from core import netguard
 from django.db import transaction
 
 from core import services as wallet_services
@@ -81,7 +83,8 @@ def create_order(dealer, package: KontorPackage, gsm: str, dealer_sell_price=Non
     """
     if package.tenant_id != dealer.tenant_id:
         raise KontorOrderError("الباقة والوكيل من متجرين مختلفين")
-    if package.status != KontorPackage.Status.ACTIVE:
+    if package.status != KontorPackage.Status.ACTIVE or (
+            package.category_id and package.category.status != "active"):
         raise KontorOrderError("الباقة غير متاحة للبيع")
     if dealer.status != "active":
         raise KontorOrderError("الحساب غير مفعّل — تواصل مع الإدارة")
@@ -347,7 +350,9 @@ def _send(order: KontorOrder, provider) -> tuple[str, str]:
     # قبل الإرسال: نسجّل إلى مَن ذهب. إن ماتت العملية بعده عرف الكنس الدوري مَن يسأل
     KontorOrder.objects.filter(pk=order.pk).update(provider=provider)
     try:
-        resp = requests.get(f"{base.rstrip('/')}/servis/tl_servis.php", params=params, timeout=(5, 40))
+        resp = netguard.get(f"{base.rstrip('/')}/servis/tl_servis.php", params=params, timeout=(5, 40))
+    except netguard.UnsafeURL as e:
+        return REJECTED, f"رابط المزوّد مرفوض: {e}"      # لم يُرسَل أصلاً
     except requests.RequestException as e:
         if _never_sent(e):
             return REJECTED, "تعذّر الاتصال"
@@ -503,11 +508,11 @@ def _poll_claimed(order: KontorOrder) -> KontorOrder:
         return order
     base, kod, sifre = creds
     try:
-        resp = requests.get(f"{base.rstrip('/')}/servis/tl_kontrol.php",
+        resp = netguard.get(f"{base.rstrip('/')}/servis/tl_kontrol.php",
                             params={"bayi_kodu": kod, "sifre": sifre, "tekilnumara": order.tekil},
                             timeout=(5, 40))
         code, note = _parse_status(resp.text)
-    except requests.RequestException:
+    except (requests.RequestException, netguard.UnsafeURL):
         return order
 
     if code == 1:

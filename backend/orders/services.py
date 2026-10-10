@@ -166,8 +166,12 @@ def create_order(dealer: User, product: Product, *, player_id="", customer_phone
             "انتهى اشتراك المتجر ومهلة السماح — الشراء متوقّف حتى التجديد. "
             "القراءة والتقارير والمحافظ تعمل كما هي."
         )
-    if product.status != Product.Status.ACTIVE:
+    if product.status != Product.Status.ACTIVE or product.game.status != "active":
         raise OrderError("المنتج غير متاح للبيع")
+    player_id = str(player_id or "").strip()[:60]
+    customer_phone = str(customer_phone or "").strip()[:20]
+    if product.game.require_player_id and not player_id:
+        raise OrderError("معرّف اللاعب مطلوب لهذه اللعبة")
     if dealer.status != User.Status.ACTIVE:
         raise OrderError("الحساب غير مفعّل — تواصل مع الإدارة")
 

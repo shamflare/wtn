@@ -303,7 +303,7 @@ def admin_orders_view(request):
         "cost_price": str(o.cost_price), "sell_price": str(o.sell_price), "profit": str(o.profit),
         "status": o.status, "status_label": o.get_status_display(),
         "provider": o.provider.name if o.provider else "", "note": o.provider_note,
-        "trace": o.trace,
+        "trace": o.trace, "manual": o.manual,
         "tekil": o.tekil, "balance_before": str(o.balance_before), "balance_after": str(o.balance_after),
         "created_at": o.created_at.strftime("%Y-%m-%d %H:%M"),
         "updated_at": o.updated_at.strftime("%Y-%m-%d %H:%M"),
@@ -332,7 +332,7 @@ def admin_order_action_view(request, pk, action):
         "package", "dealer", "agent").first()
     if order is None:
         return Response({"detail": "الطلب غير موجود"}, status=404)
-    if action not in ("recheck", "approve", "refund"):
+    if action not in ("recheck", "manual", "approve", "refund"):
         return Response({"detail": "إجراء غير معروف"}, status=400)
     try:
         order = manual_action(order, action, request.user, str(request.data.get("note") or "")[:200])

@@ -44,9 +44,20 @@ def _tip(package: KontorPackage) -> str:
     return TIP_MAP.get(lt, lt.lower())
 
 
+def _readable(text: str) -> str:
+    """
+    بعض المزوّدين يردّون نصّهم مرمَّزاً للروابط (%D8%A7%D9%84… و+ للمسافة) —
+    يُفكّ ليقرأه الوكيل وصاحب المتجر عربياً لا رموزاً.
+    """
+    import re
+    from urllib.parse import unquote_plus
+    s = text or ""
+    return unquote_plus(s) if re.search(r"%[0-9A-Fa-f]{2}", s) else s
+
+
 def _parse_place(text: str):
     """OK|كود|شرح|كلفة ⇐ (code:int|None, note, cost). code: 1 مقبول · 3 مرفوض · 8 تحقّق."""
-    parts = (text or "").strip().split("|")
+    parts = _readable(text).strip().split("|")
     if len(parts) < 2 or parts[0].strip().upper() != "OK":
         return None, (text or "").strip()[:280], None
     try:
@@ -252,9 +263,11 @@ def manual_action(order: KontorOrder, action: str, actor, note: str = "") -> Kon
     """
     مخرج صاحب المتجر لطلبٍ علق أو حُسم خطأً — بقفل الصفّ كالمتابعة:
     - `recheck`: سؤال المزوّد الآن (قيد التنفيذ)، أو كنسه إن علق «قيد الإرسال».
-    - `approve`: نجح (المشغّل تأكّد أن الرقم شُحن) — من قيد الإرسال أو التنفيذ.
-    - `refund`: إرجاع المال للوكيل (وعكس ساقَي الوكيل الكبير) — من قيد الإرسال أو
-      التنفيذ أو حتى بعد النجاح (أُبطل). لا يُرجَع طلبٌ مُسترجَع.
+    - `manual`: إعادته إلى اليدوي — يُفكّ عن المتابعة والكنس وينتظر قرار المشغّل.
+      طلبٌ عند المزوّد لا يُقبل ولا يُرجَع مباشرةً: المزوّد قد يحسمه في اللحظة نفسها.
+    - `approve`: نجح (المشغّل تأكّد أن الرقم شُحن) — للطلب اليدوي وحده.
+    - `refund`: إرجاع المال للوكيل (وعكس ساقَي الوكيل الكبير) — للطلب اليدوي، أو
+      إبطال طلبٍ ناجح. لا يُرجَع طلبٌ مُسترجَع.
     """
     if action == "recheck":
         if order.status == KontorOrder.Status.PENDING:
@@ -266,26 +279,40 @@ def manual_action(order: KontorOrder, action: str, actor, note: str = "") -> Kon
         return order
     with transaction.atomic():
         _relock(order)
+        fresh = KontorOrder.objects.only("manual").get(pk=order.pk)
+        order.manual = fresh.manual
         who = getattr(actor, "name", "المشغّل")
+        if action == "manual":
+            if order.status not in OPEN or order.manual:
+                raise ManualActionError("لا يُعاد إلى اليدوي إلا طلبٌ قيد الإرسال أو التنفيذ")
+            order.status = KontorOrder.Status.PENDING
+            order.manual = True
+            order.trace = (f"أعاده {who} إلى اليدوي — بانتظار قراره · {order.trace}")[:500]
+            order.save(update_fields=["status", "manual", "trace", "updated_at"])
+            return order
         if action == "approve":
-            if order.status not in OPEN:
-                raise ManualActionError("لا يُقبل إلا طلبٌ قيد الإرسال أو التنفيذ")
+            if not (order.status == KontorOrder.Status.PENDING and order.manual):
+                raise ManualActionError("أعده إلى اليدوي أوّلاً — الطلب ما زال عند المزوّد")
             order.status = KontorOrder.Status.SUCCESS
+            order.manual = False
             order.trace = (f"قبله {who} يدوياً" + (f" — {note}" if note else "") + f" · {order.trace}")[:500]
             if note:
                 order.provider_note = note[:300]
-            order.save(update_fields=["status", "trace", "provider_note", "updated_at"])
+            order.save(update_fields=["status", "manual", "trace", "provider_note", "updated_at"])
             return order
         if action == "refund":
             if order.status in (KontorOrder.Status.REFUNDED, KontorOrder.Status.FAILED):
                 raise ManualActionError("الطلب مُسترجَعٌ أصلاً")
+            if order.status in OPEN and not order.manual:
+                raise ManualActionError("أعده إلى اليدوي أوّلاً — الطلب ما زال عند المزوّد")
             revoked = order.status == KontorOrder.Status.SUCCESS
             reason = note or ("أبطله المشغّل بعد نجاحه" if revoked else "أرجعه المشغّل")
             _refund(order, f"إرجاع — {reason} (طلب #{order.id})")
             order.status = KontorOrder.Status.REFUNDED
+            order.manual = False
             order.provider_note = reason[:300]
             order.trace = (f"أرجعه {who} يدوياً · {order.trace}")[:500]
-            order.save(update_fields=["status", "provider_note", "trace", "updated_at"])
+            order.save(update_fields=["status", "manual", "provider_note", "trace", "updated_at"])
             return order
     raise ManualActionError("إجراء غير معروف")
 
@@ -394,7 +421,7 @@ def _fail_and_refund(order: KontorOrder, trail: list, why: str) -> bool:
     طلبٌ حُسم (نجح أو استُرجع) لا يُرجَع ثانيةً. False ⇐ كان محسوماً فتُرك.
     """
     _relock(order)
-    if order.status not in OPEN:
+    if order.status not in OPEN or KontorOrder.objects.filter(pk=order.pk, manual=True).exists():
         return False
     order.provider_note = ((trail[-1][1] if trail else "") or why)[:300]
     order.trace = (" | ".join(f"{name}: {note}" for name, note in trail) or why)[:500]
@@ -429,7 +456,7 @@ def _parse_status(text: str):
     1:شرح:مبلغ=نجح · 2:شرح:مبلغ=قيد التنفيذ · 3:سبب=أُلغي ⇐ (code:int|None, note).
     المبلغ في آخر الردّ ليس من الملاحظة فيُنزع؛ والشرح نفسه قد يحوي `:` فيبقى كاملاً.
     """
-    s = (text or "").strip()
+    s = _readable(text).strip()
     if not s or ":" not in s:
         return None, s[:280]
     head, _, rest = s.partition(":")
@@ -516,7 +543,8 @@ def sweep_stale_pending() -> int:
     from django.utils import timezone
     cutoff = timezone.now() - timedelta(minutes=STALE_PENDING_MIN)
     n = 0
-    for o in KontorOrder.objects.filter(status=KontorOrder.Status.PENDING, updated_at__lt=cutoff)[:100]:
+    for o in KontorOrder.objects.filter(status=KontorOrder.Status.PENDING, manual=False,
+                                        updated_at__lt=cutoff)[:100]:
         if not claim(o, [KontorOrder.Status.PENDING]):
             continue
         try:

@@ -516,6 +516,8 @@ def order_execute_view(request, order_id):
     if pid:
         provider = Provider.objects.filter(pk=pid, tenant=request.user.tenant).first()
     try:
+        if order.status == Order.Status.PROCESSING:
+            raise services.OrderError("الطلب عند المزوّد — أعده إلى اليدوي أوّلاً ثم اقبله")
         order = services.execute_order(order, provider=provider, pin=request.data.get("pin", ""), actor=request.user)
     except services.OrderError as e:
         return Response({"detail": str(e)}, status=http.HTTP_400_BAD_REQUEST)
@@ -530,6 +532,8 @@ def order_cancel_view(request, order_id):
     except Order.DoesNotExist:
         return Response({"detail": "الطلب غير موجود"}, status=404)
     try:
+        if order.status == Order.Status.PROCESSING:
+            raise services.OrderError("الطلب عند المزوّد — أعده إلى اليدوي أوّلاً ثم ارفضه")
         order = services.cancel_order(order, actor=request.user)
     except services.OrderError as e:
         return Response({"detail": str(e)}, status=http.HTTP_400_BAD_REQUEST)
@@ -613,6 +617,9 @@ def _apply_bulk_action(order, action, *, provider, note, pin, actor=None):
             # قفل الصف يمنع تنفيذ إجراءين متزامنين على الطلب نفسه —
             # وأخطرها استرجاعان للمبلغ ذاته.
             locked = Order.objects.select_for_update().get(pk=order.pk)
+            if action in ("approve", "reject") and locked.status == Order.Status.PROCESSING:
+                # المزوّد يعمل عليه وقد يحسمه في اللحظة نفسها — يُفكّ عنه أوّلاً
+                raise services.OrderError("الطلب عند المزوّد — أعده إلى اليدوي أوّلاً ثم اقبله أو ارفضه")
             if action == "approve":
                 services.execute_order(locked, pin=pin, actor=actor)
             elif action == "reject":

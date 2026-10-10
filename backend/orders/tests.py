@@ -845,3 +845,21 @@ class ConcurrencyGuardTest(LossGuardVisibilityTest):
         self.shop.save()
         with self.assertRaises(services.OrderError):
             self._order()
+
+
+class ProcessingNeedsManualFirstTest(ConcurrencyGuardTest):
+    def test_processing_order_cannot_be_approved_or_rejected_directly(self):
+        o = self._order()
+        Order.objects.filter(pk=o.pk).update(status=Order.Status.PROCESSING)
+        admin = User.objects.create(login_id="isl-admin", name="مالك", tenant=self.islam,
+                                    role=User.Role.TENANT_ADMIN)
+        self.client = __import__("rest_framework.test", fromlist=["APIClient"]).APIClient()
+        self.client.force_authenticate(admin)
+        for act in ("approve", "reject"):
+            r = self.client.post("/api/orders/bulk-action/", {"orders": [o.id], "action": act}, format="json")
+            self.assertEqual(r.json()["done"], 0)
+            self.assertIn("أعده إلى اليدوي", r.json()["results"][0]["detail"])
+        r = self.client.post("/api/orders/bulk-action/", {"orders": [o.id], "action": "manual"}, format="json")
+        self.assertEqual(r.json()["done"], 1)
+        r = self.client.post("/api/orders/bulk-action/", {"orders": [o.id], "action": "reject"}, format="json")
+        self.assertEqual(r.json()["done"], 1)

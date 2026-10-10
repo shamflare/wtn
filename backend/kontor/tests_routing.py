@@ -313,14 +313,34 @@ class SafetyTest(Base):
 
     def test_owner_manual_actions(self):
         o = self.order()
+        KontorOrder.objects.filter(pk=o.pk).update(status=KontorOrder.Status.PROCESSING, provider=self.a)
         self.client.force_authenticate(self.admin)
-        r = self.client.post(f"/api/kontor/orders/{o.id}/approve/", {"note": "تأكّدت"}, format="json")
+        url = f"/api/kontor/orders/{o.id}/"
+        # عند المزوّد: لا قبول ولا إرجاع مباشرةً
+        self.assertEqual(self.client.post(url + "approve/", {}, format="json").status_code, 400)
+        self.assertEqual(self.client.post(url + "refund/", {}, format="json").status_code, 400)
+        # إلى اليدوي ⇐ لا يُتابَع ولا يُكنَس، ثم القرار
+        r = self.client.post(url + "manual/", {}, format="json")
+        self.assertEqual(r.json()["status"], "pending")
+        from datetime import timedelta
+        from django.utils import timezone
+        from .execution import sweep_stale_pending
+        KontorOrder.objects.filter(pk=o.pk).update(updated_at=timezone.now() - timedelta(minutes=30))
+        sweep_stale_pending()
+        o.refresh_from_db()
+        self.assertEqual((o.status, o.manual), (KontorOrder.Status.PENDING, True))   # الكنس لم يمسّه
+        r = self.client.post(url + "approve/", {"note": "تأكّدت"}, format="json")
         self.assertEqual(r.json()["status"], "success")
-        r = self.client.post(f"/api/kontor/orders/{o.id}/refund/", {}, format="json")
+        r = self.client.post(url + "refund/", {}, format="json")                     # إبطال الناجح
         self.assertEqual(r.json()["status"], "refunded")
         self.wallet.refresh_from_db()
         self.assertEqual(self.wallet.balance, Decimal("5000.00"))
-        self.assertEqual(self.client.post(f"/api/kontor/orders/{o.id}/refund/").status_code, 400)
+        self.assertEqual(self.client.post(url + "refund/").status_code, 400)
+
+    def test_url_encoded_reply_is_readable(self):
+        from .execution import _parse_status
+        self.assertEqual(_parse_status("3:%D8%A7%D9%84%D8%B1%D9%82%D9%85+%D8%AE%D8%A7%D8%B7%D8%A6"),
+                         (3, "الرقم خاطئ"))
 
 
 class DoubleClickTest(Base):

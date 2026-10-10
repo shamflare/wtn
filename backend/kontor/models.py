@@ -366,6 +366,8 @@ class KontorOrder(models.Model):
     # «مشغول» حتى هذه اللحظة: عمليةٌ ترسله أو تتابعه — فلا يُسترجع مرّتين ولا يُرسَل
     # إلى البديل مرّتين حين تطرقه المهمّة الدورية وزرّ المشغّل معاً
     busy_until = models.DateTimeField(null=True, blank=True)
+    # أعاده المشغّل إلى اليدوي: لا يُتابَع ولا يُكنَس، وينتظر قراره (قبول أو إرجاع)
+    manual = models.BooleanField(default=False)
     balance_before = models.DecimalField(max_digits=18, decimal_places=6, default=Decimal("0"))
     balance_after = models.DecimalField(max_digits=18, decimal_places=6, default=Decimal("0"))
 

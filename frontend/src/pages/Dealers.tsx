@@ -111,7 +111,9 @@ export default function Dealers() {
   const stats = useMemo(() => ({
     total: dealers.length,
     active: dealers.filter((d) => d.active).length,
-    net: dealers.reduce((s, d) => s + Number(d.balance), 0),
+    // ودكاكين الوكلاء الكبار معهم: ما أعطاه الكبير لدكانه ما زال مالاً يُصرف عندك
+    net: dealers.reduce((s, d) => s + Number(d.balance)
+      + (d.children || []).reduce((c, x) => c + Number(x.balance), 0), 0),
     negative: dealers.filter((d) => Number(d.balance) < 0).length,
   }), [dealers]);
 

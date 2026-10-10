@@ -246,7 +246,7 @@ def new_order_view(request, product_id):
         # سباق: نداءان بنفس الـ uuid في اللحظة ذاتها. القيد في القاعدة ردّ
         # الثاني، والمعاملة انسحبت بخصمها — فنعيد طلب الأوّل.
         winner = Order.objects.filter(
-            tenant=user.tenant, client_uuid=client_uuid,
+            dealer=user, client_uuid=client_uuid,
         ).select_related("product").first()
         if winner is None:
             return errors.error(errors.SERVER_ERROR, http_status=500)

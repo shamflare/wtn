@@ -241,7 +241,7 @@ class InternalTenantAdapter(BaseAdapter):
                 cost=cost, cost_is_base=True, external_ref=ref,
                 note=f"نُفّذ عبر متجر {dealer.tenant.name}",
             )
-        if sup_order.status in ("pending", "processing"):
+        if sup_order.status in ("pending", "processing", "stuck"):
             # التكلفة تُعتمد **الآن** لا عند النجاح: المال خُصم من محفظتنا لدى
             # المورّد لحظة الإنشاء. تركُها للاحق كان يُبقي في دفترنا تكلفةً
             # مقدَّرةً وربحاً موهوماً طوال انتظار التنفيذ اليدوي.

@@ -457,7 +457,7 @@ class MobileClientApiTest(APITestCase):
         return self.client.get(path, params, HTTP_API_TOKEN=self.token.token)
 
     def order(self, uid, gsm="5442199992", **extra):
-        with mock.patch("kontor.execution.requests.get", return_value=mock.Mock(text="OK|1|ok|970")):
+        with mock.patch("kontor.execution.requests.get", return_value=mock.Mock(status_code=200, text="OK|1|ok|970")):
             return self.get(f"/client/api/mobile/newOrder/{self.pkg.link_code}/params",
                             gsm=gsm, order_uuid=str(uid), **extra)
 
@@ -494,7 +494,7 @@ class MobileClientApiTest(APITestCase):
                                   order_uuid=str(uuid4())).status_code, 404)
 
     def test_rejected_order_refunds_and_reports_reject(self):
-        with mock.patch("kontor.execution.requests.get", return_value=mock.Mock(text="OK|3|bakiye yok|")):
+        with mock.patch("kontor.execution.requests.get", return_value=mock.Mock(status_code=200, text="OK|3|bakiye yok|")):
             r = self.get(f"/client/api/mobile/newOrder/{self.pkg.link_code}/params",
                          gsm="5442199992", order_uuid=str(uuid4())).json()
         self.assertEqual(r["status"], "reject")

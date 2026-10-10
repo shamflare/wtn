@@ -47,6 +47,22 @@ class PaymentMethodSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["tenant"]
 
+    def validate_commission_percent(self, v):
+        # 100% أو أكثر يجعل الإيداع صفراً أو **خصماً** — لا عمولة كهذه
+        if v is None or v < 0 or v >= 100:
+            raise serializers.ValidationError("العمولة بين 0 وأقل من 100%")
+        return v
+
+    def validate_min_amount(self, v):
+        if v is not None and v < 0:
+            raise serializers.ValidationError("الحد الأدنى لا يكون سالباً")
+        return v
+
+    def validate_max_amount(self, v):
+        if v is not None and v < 0:
+            raise serializers.ValidationError("الحد الأعلى لا يكون سالباً")
+        return v
+
     def _sync_fields(self, method, rows):
         """يستبدل حقول الطريقة بما أُرسل — الحذف والإضافة والترتيب في نداء واحد."""
         keep = []

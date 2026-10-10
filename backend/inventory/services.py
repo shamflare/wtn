@@ -115,10 +115,11 @@ def build(tenant, agent=None) -> dict:
     ))
 
     # ── محافظ الوكلاء — بالإشارة المعكوسة ──
-    # دكاكين الوكيل الكبير خارج جرد المتجر: أرصدتها دفترٌ بينها وبين وكيلها، ومحفظة
-    # الكبير نفسه هي ما بينه وبين المتجر
-    agg = Wallet.objects.filter(tenant=tenant).exclude(
-        user__parent__role=User.Role.ANA_BAYI).aggregate(
+    # كل محافظ الوكلاء — **ومعها دكاكين الوكلاء الكبار**: ما أعطاه الكبير لدكانه خرج
+    # من محفظته إلى محفظة الدكان، وما زال مالاً يُصرف عند المتجر. فما يدين به المتجر
+    # لشبكة الكبير = محفظته + محافظ دكاكينه، أعطاهم أم لم يعطهم.
+    agg = Wallet.objects.filter(
+        tenant=tenant, user__role__in=[User.Role.BAYI, User.Role.ANA_BAYI]).aggregate(
         net=Sum("balance"),
         credit=Sum("balance", filter=Q(balance__gt=0)),
         credit_n=Count("id", filter=Q(balance__gt=0)),
@@ -203,7 +204,7 @@ def build(tenant, agent=None) -> dict:
             "assets": str(assets),
             "liabilities": str(liabilities),
             "previous_total": str(prev_total),
-            "profit": str(total - prev_total),
+            "profit": str(total - prev_total if previous else ZERO),
         },
         "previous": {
             "id": previous.id,
@@ -238,7 +239,7 @@ def _summarise(tenant, groups, manual, previous, *, base, sources, notes):
             "assets": str(sum((v for v in vals if v > 0), ZERO)),
             "liabilities": str(-sum((v for v in vals if v < 0), ZERO)),
             "previous_total": str(prev_total),
-            "profit": str(total - prev_total),
+            "profit": str(total - prev_total if previous else ZERO),
         },
         "previous": {
             "id": previous.id, "taken_at": previous.taken_at.strftime("%Y-%m-%d %H:%M"),
@@ -274,11 +275,15 @@ def _build_agent(tenant, agent) -> dict:
         debt=Sum("balance", filter=Q(balance__lt=0)), debt_n=Count("id", filter=Q(balance__lt=0)),
     )
     show = lambda v: cur.to_display(agent, v or ZERO)  # noqa: E731
-    groups.append(_group("dealer_wallets", "محافظ دكاكيني", [_line(
-        tenant, "صافي محافظ دكاكيني", -(agg["net"] or ZERO), base,
-        note=(f"{agg['credit_n'] or 0} برصيد موجب = {show(agg['credit'])} عليك · "
-              f"{agg['debt_n'] or 0} برصيد سالب = {show(-(agg['debt'] or ZERO))} لك"),
-    )], hint="رصيد الدكان الموجب مالٌ قبضتَه ولم تقدّم مقابله — يُطرح لا يُجمع."))
+    # أرصدة الدكاكين **للاطّلاع لا للجمع**: ما أعطاه الوكيل لدكانه خرج من محفظته
+    # (فنقصت هنا) ودخل صندوقه نقداً (فزاد هناك) — رأس ماله تغيّر شكلاً لا قيمةً.
+    # وما في محفظة الدكان دَينٌ عليه لدكانه ومالٌ له عند المتجر معاً: يتعادلان.
+    groups.append(_group("dealer_wallets", "أرصدة دكاكيني (للاطّلاع)", [_line(
+        tenant, "مجموع أرصدة دكاكيني", agg["net"] or ZERO, base,
+        note=(f"{agg['credit_n'] or 0} برصيد موجب = {show(agg['credit'])} · "
+              f"{agg['debt_n'] or 0} برصيد سالب = {show(-(agg['debt'] or ZERO))} مدينون لك"),
+    )], hint="لا تدخل المجموع: ما أعطيته لدكانه نقص من محفظتك ودخل صندوقك — "
+             "ورصيده عند المتجر يقابله دَينك له.", enabled=False))
     manual = _group("manual", "البنود اليدوية", [
         _line(tenant, m.name, m.amount, m.currency, note=m.note, source="manual", item_id=m.id)
         for m in ManualItem.objects.filter(tenant=tenant, owner=agent, active=True)

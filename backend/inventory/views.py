@@ -229,11 +229,16 @@ def _orders_profit(tenant, since, agent=None):
             agg = qs.aggregate(p=Sum("agent_profit"), n=Count("id"))
             p, n = p + (agg["p"] or ZERO), n + (agg["n"] or 0)
         return p, n
-    qs = Order.objects.filter(tenant=tenant, status="success")
-    if since:
-        qs = qs.filter(created_at__gt=since)
-    agg = qs.aggregate(p=Sum("profit"), n=Count("id"))
-    return (agg["p"] or ZERO), (agg["n"] or 0)
+    # المتجر: ربحه من الألعاب **والموبايل** — كما يحسبه تقرير الأرباح
+    from kontor.models import KontorOrder
+    p, n = ZERO, 0
+    for qs in (Order.objects.filter(tenant=tenant, status="success"),
+               KontorOrder.objects.filter(tenant=tenant, status="success")):
+        if since:
+            qs = qs.filter(created_at__gt=since)
+        agg = qs.aggregate(p=Sum("profit"), n=Count("id"))
+        p, n = p + (agg["p"] or ZERO), n + (agg["n"] or 0)
+    return p, n
 
 
 @api_view(["POST"])
@@ -273,7 +278,8 @@ def snapshot_create_view(request):
             total_base=total,
             assets_base=Decimal(live["totals"]["assets"]),
             liabilities_base=Decimal(live["totals"]["liabilities"]),
-            previous=previous, previous_total=prev_total, profit=total - prev_total,
+            previous=previous, previous_total=prev_total,
+            profit=(total - prev_total) if previous else ZERO,   # أوّل جرد: لا ربح يُقارَن به
             period_from=previous.taken_at if previous else None,
             period_profit=period_profit, daily_count=daily_count,
             orders_profit=orders_profit, orders_count=orders_count,

@@ -516,7 +516,7 @@ def order_execute_view(request, order_id):
     if pid:
         provider = Provider.objects.filter(pk=pid, tenant=request.user.tenant).first()
     try:
-        order = services.execute_order(order, provider=provider, pin=request.data.get("pin", ""))
+        order = services.execute_order(order, provider=provider, pin=request.data.get("pin", ""), actor=request.user)
     except services.OrderError as e:
         return Response({"detail": str(e)}, status=http.HTTP_400_BAD_REQUEST)
     return Response(OrderSerializer(order).data)
@@ -530,7 +530,7 @@ def order_cancel_view(request, order_id):
     except Order.DoesNotExist:
         return Response({"detail": "الطلب غير موجود"}, status=404)
     try:
-        order = services.cancel_order(order)
+        order = services.cancel_order(order, actor=request.user)
     except services.OrderError as e:
         return Response({"detail": str(e)}, status=http.HTTP_400_BAD_REQUEST)
     return Response(OrderSerializer(order).data)
@@ -582,7 +582,7 @@ def orders_bulk_action_view(request):
             results.append({"order": oid, "ok": False, "detail": "غير موجود"})
             continue
         try:
-            _apply_bulk_action(order, action, provider=provider, note=note, pin=pin)
+            _apply_bulk_action(order, action, provider=provider, note=note, pin=pin, actor=request.user)
         except services.OrderError as e:
             results.append({"order": oid, "receipt_no": order.receipt_no,
                             "ok": False, "detail": str(e)})
@@ -599,7 +599,7 @@ def orders_bulk_action_view(request):
     return Response({"done": done, "failed": len(results) - done, "results": results})
 
 
-def _apply_bulk_action(order, action, *, provider, note, pin):
+def _apply_bulk_action(order, action, *, provider, note, pin, actor=None):
     """
     ينفّذ إجراءً واحداً على طلب واحد.
 
@@ -614,9 +614,9 @@ def _apply_bulk_action(order, action, *, provider, note, pin):
             # وأخطرها استرجاعان للمبلغ ذاته.
             locked = Order.objects.select_for_update().get(pk=order.pk)
             if action == "approve":
-                services.execute_order(locked, pin=pin)
+                services.execute_order(locked, pin=pin, actor=actor)
             elif action == "reject":
-                services.cancel_order(locked)
+                services.cancel_order(locked, actor=actor)
             elif action == "manual":
                 services.set_manual(locked)
     if note:

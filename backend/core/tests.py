@@ -1038,3 +1038,10 @@ class RoleGateUploadTest(RoleGateTest):
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.tok[self.bayi]}")
         r = self.client.post("/api/catalog/images/", {})
         self.assertEqual(r.status_code, 400)   # «لم يصل ملف» — لا 403
+
+
+class DisabledDealerTokenTest(RoleGateTest):
+    def test_disabled_dealer_token_stops_working(self):
+        self.bayi.status = User.Status.PASSIVE
+        self.bayi.save()
+        self.assertEqual(self._get(self.bayi, "/api/auth/me/").status_code, 401)

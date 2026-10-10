@@ -119,6 +119,9 @@ def set_price_view(request):
         return Response({"detail": "المنتج أو المجموعة غير موجود"}, status=404)
     except (InvalidOperation, TypeError):
         return Response({"detail": "سعر غير صحيح"}, status=400)
+    # سعرٌ سالب يجعل الشراء **إضافة** رصيد، والصفر بيعٌ مجّاني
+    if not price.is_finite() or price <= 0:
+        return Response({"detail": "السعر يجب أن يكون أكبر من صفر"}, status=400)
 
     # التعديل اليدوي يفكّ ارتباط الخلية بقاعدة التسعير الجماعي: المالك كتب
     # رقماً بيده، فلا يجوز أن يمحوه أوّلُ تغيير في التكلفة.

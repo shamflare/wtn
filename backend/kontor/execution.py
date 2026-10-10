@@ -58,6 +58,9 @@ def _parse_place(text: str):
     return code, note, cost
 
 
+DUPLICATE_WINDOW = 20   # ثانية
+
+
 @transaction.atomic
 def create_order(dealer, package: KontorPackage, gsm: str, dealer_sell_price=None,
                  client_uuid=None) -> KontorOrder:
@@ -69,8 +72,22 @@ def create_order(dealer, package: KontorPackage, gsm: str, dealer_sell_price=Non
         raise KontorOrderError("الباقة والوكيل من متجرين مختلفين")
     if package.status != KontorPackage.Status.ACTIVE:
         raise KontorOrderError("الباقة غير متاحة للبيع")
+    if dealer.status != "active":
+        raise KontorOrderError("الحساب غير مفعّل — تواصل مع الإدارة")
     if dealer.tenant is not None and getattr(dealer.tenant, "purchases_blocked", False):
         raise KontorOrderError("الشراء متوقّف (اشتراك المتجر)")
+
+    # ضغطتان على «شحن» (أو إعادة إرسالٍ من متصفّحٍ بطيء) = طلبان وخصمان وشحنتان.
+    # الـ API الخارجي يحمي نفسه بـ client_uuid؛ واللوحة بهذا: الرقم والباقة نفسهما
+    # خلال ثوانٍ من طلبٍ لم يُرجَع ⇐ يُرفض الثاني.
+    if client_uuid is None:
+        from datetime import timedelta
+        from django.utils import timezone
+        if KontorOrder.objects.filter(
+            dealer=dealer, gsm=gsm, package=package,
+            created_at__gte=timezone.now() - timedelta(seconds=DUPLICATE_WINDOW),
+        ).exclude(status=KontorOrder.Status.REFUNDED).exists():
+            raise KontorOrderError("طلبٌ مماثل لنفس الرقم أُرسل للتوّ — راجع «طلباتي» قبل الإعادة")
 
     from orders.services import big_agent_of
     agent = big_agent_of(dealer)
@@ -121,8 +138,9 @@ def create_order(dealer, package: KontorPackage, gsm: str, dealer_sell_price=Non
                 agent_wallet.id, -sell, WalletTransaction.Type.ORDER_DEBIT,
                 created_by=dealer, note=f"شراء {package.name} من المتجر لـ{dealer.name}",
             )
-        except wallet_services.WalletError as e:
-            raise KontorOrderError(f"محفظة الوكيل الكبير: {e}")
+        except wallet_services.WalletError:
+            # لا تُكشف أرقام محفظة الوكيل الكبير لدكانه
+            raise KontorOrderError("رصيد وكيلك الكبير لا يكفي لإتمام الطلب — تواصل معه")
 
     order = KontorOrder.objects.create(
         tenant_id=dealer.tenant_id, dealer=dealer, package=package,
@@ -197,6 +215,81 @@ def _code_for(package: KontorPackage, provider) -> str | None:
     return None
 
 
+# ─────────────────── القفل: لا يُحسم الطلب مرّتين ───────────────────
+OPEN = (KontorOrder.Status.PENDING, KontorOrder.Status.PROCESSING)
+BUSY_FOR = 150   # ثانية — أطول من إرسالٍ عبر ثلاثة مزوّدين؛ ينتهي وحده إن ماتت العملية
+
+
+def _relock(order: KontorOrder) -> KontorOrder:
+    """يقفل صفّ الطلب (داخل معاملة) ويقرأ حالته الآن."""
+    fresh = KontorOrder.objects.select_for_update().only("status", "provider_id").get(pk=order.pk)
+    order.status, order.provider_id = fresh.status, fresh.provider_id
+    return order
+
+
+def claim(order: KontorOrder, statuses) -> bool:
+    """يحجز الطلب لعمليةٍ واحدة إن كان في `statuses` وغير محجوز."""
+    from datetime import timedelta
+    from django.db.models import Q
+    from django.utils import timezone
+    now = timezone.now()
+    return bool(KontorOrder.objects.filter(pk=order.pk, status__in=statuses).filter(
+        Q(busy_until__isnull=True) | Q(busy_until__lt=now)
+    ).update(busy_until=now + timedelta(seconds=BUSY_FOR)))
+
+
+def release(order: KontorOrder) -> None:
+    KontorOrder.objects.filter(pk=order.pk).update(busy_until=None)
+
+
+# ─────────────────── قرارات المشغّل اليدوية ───────────────────
+
+class ManualActionError(Exception):
+    pass
+
+
+def manual_action(order: KontorOrder, action: str, actor, note: str = "") -> KontorOrder:
+    """
+    مخرج صاحب المتجر لطلبٍ علق أو حُسم خطأً — بقفل الصفّ كالمتابعة:
+    - `recheck`: سؤال المزوّد الآن (قيد التنفيذ)، أو كنسه إن علق «قيد الإرسال».
+    - `approve`: نجح (المشغّل تأكّد أن الرقم شُحن) — من قيد الإرسال أو التنفيذ.
+    - `refund`: إرجاع المال للوكيل (وعكس ساقَي الوكيل الكبير) — من قيد الإرسال أو
+      التنفيذ أو حتى بعد النجاح (أُبطل). لا يُرجَع طلبٌ مُسترجَع.
+    """
+    if action == "recheck":
+        if order.status == KontorOrder.Status.PENDING:
+            sweep_stale_pending()
+        order.refresh_from_db()
+        if order.status == KontorOrder.Status.PROCESSING:
+            poll(order)
+        order.refresh_from_db()
+        return order
+    with transaction.atomic():
+        _relock(order)
+        who = getattr(actor, "name", "المشغّل")
+        if action == "approve":
+            if order.status not in OPEN:
+                raise ManualActionError("لا يُقبل إلا طلبٌ قيد الإرسال أو التنفيذ")
+            order.status = KontorOrder.Status.SUCCESS
+            order.trace = (f"قبله {who} يدوياً" + (f" — {note}" if note else "") + f" · {order.trace}")[:500]
+            if note:
+                order.provider_note = note[:300]
+            order.save(update_fields=["status", "trace", "provider_note", "updated_at"])
+            return order
+        if action == "refund":
+            if order.status in (KontorOrder.Status.REFUNDED, KontorOrder.Status.FAILED):
+                raise ManualActionError("الطلب مُسترجَعٌ أصلاً")
+            revoked = order.status == KontorOrder.Status.SUCCESS
+            reason = note or ("أبطله المشغّل بعد نجاحه" if revoked else "أرجعه المشغّل")
+            _refund(order, f"إرجاع — {reason} (طلب #{order.id})")
+            order.status = KontorOrder.Status.REFUNDED
+            order.provider_note = reason[:300]
+            order.trace = (f"أرجعه {who} يدوياً · {order.trace}")[:500]
+            order.save(update_fields=["status", "provider_note", "trace", "updated_at"])
+            return order
+    raise ManualActionError("إجراء غير معروف")
+
+
 # نتائج محاولة الإرسال إلى مزوّد واحد
 SENT, REJECTED, UNKNOWN = "sent", "rejected", "unknown"
 
@@ -222,12 +315,17 @@ def _send(order: KontorOrder, provider) -> tuple[str, str]:
         "operator": order.operator, "tip": _tip(order.package),
         "kontor": code, "gsmno": order.gsm, "tekilnumara": order.tekil,
     }
+    # قبل الإرسال: نسجّل إلى مَن ذهب. إن ماتت العملية بعده عرف الكنس الدوري مَن يسأل
+    KontorOrder.objects.filter(pk=order.pk).update(provider=provider)
     try:
         resp = requests.get(f"{base.rstrip('/')}/servis/tl_servis.php", params=params, timeout=(5, 40))
     except requests.RequestException as e:
         if _never_sent(e):
             return REJECTED, "تعذّر الاتصال"
         return UNKNOWN, "انقطع الردّ بعد الإرسال — يُتابَع"
+    # صفحة خطأ من وسيطٍ (5xx) أو ردّ فارغ: لا نعرف إن نُفّذ — يُتابَع ولا يُعاد لبديل
+    if resp.status_code >= 500 or not (resp.text or "").strip():
+        return UNKNOWN, f"ردّ غير مفهوم (HTTP {resp.status_code}) — يُتابَع"
     status, note, _cost = _parse_place(resp.text)
     if status in (1, 8):  # 8: أُرسل سابقاً بنفس المعرّف — يُتحقَّق بالمتابعة
         return SENT, note
@@ -250,9 +348,16 @@ def _never_sent(e: Exception) -> bool:
     return False
 
 
+@transaction.atomic
 def _adopt(order: KontorOrder, provider, note: str):
     """الطلب صار عند هذا المزوّد: نسجّله وكلفته الفعلية لديه (إن عُرفت)."""
     from core import currency
+    _relock(order)
+    if order.status not in OPEN:
+        # حسمه المشغّل والإرسال جارٍ — قراره يبقى، ويُسجَّل ما جرى ليراجع المزوّد
+        KontorOrder.objects.filter(pk=order.pk).update(
+            provider=provider, trace=(f"⚠ قبله {provider.name} بعد أن حسمه المشغّل — راجِع المزوّد · {note}")[:500])
+        return
     order.provider = provider
     order.status = KontorOrder.Status.PROCESSING
     order.provider_note = note[:300]
@@ -279,18 +384,24 @@ def _try_chain(order: KontorOrder, chain: list, trail: list) -> bool:
     return False
 
 
-def _fail_and_refund(order: KontorOrder, trail: list, why: str):
+@transaction.atomic
+def _fail_and_refund(order: KontorOrder, trail: list, why: str) -> bool:
     """
     الوكيل يقرأ رسالة **آخر** مزوّد رفض كما كتبها (سبب الإلغاء) بلا اسمه؛
     والمسار كاملاً بالأسماء في `trace` لصاحب المتجر.
+
+    معاملةٌ واحدة بقفل الصفّ: الحالة والإرجاع بساقيه معاً أو لا شيء، ومرّةً واحدة —
+    طلبٌ حُسم (نجح أو استُرجع) لا يُرجَع ثانيةً. False ⇐ كان محسوماً فتُرك.
     """
-    order.status = KontorOrder.Status.FAILED
+    _relock(order)
+    if order.status not in OPEN:
+        return False
     order.provider_note = ((trail[-1][1] if trail else "") or why)[:300]
     order.trace = (" | ".join(f"{name}: {note}" for name, note in trail) or why)[:500]
-    order.save(update_fields=["status", "provider_note", "trace", "updated_at"])
     _refund(order, f"إرجاع — {why}: {order.provider_note[:120]} (طلب #{order.id})")
     order.status = KontorOrder.Status.REFUNDED
-    order.save(update_fields=["status", "updated_at"])
+    order.save(update_fields=["status", "provider_note", "trace", "updated_at"])
+    return True
 
 
 def execute(order: KontorOrder) -> KontorOrder:
@@ -298,14 +409,19 @@ def execute(order: KontorOrder) -> KontorOrder:
     يرسل الطلب عبر سلسلة مزوّدي الباقة (الرئيسي ثم البدائل). يُرجع المال فوراً
     إن رفضه الجميع صراحةً — ولا يُرجعه ما دام أحدهم قد يكون نفّذه.
     """
-    chain = provider_chain(order.package)
-    if not chain:
-        _fail_and_refund(order, [], "لا مزوّد خطوط مُعدّ")
+    if not claim(order, [KontorOrder.Status.PENDING]):
+        return order   # عمليةٌ أخرى ترسله الآن
+    try:
+        chain = provider_chain(order.package)
+        if not chain:
+            _fail_and_refund(order, [], "لا مزوّد خطوط مُعدّ")
+            return order
+        trail: list = []
+        if not _try_chain(order, chain, trail):
+            _fail_and_refund(order, trail, "رفضه كل المزوّدين")
         return order
-    trail: list = []
-    if not _try_chain(order, chain, trail):
-        _fail_and_refund(order, trail, "رفضه كل المزوّدين")
-    return order
+    finally:
+        release(order)
 
 
 def _parse_status(text: str):
@@ -340,9 +456,18 @@ def poll(order: KontorOrder) -> KontorOrder:
     يتابع طلباً قيد التنفيذ لدى **مزوّده هو**. إن ألغاه المزوّد: تُجرَّب بقيّة
     السلسلة **من بعده** (لا من رأسها، فلا يُعاد إلى من رفض)، وإلا يُرجع المال.
     """
-    from .services import provider_creds
     if order.status != KontorOrder.Status.PROCESSING:
         return order
+    if not claim(order, [KontorOrder.Status.PROCESSING]):
+        return order   # تتابعه عمليةٌ أخرى الآن
+    try:
+        return _poll_claimed(order)
+    finally:
+        release(order)
+
+
+def _poll_claimed(order: KontorOrder) -> KontorOrder:
+    from .services import provider_creds
     prov = order.provider or znet_provider(order.tenant)
     creds = provider_creds(prov)
     if not creds:
@@ -357,9 +482,12 @@ def poll(order: KontorOrder) -> KontorOrder:
         return order
 
     if code == 1:
-        order.status = KontorOrder.Status.SUCCESS
-        order.provider_note = note[:300]
-        order.save(update_fields=["status", "provider_note", "updated_at"])
+        with transaction.atomic():
+            _relock(order)
+            if order.status == KontorOrder.Status.PROCESSING:   # لم يحسمه المشغّل للتوّ
+                order.status = KontorOrder.Status.SUCCESS
+                order.provider_note = note[:300]
+                order.save(update_fields=["status", "provider_note", "updated_at"])
     elif code == 2:
         # ما زال قيد التنفيذ — لكن قد يكتب مسؤول المزوّد ملاحظةً قبل الحسم
         if note and note != order.provider_note:
@@ -375,10 +503,40 @@ def poll(order: KontorOrder) -> KontorOrder:
     return order
 
 
+STALE_PENDING_MIN = 5
+
+
+def sweep_stale_pending() -> int:
+    """
+    طلبٌ بقي «قيد الإرسال» دقائق = ماتت العملية التي ترسله (مهلة الخادم، إعادة تشغيل).
+    - لم يُسجَّل له مزوّد ⇐ لم يغادرنا أصلاً: يُرجَع المال.
+    - سُجّل له مزوّد ⇐ ربما وصله: يصير «قيد التنفيذ» فتسأل عنه المتابعة كأي طلب.
+    """
+    from datetime import timedelta
+    from django.utils import timezone
+    cutoff = timezone.now() - timedelta(minutes=STALE_PENDING_MIN)
+    n = 0
+    for o in KontorOrder.objects.filter(status=KontorOrder.Status.PENDING, updated_at__lt=cutoff)[:100]:
+        if not claim(o, [KontorOrder.Status.PENDING]):
+            continue
+        try:
+            if o.provider_id is None:
+                n += bool(_fail_and_refund(o, [], "لم يُرسَل — انقطعت العملية قبل الإرسال"))
+            else:
+                n += KontorOrder.objects.filter(pk=o.pk, status=KontorOrder.Status.PENDING).update(
+                    status=KontorOrder.Status.PROCESSING,
+                    trace=("انقطعت العملية أثناء الإرسال — يُتابَع لدى المزوّد")[:500])
+        finally:
+            release(o)
+    return n
+
+
 def poll_all_processing(limit: int = 200) -> int:
     """يتابع كل طلبات الخطوط «قيد التنفيذ» (لمهمّة sync الدورية). يعيد عدد المتغيّر."""
-    changed = 0
-    qs = KontorOrder.objects.filter(status=KontorOrder.Status.PROCESSING).select_related("package", "dealer")[:limit]
+    changed = sweep_stale_pending()
+    # الأقدم متابعةً أوّلاً — فلا يُحرم طلبٌ قديم من دوره إن زادت الطلبات عن الحدّ
+    qs = (KontorOrder.objects.filter(status=KontorOrder.Status.PROCESSING)
+          .select_related("package", "dealer").order_by("updated_at")[:limit])
     for o in qs:
         before = o.status
         try:

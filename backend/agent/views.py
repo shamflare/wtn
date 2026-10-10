@@ -344,7 +344,10 @@ def dealer_wallet_view(request, dealer_id):
         return Response({"detail": "عملية غير معروفة"}, status=400)
 
     try:
-        amount = currency.from_display(agent, Decimal(str(request.data.get("amount", ""))))
+        raw = currency.parse_amount(request.data.get("amount", ""))
+        if raw is None:
+            raise InvalidOperation
+        amount = currency.from_display(agent, raw)
     except (InvalidOperation, TypeError):
         return Response({"detail": "مبلغ غير صحيح"}, status=400)
     if amount <= 0:
@@ -362,6 +365,10 @@ def dealer_wallet_view(request, dealer_id):
 
     try:
         with transaction.atomic():
+            # قفل المحفظتين معاً بترتيب رقميهما — كما يقفلهما الطلب — فلا تنتظر
+            # حوالةٌ طلباً ينتظرها (تعانقٌ مميت يُسقط أحدهما بخطأ خادم)
+            list(Wallet.objects.select_for_update().filter(
+                id__in=[agent_wallet.id, dealer_wallet.id]).order_by("id"))
             # الخصم أوّلاً حين يشحن دكانه: لا يُشحن الدكان من رصيد لا يملكه وكيله
             wallet_services.apply_transaction(
                 agent_wallet.id, -sign * amount,

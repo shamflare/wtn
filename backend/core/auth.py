@@ -33,6 +33,10 @@ class StoreBoundJWTAuthentication(JWTAuthentication):
         if store is not None and user.tenant_id != store.id:
             raise AuthenticationFailed(FOREIGN_STORE)
 
+        # الحساب المعطَّل يُطرد فوراً — لا يبقى يشتري بتوكنه حتى تنتهي ساعاته الثماني
+        if user.role in ("bayi", "ana_bayi") and user.status != "active":
+            raise AuthenticationFailed("الحساب معطّل — تواصل مع الإدارة")
+
         # والدور: الوكيل لا يطرق الأبواب الإدارية (core/access.py)
         check_path(user, request.path)
         return result

@@ -31,6 +31,34 @@ export default function KontorOrders() {
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState<number | null>(null);
   const [lastSync, setLastSync] = useState("");
+  const [busy, setBusy] = useState("");
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  /**
+   * قرار صاحب المتجر على طلبٍ علق أو حُسم خطأً:
+   * إعادة فحص (سؤال المزوّد الآن) · قبول (تأكّدتَ أن الرقم شُحن) · إرجاع (المال للوكيل).
+   */
+  async function act(o: Order, action: "recheck" | "approve" | "refund") {
+    const ask: Record<string, string> = {
+      approve: `قبول الطلب M${o.id} يدوياً؟
+استعمله فقط إن تأكّدت أن الرقم ${o.gsm} شُحن فعلاً.`,
+      refund: o.status === "success"
+        ? `إبطال طلبٍ ناجح وإرجاع ما دفعه الوكيل؟
+تأكّد أن الرقم لم يُشحن.`
+        : `إرجاع مبلغ الطلب M${o.id} للوكيل؟
+تأكّد أن الرقم ${o.gsm} لم يُشحن.`,
+    };
+    if (ask[action] && !confirm(ask[action])) return;
+    const note = action === "recheck" ? "" : (prompt("ملاحظة تظهر للوكيل (اختيارية):") ?? "");
+    setBusy(`${o.id}:${action}`); setMsg(null);
+    try {
+      const r = await api.post(`/kontor/orders/${o.id}/${action}/`, { note });
+      setMsg({ ok: true, text: `M${o.id}: ${r.data.status_label}${r.data.note ? ` — ${r.data.note}` : ""}` });
+      await load();
+    } catch (e: any) {
+      setMsg({ ok: false, text: e?.response?.data?.detail || "تعذّر الإجراء" });
+    } finally { setBusy(""); }
+  }
 
   async function load(status = st, filters = f) {
     const params: Record<string, string> = {};
@@ -108,6 +136,12 @@ export default function KontorOrders() {
         </div>
       </div>
 
+      {msg && (
+        <div onClick={() => setMsg(null)} style={{
+          marginBottom: 10, fontSize: 13, padding: "10px 14px", borderRadius: 8, cursor: "pointer",
+          background: msg.ok ? "rgba(53,194,69,.10)" : "rgba(221,68,68,.10)", color: msg.ok ? "var(--ok)" : "var(--danger)",
+        }}>{msg.text}</div>
+      )}
       <div className="card"><div className="table-scroll">
         <table className="grid">
           <thead>
@@ -149,6 +183,27 @@ export default function KontorOrders() {
                       <Info k="مرجعنا لدى ZNET" v={o.tekil || "—"} mono />
                       <Info k="رصيد الوكيل قبل ⇐ بعد" v={`${money(o.balance_before)} ⇐ ${money(o.balance_after)}`} mono />
                       <Info k="آخر تحديث" v={o.updated_at} mono />
+                    </div>
+                    <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap", alignItems: "center" }}>
+                      {(o.status === "pending" || o.status === "processing") && (
+                        <>
+                          <button className="btn" disabled={!!busy} onClick={() => act(o, "recheck")}>
+                            <Icon name="refresh" size={14} /> إعادة فحص لدى المزوّد
+                          </button>
+                          <button className="btn g" disabled={!!busy} onClick={() => act(o, "approve")}>
+                            <Icon name="check" size={14} /> قبول يدوي
+                          </button>
+                        </>
+                      )}
+                      {(o.status === "pending" || o.status === "processing" || o.status === "success") && (
+                        <button className="btn r" disabled={!!busy} onClick={() => act(o, "refund")}>
+                          <Icon name="arrowBack" size={14} /> {o.status === "success" ? "إبطال وإرجاع المبلغ" : "إرجاع المبلغ للوكيل"}
+                        </button>
+                      )}
+                      {busy.startsWith(`${o.id}:`) && <span style={{ color: "var(--muted)", fontSize: 12.5 }}>جارٍ...</span>}
+                      <span style={{ fontSize: 11.5, color: "var(--faint)" }}>
+                        للطلب العالق: «إعادة فحص» يسأل المزوّد الآن؛ والقبول والإرجاع قرارك أنت حين تتأكّد.
+                      </span>
                     </div>
                   </td></tr>
                 )}

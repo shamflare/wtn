@@ -185,7 +185,15 @@ def exchange_rates_view(request):
     if request.method == "PUT":
         if request.user.role != User.Role.TENANT_ADMIN:
             return Response({"detail": "غير مصرّح"}, status=403)
+        from payments.models import CURRENCIES
         base = str(request.data.get("base_currency") or tenant.base_currency or "TRY")
+        if base not in {c for c, _ in CURRENCIES}:
+            return Response({"detail": "عملة غير معروفة"}, status=400)
+        # تبديل عملة الدفتر يجعل كل رصيدٍ وسعرٍ مخزَّن يُقرأ بعملةٍ ليست عملته —
+        # يُمنع ما دامت للمتجر حركاتٌ مالية
+        if base != (tenant.base_currency or "TRY") and WalletTransaction.objects.filter(tenant=tenant).exists():
+            return Response({"detail": "لا تُبدَّل عملة الدفتر بعد بدء العمل — الأرصدة كلّها مخزّنة بها"},
+                            status=400)
         rates = request.data.get("exchange_rates")
         if isinstance(rates, dict):
             clean = {}
@@ -198,6 +206,13 @@ def exchange_rates_view(request):
                     return Response({"detail": f"سعر صرف {cur} يجب أن يكون أكبر من صفر"}, status=400)
                 clean[cur] = str(d)
             clean.pop(base, None)  # عملة الأساس لا سعر صرف لها
+            # حذف سعرِ عملةٍ يعرض بها وكيلٌ لوحته كان يحوّله صامتاً إلى عملة الدفتر،
+            # فيكتب المالك «1000» ليرةً ويُسجَّل 1000 دولار
+            in_use = set(User.objects.filter(tenant=tenant).exclude(display_currency="")
+                         .exclude(display_currency=base).values_list("display_currency", flat=True))
+            missing = sorted(in_use - set(clean))
+            if missing:
+                return Response({"detail": f"لا يُحذف سعر {'، '.join(missing)} — وكلاءٌ يعملون بها"}, status=400)
             tenant.exchange_rates = clean
         tenant.base_currency = base
         tenant.save(update_fields=["base_currency", "exchange_rates"])
@@ -231,8 +246,10 @@ def sms_settings_view(request):
 def ledger_view(request):
     """حركات الحسابات (Hesap Hareketleri): كل حركات المحافظ في المستأجر."""
     # دفتر المتجر: ما بين الوكيل الكبير ودكاكينه دفترُه هو لا دفتر المتجر
+    from django.db.models import Q
     qs = WalletTransaction.objects.filter(tenant=request.user.tenant, internal=False).exclude(
-        wallet__user__parent__role=User.Role.ANA_BAYI
+        Q(wallet__user__parent__role=User.Role.ANA_BAYI)
+        & ~Q(created_by__role=User.Role.TENANT_ADMIN)      # ما نفّذه المالك بيده يبقى في دفتره
     ).select_related("wallet__user")
     dealer = request.query_params.get("dealer")
     if dealer:
@@ -280,10 +297,11 @@ def _create_dealer(request):
     if User.objects.filter(login_id=login_id).exists():
         return Response({"detail": "رقم الدخول مستخدم مسبقاً"}, status=400)
 
-    try:
-        credit_limit = Decimal(str(data.get("credit_limit") or "0"))
-    except (InvalidOperation, TypeError):
+    credit_limit = currency.parse_amount(data.get("credit_limit") or "0")
+    if credit_limit is None:
         return Response({"detail": "الحد الائتماني غير صحيح"}, status=400)
+    if credit_limit > 0:
+        return Response({"detail": "الحد الائتماني أقصى دَين مسموح — اكتبه صفراً أو رقماً سالباً"}, status=400)
 
     country = (data.get("country") or "SY").strip()[:2] or "SY"
     group = (data.get("group") or "").strip()
@@ -658,9 +676,8 @@ def dealer_settings_view(request, dealer_id):
         wallet = getattr(u, "wallet", None)
         if wallet is None:
             return Response({"detail": "لا توجد محفظة لهذا الوكيل"}, status=400)
-        try:
-            limit = Decimal(str(data["credit_limit"]))
-        except (InvalidOperation, TypeError):
+        limit = currency.parse_amount(data["credit_limit"])
+        if limit is None:
             return Response({"detail": "حد ائتماني غير صحيح"}, status=400)
         if limit > 0:
             return Response(
@@ -688,9 +705,8 @@ def wallet_operation_view(request, dealer_id, action):
     except Wallet.DoesNotExist:
         return Response({"detail": "الوكيل غير موجود"}, status=404)
 
-    try:
-        amount = Decimal(str(request.data.get("amount", "")))
-    except (InvalidOperation, TypeError):
+    amount = currency.parse_amount(request.data.get("amount", ""))
+    if amount is None or amount <= 0:
         return Response({"detail": "مبلغ غير صحيح"}, status=400)
 
     note = request.data.get("note", "")

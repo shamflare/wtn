@@ -130,3 +130,15 @@ def fmt(user, amount) -> str:
     كل رسالة فيها مالٌ تمرّ من هنا، وإلا قرأ وكيلٌ بالليرة دولاراتٍ لا يعرفها.
     """
     return f"{to_display(user, amount):,.2f} {symbol_of(display_currency(user))}"
+
+
+def parse_amount(raw):
+    """
+    رقمٌ كتبه مستخدم ⇐ Decimal، أو None إن لم يكن رقماً **محدوداً**. يرفض NaN وInfinity:
+    Decimal يقبلهما ثم تنهار أوّل مقارنة بخطأ خادم — أو يُحفظ NaN حدّاً ائتمانياً.
+    """
+    try:
+        v = Decimal(str(raw).strip().replace(",", "."))
+    except (InvalidOperation, TypeError, ValueError):
+        return None
+    return v if v.is_finite() else None

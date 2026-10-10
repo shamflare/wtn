@@ -19,7 +19,48 @@ class OrderError(Exception):
 
 
 def _gen_receipt_no() -> str:
-    return timezone.now().strftime("%y%m%d") + str(random.randint(10000, 99999))
+    """
+    رقم الفيش: التاريخ + 6 أرقام، فريدٌ عبر المنصّة. خمسة أرقام كانت تتكرّر عند
+    مئات الطلبات يومياً فيفشل الطلب بخطأ خادم — فيُعاد السحب حتى يفرغ.
+    """
+    for _ in range(20):
+        no = timezone.now().strftime("%y%m%d") + str(random.randint(100000, 999999))
+        if not Order.objects.filter(receipt_no=no).exists():
+            return no
+    return timezone.now().strftime("%y%m%d%H%M%S") + str(random.randint(100, 999))
+
+
+# ─────────────────── القفل: لا يُحسم الطلب مرّتين ───────────────────
+BUSY_FOR = 90   # ثانية — أطول من أي إرسال أو استعلام؛ ينتهي وحده إن ماتت العملية
+
+
+def _relock(order: Order) -> Order:
+    """
+    يقفل صفّ الطلب (داخل معاملة) ويقرأ حالته **الآن** — لا كما كانت حين حُمّل.
+    بلا هذا يقرأ إلغاءان متزامنان «لم يُلغَ بعد» فيسترجعان المبلغ مرّتين.
+    """
+    fresh = Order.objects.select_for_update().only("status", "provider_id").get(pk=order.pk)
+    order.status, order.provider_id = fresh.status, fresh.provider_id
+    return order
+
+
+def claim(order: Order, statuses) -> bool:
+    """
+    يحجز الطلب لعمليةٍ واحدة (إرسال أو متابعة) إن كان في إحدى `statuses` وغير
+    محجوز. False ⇐ عمليةٌ أخرى تعمل عليه الآن أو تغيّرت حالته — فتتنحّى هذه.
+    """
+    from datetime import timedelta
+    from django.db.models import Q
+
+    now = timezone.now()
+    got = Order.objects.filter(pk=order.pk, status__in=statuses).filter(
+        Q(busy_until__isnull=True) | Q(busy_until__lt=now)
+    ).update(busy_until=now + timedelta(seconds=BUSY_FOR))
+    return bool(got)
+
+
+def release(order: Order) -> None:
+    Order.objects.filter(pk=order.pk).update(busy_until=None)
 
 
 def big_agent_of(dealer: User):
@@ -127,6 +168,8 @@ def create_order(dealer: User, product: Product, *, player_id="", customer_phone
         )
     if product.status != Product.Status.ACTIVE:
         raise OrderError("المنتج غير متاح للبيع")
+    if dealer.status != User.Status.ACTIVE:
+        raise OrderError("الحساب غير مفعّل — تواصل مع الإدارة")
 
     qty = clean_quantity(product, quantity)
     k = product.factor(qty)
@@ -139,6 +182,9 @@ def create_order(dealer: User, product: Product, *, player_id="", customer_phone
         else resolve_dealer_sell_price(product, dealer_sell_price)
     if product.is_amount and buyer_price <= 0:
         raise OrderError("الكمية صغيرة جداً — قيمتها أقل من سنت")
+    # سعرٌ صفري أو سالب = بيعٌ مجّاني أو **إضافة** رصيد عند كل شراء — لا يمرّ أبداً
+    if buyer_price <= 0 or store_price <= 0:
+        raise OrderError("الباقة غير مسعّرة بعد — تواصل مع الإدارة")
 
     wallet = getattr(dealer, "wallet", None)
     if wallet is None:
@@ -168,8 +214,9 @@ def create_order(dealer: User, product: Product, *, player_id="", customer_phone
                 agent_wallet.id, -store_price, WalletTransaction.Type.ORDER_DEBIT,
                 created_by=dealer, note=f"شراء {product.name} من المتجر لـ{dealer.name}",
             )
-        except wallet_services.WalletError as e:
-            raise OrderError(f"محفظة الوكيل الكبير: {e}")
+        except wallet_services.WalletError:
+            # لا تُكشف أرقام محفظة الوكيل الكبير لدكانه
+            raise OrderError("رصيد وكيلك الكبير لا يكفي لإتمام الطلب — تواصل معه")
 
     order = Order.objects.create(
         tenant_id=dealer.tenant_id,
@@ -220,7 +267,7 @@ def _agent_legs(order: Order, *, sign: int) -> None:
 
 
 @transaction.atomic
-def execute_order(order: Order, *, provider=None, pin="") -> Order:
+def execute_order(order: Order, *, provider=None, pin="", actor=None) -> Order:
     """
     تنفيذ الطلب يدوياً (ناجح): يسجّل المزوّد والـ PIN إن أُعطي.
     بلا PIN يبقى الحقل فارغاً وتُعرض «شُحن مباشرةً ✓» — لا يجوز اختلاق كود
@@ -229,6 +276,7 @@ def execute_order(order: Order, *, provider=None, pin="") -> Order:
     ويقبل **عكس قرار سابق**: طلب ملغى يُعاد قبوله. وحينها يُعاد خصم المبلغ
     لأن الإلغاء أرجعه — بدون ذلك يشحن الوكيل مجاناً.
     """
+    _relock(order)
     reinstated = order.status == Order.Status.CANCELLED
     if not reinstated and order.status not in (
         Order.Status.PENDING, Order.Status.PROCESSING, Order.Status.STUCK
@@ -239,7 +287,7 @@ def execute_order(order: Order, *, provider=None, pin="") -> Order:
         try:
             wallet_services.apply_transaction(
                 order.dealer.wallet.id, -order.buyer_price, WalletTransaction.Type.ORDER_DEBIT,
-                note=f"إعادة خصم طلب {order.receipt_no} بعد قبوله",
+                created_by=actor, note=f"إعادة خصم طلب {order.receipt_no} بعد قبوله",
                 ref_type="order", ref_id=order.id,
             )
             _agent_legs(order, sign=1)   # يقبض من دكانه ويدفع للمتجر من جديد
@@ -266,6 +314,7 @@ def set_manual(order: Order) -> Order:
     مرجع المزوّد وملاحظته يبقيان — هما سجلّ ما جرى، ولا يُستعلَم عنهما بعد
     الآن لأن حلقة المراقبة لا تلمس إلا «قيد التنفيذ».
     """
+    _relock(order)
     if order.status in (Order.Status.SUCCESS, Order.Status.CANCELLED):
         raise OrderError("لا يمكن إعادة طلب محسوم إلى اليدوي")
     order.status = Order.Status.PENDING
@@ -389,6 +438,12 @@ def _send_to(order: Order, provider, trail: list, depth: int = 0, force: bool = 
             )
             return False
 
+    # حسمه المشغّل (قبولاً أو إلغاءً) منذ بدأنا؟ لا يُرسَل — المزوّد سيشحن طلباً
+    # استُرجع ماله أو نُفّذ بيده
+    if Order.objects.filter(pk=order.pk, status__in=[Order.Status.SUCCESS, Order.Status.CANCELLED]).exists():
+        trail.append(f"{provider.name}: لم يُرسَل — حسمه المشغّل")
+        return True
+
     try:
         result = adapter.place_order(order, provider.config or {}, provider=provider, depth=depth)
     except Exception as e:
@@ -400,24 +455,37 @@ def _send_to(order: Order, provider, trail: list, depth: int = 0, force: bool = 
     cost_fields = _apply_real_cost(order, result, provider)
 
     if result.status in ("success", "processing"):
-        order.status = (
-            Order.Status.SUCCESS if result.status == "success" else Order.Status.PROCESSING
-        )
-        order.provider = provider
-        prefix = f"[بديل بعد: {' | '.join(trail)}] " if trail else ""
-        order.api_response = f"{prefix}{note}{ref}"[:250]
-        order.provider_ref = result.external_ref or ""
-        order.provider_note = note[:250]
-        fields = ["status", "provider", "api_response", "provider_ref", "provider_note"]
-        if result.status == "success":
-            order.pin_result = result.pin or ""
-            order.approved_at = timezone.now()
-            fields += ["pin_result", "approved_at"]
-        order.save(update_fields=fields + cost_fields)
-        return True
+        with transaction.atomic():
+            _relock(order)
+            if order.status in (Order.Status.SUCCESS, Order.Status.CANCELLED):
+                # حسمه المشغّل والمزوّد يعمل عليه — لا يُدهس قراره، ويُسجَّل ما جرى
+                # ليراجع صاحب المتجر المزوّد (قد يكون شحن طلباً استُرجع ماله)
+                Order.objects.filter(pk=order.pk).update(
+                    provider_ref=result.external_ref or "", provider_note=note[:250],
+                    api_response=(f"⚠ قبله {provider.name} بعد أن حسمه المشغّل — راجِع المزوّد{ref}")[:250],
+                )
+                return True
+            return _accept(order, provider, result, trail, note, ref, cost_fields)
 
     trail.append(f"{provider.name}: {note or 'فشل'}")
     return False
+
+
+def _accept(order, provider, result, trail, note, ref, cost_fields) -> bool:
+    """يثبّت قبول المزوّد على الطلب (ناجح أو قيد التنفيذ) — داخل قفل الصفّ."""
+    order.status = Order.Status.SUCCESS if result.status == "success" else Order.Status.PROCESSING
+    order.provider = provider
+    prefix = f"[بديل بعد: {' | '.join(trail)}] " if trail else ""
+    order.api_response = f"{prefix}{note}{ref}"[:250]
+    order.provider_ref = result.external_ref or ""
+    order.provider_note = note[:250]
+    fields = ["status", "provider", "api_response", "provider_ref", "provider_note"]
+    if result.status == "success":
+        order.pin_result = result.pin or ""
+        order.approved_at = timezone.now()
+        fields += ["pin_result", "approved_at"]
+    order.save(update_fields=fields + cost_fields)
+    return True
 
 
 def _failover_after_rejection(order: Order, trail: list) -> bool:
@@ -460,16 +528,28 @@ def dispatch_to_provider(order: Order, provider, depth: int = 0, force: bool = T
     """
     if order.status not in (Order.Status.PENDING, Order.Status.STUCK):
         raise OrderError("لا يُوجَّه إلا طلب قيد الانتظار أو عالق")
-
-    trail = []
-    if _send_to(order, provider, trail, depth, force=force):
+    if not claim(order, [Order.Status.PENDING, Order.Status.STUCK]):
+        raise OrderError("الطلب يُرسَل الآن من عمليةٍ أخرى — انتظر لحظة")
+    try:
+        trail = []
+        if _send_to(order, provider, trail, depth, force=force):
+            return order
+        _mark_stuck(order, provider, "فشل التوجيه اليدوي → " + " | ".join(trail))
         return order
+    finally:
+        release(order)
 
-    order.status = Order.Status.STUCK
-    order.provider = provider
-    order.api_response = ("فشل التوجيه اليدوي → " + " | ".join(trail))[:250]
-    order.save(update_fields=["status", "provider", "api_response", "cost_price", "profit"])
-    return order
+
+def _mark_stuck(order, provider, why: str) -> None:
+    """عالق — إلا إن حسمه المشغّل أثناء المحاولات، فقراره يبقى."""
+    with transaction.atomic():
+        _relock(order)
+        if order.status in (Order.Status.SUCCESS, Order.Status.CANCELLED):
+            return
+        order.status = Order.Status.STUCK
+        order.provider = provider
+        order.api_response = why[:250]
+        order.save(update_fields=["status", "provider", "api_response", "cost_price", "profit"])
 
 
 def dispatch_order(order: Order, depth: int = 0) -> Order:
@@ -491,27 +571,28 @@ def dispatch_order(order: Order, depth: int = 0) -> Order:
     chain = [p for p in (product.provider, product.provider_alt1, product.provider_alt2) if p]
     if not chain:
         return order  # بلا مزوّد — يبقى قيد الانتظار للتنفيذ اليدوي
+    if not claim(order, [Order.Status.PENDING, Order.Status.STUCK]):
+        return order  # عمليةٌ أخرى ترسله الآن
 
-    trail = []  # سجلّ المحاولات: "المزوّد: السبب"
-    for provider in chain:
-        if _send_to(order, provider, trail, depth):
-            return order
-
-    # فشلت كل التوجيهات → عالق مع السجلّ الكامل
-    order.status = Order.Status.STUCK
-    order.provider = chain[-1]
-    order.api_response = ("فشلت كل التوجيهات → " + " | ".join(trail))[:250]
-    # cost_price/profit قد يكونا صُحّحا بسعر المزوّد الحقيقي عند الحجب
-    order.save(update_fields=["status", "provider", "api_response", "cost_price", "profit"])
-    return order
+    try:
+        trail = []  # سجلّ المحاولات: "المزوّد: السبب"
+        for provider in chain:
+            if _send_to(order, provider, trail, depth):
+                return order
+        # فشلت كل التوجيهات → عالق مع السجلّ الكامل (cost/profit قد صُحّحا عند الحجب)
+        _mark_stuck(order, chain[-1], "فشلت كل التوجيهات → " + " | ".join(trail))
+        return order
+    finally:
+        release(order)
 
 
 @transaction.atomic
-def cancel_order(order: Order) -> Order:
+def cancel_order(order: Order, actor=None) -> Order:
     """
     إلغاء الطلب: يسترجع المبلغ لمحفظة الوكيل.
     ويقبل **عكس قرار سابق**: طلب نُفّذ بالخطأ يُبطله المشغّل ويُستَرجع مبلغه.
     """
+    _relock(order)
     if order.status == Order.Status.CANCELLED:
         raise OrderError("الطلب ملغى مسبقاً")
     revoked = order.status == Order.Status.SUCCESS
@@ -519,7 +600,7 @@ def cancel_order(order: Order) -> Order:
     wallet = order.dealer.wallet
     wallet_services.apply_transaction(
         wallet.id, order.buyer_price, WalletTransaction.Type.REFUND,
-        created_by=order.dealer, note=f"إلغاء طلب {order.receipt_no}",
+        created_by=actor, note=f"إلغاء طلب {order.receipt_no}",
         ref_type="order", ref_id=order.id, allow_below_limit=True,
     )
     _agent_legs(order, sign=-1)   # ينقض ربح الوكيل الكبير مع المبلغ
@@ -554,6 +635,18 @@ def sync_order(order: Order) -> dict:
         out["note"] = "لا محوّل آلي لهذا المزوّد"
         return out
 
+    # عمليةٌ واحدة تتابع الطلب في المرّة: المهمّة الدورية وكل تبويب مفتوح يطرقونه معاً
+    if not claim(order, [Order.Status.PROCESSING]):
+        out["note"] = "تتابعه عمليةٌ أخرى الآن"
+        return out
+    try:
+        return _sync_claimed(order, adapter, out)
+    finally:
+        release(order)
+
+
+def _sync_claimed(order: Order, adapter, out: dict) -> dict:
+    """جسم المتابعة — والطلب محجوزٌ لها (`claim`)."""
     try:
         result = adapter.fetch_status(order, order.provider.config or {}, provider=order.provider)
     except Exception as e:                     # لا نُسقِط الحلقة بسبب مزوّد واحد
@@ -580,12 +673,21 @@ def sync_order(order: Order) -> dict:
         fields.append("provider_note")
 
     if result.status == "success":
-        order.status = Order.Status.SUCCESS
-        order.pin_result = result.pin or order.pin_result
-        order.approved_at = timezone.now()
-        order.api_response = (f"المزوّد أكّد التنفيذ · {note}" if note else "المزوّد أكّد التنفيذ")[:250]
-        fields += ["status", "pin_result", "approved_at", "api_response"]
-        out["changed"] = True
+        with transaction.atomic():
+            _relock(order)
+            if order.status != Order.Status.PROCESSING:   # حسمه المشغّل للتوّ — قراره يبقى
+                out.update(status=order.status, note="حسمه المشغّل أثناء الاستعلام — تُرك كما قرّر")
+                return out
+            order.status = Order.Status.SUCCESS
+            order.pin_result = result.pin or order.pin_result
+            order.approved_at = timezone.now()
+            order.api_response = (f"المزوّد أكّد التنفيذ · {note}" if note else "المزوّد أكّد التنفيذ")[:250]
+            fields += ["status", "pin_result", "approved_at", "api_response"]
+            fields += _apply_real_cost(order, result, order.provider)   # تكلفته الفعلية إن أعلنها الآن
+            order.save(update_fields=fields)
+        out.update(changed=True, status=order.status, note=note, pin=order.pin_result,
+                   provider_note=order.provider_note, raw=(result.raw or "")[:300], parsed=result.status)
+        return out
     elif result.status == "failed":
         order.save(update_fields=fields)          # نثبّت الملاحظة قبل أي تصرّف
 
@@ -602,7 +704,11 @@ def sync_order(order: Order) -> dict:
         # لا بديل التقطه ⇒ إلغاء واسترجاع. ZNET (الحالة 3 = IPTAL) يعيد المبلغ
         # إلى رصيدنا لديه — مؤكَّد عملياً 581.60 ← 625.00 — فلا معنى لحجز
         # مال الوكيل، ولا لتركه "عالقاً" بانتظار الأدمن.
-        cancel_order(order)
+        try:
+            cancel_order(order)
+        except OrderError:   # ألغاه المشغّل أثناء المحاولات — استُرجع مرّةً واحدة
+            out.update(status=Order.Status.CANCELLED, note="ألغاه المشغّل أثناء المتابعة")
+            return out
         order.api_response = (
             "ألغى المزوّد الطلب ولم يلتقطه بديل — استُرجع المبلغ · " + " | ".join(trail)
         )[:250]

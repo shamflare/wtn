@@ -23,7 +23,7 @@ FEED = "Turkcell|Ses|476647|970.00|Fırsat 30GB İndirimli ⭕|^Turkcell|Tam|100
 
 
 def _resp(text):
-    return mock.Mock(text=text)
+    return mock.Mock(status_code=200, text=text)
 
 
 class Base(APITestCase):
@@ -42,8 +42,10 @@ class Base(APITestCase):
         self.p = KontorPackage.objects.get(znet_id="476647")
         self.p.recommended_price = Decimal("1000"); self.p.save()
 
-    def order(self):
-        return create_order(self.dealer, self.p, "5442199992")
+    def order(self, gsm=None):
+        # رقمٌ مختلف لكل طلب: الرقم والباقة نفسهما خلال ثوانٍ يُرفض (حماية الضغط المزدوج)
+        self._n = getattr(self, "_n", 0) + 1
+        return create_order(self.dealer, self.p, gsm or f"54421999{self._n:02d}")
 
 
 class ImportAndNameTest(Base):
@@ -274,3 +276,58 @@ class AgentLegTest(Base):
         from .models import AgentKontorPrice
         AgentKontorPrice.objects.update(price=Decimal("900"))
         self.assertEqual(self.order().buyer_price, Decimal("1000.00"))
+
+
+class SafetyTest(Base):
+    """لا يُسترجع طلبٌ مرّتين، ولا يعلق «قيد الإرسال»، والردّ المبهم يُتابَع لا يُعاد."""
+
+    def test_double_refund_is_impossible(self):
+        from .execution import _fail_and_refund
+        o = self.order()
+        stale = KontorOrder.objects.get(pk=o.pk)
+        self.assertTrue(_fail_and_refund(o, [], "x"))
+        self.assertFalse(_fail_and_refund(stale, [], "x"))     # نسخةٌ قديمة لا تسترجع ثانيةً
+        self.wallet.refresh_from_db()
+        self.assertEqual(self.wallet.balance, Decimal("5000.00"))
+
+    def test_gateway_error_is_unknown_not_rejected(self):
+        o = self.order()
+        with mock.patch("kontor.execution.requests.get",
+                        return_value=mock.Mock(status_code=502, text="<html>Bad Gateway</html>")):
+            execute(o)
+        o.refresh_from_db()
+        self.assertEqual(o.status, KontorOrder.Status.PROCESSING)   # يُتابَع — قد يكون نُفّذ
+
+    def test_stale_pending_is_swept(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        from .execution import sweep_stale_pending
+        never = self.order()                       # لم يُرسَل لأحد ⇐ يُرجَع
+        sent = self.order()                        # سُجّل مزوّده ⇐ يُتابَع
+        KontorOrder.objects.filter(pk=sent.pk).update(provider=self.a)
+        KontorOrder.objects.update(updated_at=timezone.now() - timedelta(minutes=10))
+        sweep_stale_pending()
+        never.refresh_from_db(); sent.refresh_from_db()
+        self.assertEqual((never.status, sent.status),
+                         (KontorOrder.Status.REFUNDED, KontorOrder.Status.PROCESSING))
+
+    def test_owner_manual_actions(self):
+        o = self.order()
+        self.client.force_authenticate(self.admin)
+        r = self.client.post(f"/api/kontor/orders/{o.id}/approve/", {"note": "تأكّدت"}, format="json")
+        self.assertEqual(r.json()["status"], "success")
+        r = self.client.post(f"/api/kontor/orders/{o.id}/refund/", {}, format="json")
+        self.assertEqual(r.json()["status"], "refunded")
+        self.wallet.refresh_from_db()
+        self.assertEqual(self.wallet.balance, Decimal("5000.00"))
+        self.assertEqual(self.client.post(f"/api/kontor/orders/{o.id}/refund/").status_code, 400)
+
+
+class DoubleClickTest(Base):
+    def test_same_number_twice_in_seconds_is_refused(self):
+        from .execution import KontorOrderError
+        create_order(self.dealer, self.p, "5442199992")
+        with self.assertRaises(KontorOrderError):
+            create_order(self.dealer, self.p, "5442199992")
+        self.wallet.refresh_from_db()
+        self.assertEqual(self.wallet.balance, Decimal("4000.00"))   # خصمٌ واحد

@@ -363,6 +363,9 @@ class KontorOrder(models.Model):
     # بلا اسم مزوّد. ومسار المحاولات كاملاً بأسماء المزوّدين لصاحب المتجر وحده.
     provider_note = models.CharField(max_length=300, blank=True, default="")
     trace = models.CharField(max_length=500, blank=True, default="")
+    # «مشغول» حتى هذه اللحظة: عمليةٌ ترسله أو تتابعه — فلا يُسترجع مرّتين ولا يُرسَل
+    # إلى البديل مرّتين حين تطرقه المهمّة الدورية وزرّ المشغّل معاً
+    busy_until = models.DateTimeField(null=True, blank=True)
     balance_before = models.DecimalField(max_digits=18, decimal_places=6, default=Decimal("0"))
     balance_after = models.DecimalField(max_digits=18, decimal_places=6, default=Decimal("0"))
 

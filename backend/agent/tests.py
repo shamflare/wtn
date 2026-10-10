@@ -246,11 +246,12 @@ class AgentInventoryTest(Base):
         self.client.post(f"/api/agent/inventory/items/{r.json()['id']}/", {"amount": "-400"}, format="json")
         live = self.client.get("/api/agent/inventory/live/").json()
         self.assertEqual(live["manual"]["lines"][0]["base"], "-400.00")
-        # المحفظة 100$ = 4000 ل.ت، والدكان 50$ عليه ⇐ −2000، والبند −400
-        self.assertEqual(live["totals"]["total"], "1600.00")
+        # المحفظة 100$ = 4000 ل.ت والبند −400 — وأرصدة دكاكينه للاطّلاع لا تُطرح
+        self.assertEqual(live["totals"]["total"], "3600.00")
         s = self.client.post("/api/agent/inventory/snapshots/save/", {"kind": "daily"}, format="json")
         self.assertEqual(s.status_code, 201, s.content)
-        self.assertEqual(s.json()["total"], "1600.00")
+        self.assertEqual(s.json()["total"], "3600.00")
+        self.assertEqual(s.json()["profit"], "0.00")          # أوّل جرد: لا ربح يُقارَن به
         self.assertEqual(len(self.client.get("/api/agent/inventory/snapshots/").json()["results"]), 1)
         # والمالك لا يرى بند الوكيل ولا لقطته
         self.client.force_authenticate(self.owner)
@@ -321,3 +322,72 @@ class FinanceReportsTest(Base):
     def test_dealers_locked_out(self):
         self.client.force_authenticate(self.agent)
         self.assertEqual(self.client.get("/api/finance/agents/").status_code, 403)
+
+
+class DepositSafetyTest(Base):
+    def setUp(self):
+        super().setUp()
+        from payments.models import PaymentMethod, ReceivingAccount
+        self.acc = ReceivingAccount.objects.create(tenant=self.t, title="صندوق")
+        self.m = PaymentMethod.objects.create(tenant=self.t, name="نقد", currency="USD", account=self.acc)
+
+    def _deposit(self, amount="20"):
+        self.client.force_authenticate(self.direct)
+        r = self.client.post("/api/payments/store/deposits/create/", {"method": self.m.id, "amount": amount},
+                             format="json")
+        self.client.force_authenticate(self.owner)
+        return r
+
+    def test_stale_double_approve_credits_once(self):
+        from payments.models import PaymentNotification
+        from payments.views import _apply_decision
+        nid = self._deposit().json()["id"]
+        a = PaymentNotification.objects.get(pk=nid)
+        b = PaymentNotification.objects.get(pk=nid)          # نسخةٌ ثانية تقرأ «قيد المراجعة»
+        self.assertEqual(_apply_decision(a, "approve", self.owner)[0], True)
+        self.assertEqual(_apply_decision(b, "approve", self.owner)[0], False)
+        self.assertEqual(Wallet.objects.get(user=self.direct).balance, Decimal("30.00"))
+        self.acc.refresh_from_db()
+        self.assertEqual(self.acc.balance, Decimal("20.00"))  # الحساب تبع القبول
+
+    def test_commission_bounds_and_nan(self):
+        r = self.client.post("/api/payments/methods/", {"name": "x", "currency": "USD", "commission_percent": "100"},
+                             format="json")
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(self._deposit("NaN").status_code, 400)
+
+
+class OwnerInventoryTreeTest(Base):
+    """
+    مثال المالك: للوكيل الكبير رصيد، أعطى دكانه منه — المتجر مدينٌ بالمبلغ نفسه في
+    الحالتين، فجرد المالك لا يتغيّر بالحوالة. وجرد الوكيل لا يتغيّر إن دخل ثمنها
+    صندوقه (إيداع الدكان على حسابه)؛ أمّا حوالةٌ بلا ثمنٍ مسجَّل فتُنقص جرده فعلاً.
+    """
+
+    def test_shop_paying_agent_changes_neither_inventory(self):
+        from payments.models import PaymentMethod, ReceivingAccount
+        acc = ReceivingAccount.objects.create(tenant=self.t, owner=self.agent, title="صندوقي")
+        m = PaymentMethod.objects.create(tenant=self.t, owner=self.agent, name="نقد", currency="USD", account=acc)
+        self.client.force_authenticate(self.owner)
+        owner_before = self.client.get("/api/inventory/live/").json()["totals"]["total"]
+        self.client.force_authenticate(self.agent)
+        agent_before = self.client.get("/api/agent/inventory/live/").json()["totals"]["total"]
+
+        self.client.force_authenticate(self.shop)
+        nid = self.client.post("/api/payments/store/deposits/create/", {"method": m.id, "amount": "50"},
+                               format="json").json()["id"]
+        self.client.force_authenticate(self.agent)
+        r = self.client.post(f"/api/agent/payments/notifications/{nid}/approve/", {}, format="json")
+        self.assertEqual(r.status_code, 200, r.content)
+
+        self.assertEqual(self.client.get("/api/agent/inventory/live/").json()["totals"]["total"], agent_before)
+        self.client.force_authenticate(self.owner)
+        self.assertEqual(self.client.get("/api/inventory/live/").json()["totals"]["total"], owner_before)
+
+    def test_owner_inventory_counts_the_whole_tree(self):
+        self.client.post(f"/api/agent/dealers/{self.shop.id}/wallet/", {"action": "topup", "amount": "800"},
+                         format="json")
+        self.client.force_authenticate(self.owner)
+        g = next(g for g in self.client.get("/api/inventory/live/").json()["groups"] if g["key"] == "dealer_wallets")
+        # الوكيل 100$ − 20$ + دكانه 50$ + 20$ + المباشر 10$ = 160$ علينا
+        self.assertEqual(Decimal(g["total_base"]), Decimal("-160.00"))

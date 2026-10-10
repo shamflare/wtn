@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import DateRange, { rangeText, TODAY, type Dates } from "../components/DateRange";
 import Pager, { type Paging } from "../components/Pager";
+import SearchSelect, { type SearchOption } from "../components/SearchSelect";
 
 interface Txn {
   id: number; dealer_name: string; type: string; type_label: string;
@@ -23,17 +24,32 @@ export default function Ledger() {
   const [dates, setDates] = useState<Dates>(TODAY);   // يفتح على حركات اليوم
   const [page, setPage] = useState(1);
   const [paging, setPaging] = useState<Paging | null>(null);
+  const [dealer, setDealer] = useState("");
+  const [dealers, setDealers] = useState<SearchOption[]>([]);
+
+  // الوكلاء ودكاكين الوكلاء الكبار — للبحث في القائمة باسم أو رقم دخول
+  useEffect(() => {
+    api.get("/dealers/").then((r) => {
+      const out: SearchOption[] = [];
+      for (const d of r.data.results || []) {
+        out.push({ id: d.id, name: d.name, sub: d.login_id });
+        for (const c of d.children || []) out.push({ id: c.id, name: `${c.name} — دكان ${d.name}`, sub: c.login_id });
+      }
+      setDealers(out);
+    }).catch(() => {});
+  }, []);
 
   function load() {
     setLoading(true);
     const params: Record<string, string> = { type, page: String(page) };
+    if (dealer) params.dealer = dealer;
     if (dates.date_from) params.date_from = dates.date_from;
     if (dates.date_to) params.date_to = dates.date_to;
     api.get("/ledger/", { params })
       .then((r) => { setTxns(r.data.results); setPaging(r.data.paging); })
       .finally(() => setLoading(false));
   }
-  useEffect(() => load(), [type, dates, page]);
+  useEffect(() => load(), [type, dates, page, dealer]);
 
   const money = (v: string) => Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 });
 
@@ -50,6 +66,8 @@ export default function Ledger() {
       </div>
       <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12, flexWrap: "wrap" }}>
         <DateRange value={dates} onChange={(d) => { setDates(d); setPage(1); }} />
+        <SearchSelect options={dealers} value={dealer} allLabel="كل الوكلاء" placeholder="ابحث باسم الوكيل أو رقم دخوله..."
+          onChange={(v) => { setDealer(v); setPage(1); }} />
         <span style={{ fontSize: 12.5, color: "var(--muted)" }}>
           المعروض: <b style={{ color: "var(--text)" }}>{rangeText(dates)}</b> · حركات دكاكين الوكلاء الكبار في كشوفهم لا هنا
         </span>

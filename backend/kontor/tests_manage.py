@@ -17,7 +17,7 @@ FEED = ("Turkcell|Ses|476647|970.00|Fırsat 30GB İndirimli ⭕|^"
 
 
 def _resp(text):
-    return mock.Mock(text=text)
+    return mock.Mock(status_code=200, text=text)
 
 
 class Base(APITestCase):

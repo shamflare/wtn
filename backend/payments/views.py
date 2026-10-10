@@ -120,10 +120,11 @@ class PaymentMethodViewSet(viewsets.ModelViewSet):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def accounts_total_view(request):
+    agent = owner_scope(request.user)
     total = ReceivingAccount.objects.filter(
-        tenant=request.user.tenant, owner=owner_scope(request.user)
-    ).aggregate(balance=Sum("balance"))["balance"]
-    return Response({"balance": str(total or 0)})
+        tenant=request.user.tenant, owner=agent
+    ).aggregate(balance=Sum("balance"))["balance"] or 0
+    return Response({"balance": str(currency.to_display(agent, total) if agent else total)})
 
 
 # ─────────────────────────── جانب الوكيل ───────────────────────────
@@ -193,9 +194,8 @@ def store_deposit_create_view(request):
     except PaymentMethod.DoesNotExist:
         return Response({"detail": "طريقة الدفع غير متاحة"}, status=404)
 
-    try:
-        amount = Decimal(str(request.data.get("amount")))
-    except (InvalidOperation, TypeError):
+    amount = currency.parse_amount(request.data.get("amount"))
+    if amount is None:
         return Response({"detail": "مبلغ غير صحيح"}, status=400)
     if amount <= 0:
         return Response({"detail": "المبلغ يجب أن يكون أكبر من صفر"}, status=400)
@@ -230,11 +230,15 @@ def store_deposit_create_view(request):
             status=400,
         )
 
+    credit = credit_for(method, amount, rate)
+    if credit <= 0:
+        return Response({"detail": "طريقة الدفع بعمولة غير صالحة — راجع صاحبها"}, status=400)
+
     notif = PaymentNotification.objects.create(
         tenant=tenant, dealer=request.user, owner=method.owner, method=method, account=method.account,
         amount=amount, currency=dep_currency, rate=rate,
         commission_percent=method.commission_percent,
-        credit_amount=credit_for(method, amount, rate),
+        credit_amount=credit,
         values=values, note=str(request.data.get("note") or "")[:255],
     )
     row = currency.convert_keys(
@@ -289,11 +293,44 @@ def _apply_decision(notif, action, actor, note=""):
     """
     ينفّذ القرار على طلب واحد ويعيد (نجاح، رسالة).
     القرار قابل للعكس: قبول المرفوض يضيف الرصيد، وإبطال المقبول يسحبه.
+
+    معاملةٌ واحدة بقفل صفّ الطلب: قبولان متزامنان (ضغطتان، أو فرديّ وجماعيّ معاً)
+    كانا يقرآن «قيد المراجعة» فيضيفان الرصيد مرّتين. والآن يقرأ الثاني «مقبول».
+    وكل ساقٍ ماليّة مع حفظ الحالة تتمّ معاً أو لا يتمّ منها شيء.
     """
+    from django.db import transaction
+    with transaction.atomic():
+        fresh = PaymentNotification.objects.select_for_update().get(pk=notif.pk)
+        notif.status = fresh.status
+        try:
+            ok, msg = _decide(notif, action, actor, note)
+        except wallet_services.WalletError as e:
+            ok, msg = False, str(e)
+        if not ok:
+            transaction.set_rollback(True)
+        return ok, msg
+
+
+def _account_move(notif, sign: int) -> None:
+    """
+    حساب الاستلام يتبع القرار: القبول يضيف إليه ما وصل فعلاً (المُرسل بعملة الدفتر،
+    قبل العمولة)، والإبطال يطرحه — فيبقى رصيد «حساباتي» والجرد حيّاً بلا تحديث يدوي.
+    """
+    from django.db.models import F
+    if not notif.account_id or not notif.rate:
+        return
+    gross = (notif.amount / notif.rate).quantize(currency.LEDGER)
+    ReceivingAccount.objects.filter(pk=notif.account_id).update(balance=F("balance") + sign * gross)
+
+
+def _decide(notif, action, actor, note=""):
     agent_wallet = getattr(notif.owner, "wallet", None) if notif.owner_id else None
     if notif.owner_id and agent_wallet is None:
         return False, "لا توجد محفظة للوكيل الكبير"
-    credit = notif.credit_amount or notif.amount
+    # ما يدخل المحفظة هو المحسوب بعملة الدفتر وحده — لا «المبلغ» بعملة الطريقة أبداً
+    credit = notif.credit_amount or Decimal("0")
+    if credit <= 0:
+        return False, "مبلغ الإضافة صفر أو سالب — راجع عمولة طريقة الدفع"
 
     if action == "approve":
         if notif.status == PaymentNotification.Status.APPROVED:
@@ -313,12 +350,13 @@ def _apply_decision(notif, action, actor, note=""):
             except wallet_services.WalletError as e:
                 return False, f"رصيدك لا يكفي لإضافة المبلغ لدكانك — {e}"
         txn = wallet_services.apply_transaction(
-            wallet.id, notif.credit_amount or notif.amount, WalletTransaction.Type.TOPUP,
+            wallet.id, credit, WalletTransaction.Type.TOPUP,
             created_by=actor, note=note or f"إضافة رصيد — طلب #{notif.id}",
             ref_type="payment", ref_id=notif.id, allow_below_limit=True,
         )
         notif.balance_before, notif.balance_after = txn.balance_before, txn.balance_after
         notif.status = PaymentNotification.Status.APPROVED
+        _account_move(notif, +1)
     else:
         # الرفض بعد قبولٍ سابق يسحب ما أُضيف؛ والرفض المبتدأ لا يمسّ المحفظة
         if notif.status == PaymentNotification.Status.REJECTED:
@@ -328,7 +366,7 @@ def _apply_decision(notif, action, actor, note=""):
             if wallet is None:
                 return False, "لا توجد محفظة للوكيل"
             txn = wallet_services.apply_transaction(
-                wallet.id, -(notif.credit_amount or notif.amount), WalletTransaction.Type.ADJUSTMENT,
+                wallet.id, -credit, WalletTransaction.Type.ADJUSTMENT,
                 created_by=actor, note=note or f"إبطال إضافة رصيد — طلب #{notif.id}",
                 ref_type="payment", ref_id=notif.id, allow_below_limit=True,
             )
@@ -339,6 +377,7 @@ def _apply_decision(notif, action, actor, note=""):
                     created_by=actor, note=f"إبطال إيداع {notif.dealer.name} — طلب #{notif.id}",
                     ref_type="payment", ref_id=notif.id, allow_below_limit=True, internal=True,
                 )
+            _account_move(notif, -1)
         notif.status = PaymentNotification.Status.REJECTED
 
     notif.approved_by = actor
@@ -381,7 +420,7 @@ def payment_bulk_action_view(request):
     action = request.data.get("action")
     if action not in ("approve", "reject"):
         return Response({"detail": "إجراء غير معروف"}, status=400)
-    ids = request.data.get("requests") or []
+    ids = [int(x) for x in (request.data.get("requests") or []) if str(x).isdigit()]
     note = str(request.data.get("note") or "")
 
     results, done = [], 0

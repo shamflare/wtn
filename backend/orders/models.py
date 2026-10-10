@@ -63,6 +63,10 @@ class Order(models.Model):
     provider_ref = models.CharField(max_length=120, blank=True, default="")   # referans لدى المزوّد
     provider_note = models.CharField(max_length=255, blank=True, default="")  # ملاحظة/رسالة المزوّد
     last_sync_at = models.DateTimeField(null=True, blank=True)                # آخر استعلام حالة
+    # «مشغول» حتى هذه اللحظة: عمليةٌ ترسله أو تتابعه الآن. حلقة المراقبة تعمل من
+    # المهمّة الدورية ومن كل تبويب مفتوح معاً — بلا هذا قد يُلغى الطلب ويُسترجع مبلغه
+    # مرّتين، أو يُرسل إلى البديل مرّتين. ينتهي وحده فلا يعلق طلبٌ إن ماتت العملية.
+    busy_until = models.DateTimeField(null=True, blank=True)
     dealer_note = models.CharField(max_length=255, blank=True, default="")
 
     balance_before = models.DecimalField(max_digits=18, decimal_places=6, default=Decimal("0"))

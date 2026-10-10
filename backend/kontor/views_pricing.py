@@ -86,7 +86,10 @@ def price_matrix_view(request):
 
 
 def _dec(v):
-    return Decimal(str(v).replace(",", "."))
+    d = Decimal(str(v).replace(",", "."))
+    if not d.is_finite():
+        raise InvalidOperation
+    return d
 
 
 @api_view(["POST"])
@@ -116,6 +119,8 @@ def set_price_view(request):
         except (InvalidOperation, TypeError):
             return Response({"detail": "سعر غير صحيح"}, status=400)
         defaults = {"price": price, "margin_mode": "", "margin_value": None, "margin_round": False}
+    if price <= 0:
+        return Response({"detail": "السعر يجب أن يكون أكبر من صفر"}, status=400)
 
     pp, _ = KontorPackagePrice.objects.update_or_create(
         tenant=tenant, package=pkg, group=grp, defaults=defaults)
@@ -310,3 +315,28 @@ def admin_orders_view(request):
             "sales": str(ok["s"] or 0), "profit": str(ok["p"] or 0),
         },
     })
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def admin_order_action_view(request, pk, action):
+    """
+    قرار صاحب المتجر على طلب خطّ: `recheck` (سؤال المزوّد الآن) · `approve`
+    (نجح يدوياً) · `refund` (إرجاع المال للوكيل). {note} اختيارية تظهر للوكيل.
+    """
+    if not _require_admin(request):
+        return Response({"detail": "مخصّص لصاحب المتجر"}, status=403)
+    from .execution import ManualActionError, manual_action
+    from .models import KontorOrder
+    order = KontorOrder.objects.filter(pk=pk, tenant=request.user.tenant).select_related(
+        "package", "dealer", "agent").first()
+    if order is None:
+        return Response({"detail": "الطلب غير موجود"}, status=404)
+    if action not in ("recheck", "approve", "refund"):
+        return Response({"detail": "إجراء غير معروف"}, status=400)
+    try:
+        order = manual_action(order, action, request.user, str(request.data.get("note") or "")[:200])
+    except ManualActionError as e:
+        return Response({"detail": str(e)}, status=400)
+    return Response({"id": order.id, "status": order.status, "status_label": order.get_status_display(),
+                     "note": order.provider_note, "trace": order.trace})

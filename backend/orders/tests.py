@@ -776,3 +776,72 @@ class AmountLinkTypeGuardTest(AmountSaleTest):
         params = get.call_args.kwargs["params"]
         self.assertNotIn("auto", params)
         self.assertNotIn("type", params)
+
+
+class ConcurrencyGuardTest(LossGuardVisibilityTest):
+    """
+    لا يُحسم الطلب مرّتين: الحجز يجعل عمليةً واحدة ترسله أو تتابعه، والقفل يجعل
+    الإلغاء مرّةً واحدة، وقرار المشغّل أثناء الإرسال لا يدوسه ردّ المزوّد.
+    """
+
+    def _order(self):
+        from orders import services
+        from catalog.models import ProductPrice
+        ProductPrice.objects.filter(product=self.i_product).update(price=Decimal("40"))
+        return services.create_order(self.shop, self.i_product, player_id="5566")
+
+    def test_claim_is_exclusive(self):
+        from orders import services
+        o = self._order()
+        self.assertTrue(services.claim(o, [Order.Status.PENDING]))
+        self.assertFalse(services.claim(o, [Order.Status.PENDING]))   # عمليةٌ ثانية تتنحّى
+        services.release(o)
+        self.assertTrue(services.claim(o, [Order.Status.PENDING]))
+
+    def test_stale_double_cancel_refunds_once(self):
+        from orders import services
+        o = self._order()
+        stale = Order.objects.get(pk=o.pk)          # نسخةٌ قديمة كتبويبٍ ثانٍ
+        services.cancel_order(o)
+        with self.assertRaises(services.OrderError):
+            services.cancel_order(stale)            # كانت ترى «لم يُلغَ» فتسترجع ثانيةً
+        self.assertEqual(Wallet.objects.get(user=self.shop).balance, Decimal("1000"))
+
+    def test_cancelled_before_send_is_not_sent(self):
+        from orders import services
+        o = self._order()
+        stale = Order.objects.get(pk=o.pk)
+        services.cancel_order(o)
+        services._send_to(stale, self.provider, [])
+        self.assertEqual(Order.objects.filter(tenant=self.alaya).count(), 0)   # لم يُرسَل للمزوّد
+
+    def test_cancel_during_send_is_not_overwritten(self):
+        from unittest import mock
+        from orders import services
+        o = self._order()
+        real = services._apply_real_cost
+
+        def cancel_mid_flight(order, result, provider):
+            services.cancel_order(Order.objects.get(pk=order.pk))   # المشغّل يلغي والإرسال جارٍ
+            return real(order, result, provider)
+
+        with mock.patch("orders.services._apply_real_cost", side_effect=cancel_mid_flight):
+            services.dispatch_order(o)
+        o.refresh_from_db()
+        self.assertEqual(o.status, Order.Status.CANCELLED)
+        self.assertIn("راجِع المزوّد", o.api_response)
+        self.assertEqual(Wallet.objects.get(user=self.shop).balance, Decimal("1000"))
+
+    def test_zero_price_never_sells(self):
+        from orders import services
+        from catalog.models import ProductPrice
+        ProductPrice.objects.filter(product=self.i_product).update(price=Decimal("0"))
+        with self.assertRaises(services.OrderError):
+            services.create_order(self.shop, self.i_product, player_id="1")
+
+    def test_disabled_dealer_cannot_buy(self):
+        from orders import services
+        self.shop.status = User.Status.PASSIVE
+        self.shop.save()
+        with self.assertRaises(services.OrderError):
+            self._order()

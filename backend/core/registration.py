@@ -176,6 +176,12 @@ def registration_review_view(request, dealer_id):
     action = request.data.get("action")
     if action == "reject":
         name = u.name
+        # حسابٌ أُعيد إلى «بانتظار الموافقة» بعد أن عمل: حذفه يمحو محفظته وحركاتها —
+        # يُعطَّل بدل ذلك
+        if hasattr(u, "wallet") and u.wallet.transactions.exists():
+            u.status = User.Status.PASSIVE
+            u.save(update_fields=["status"])
+            return Response({"rejected": True, "name": name, "disabled_instead": True})
         u.delete()   # لم يدخل قطّ ولا حركات له — ويتحرّر رقم دخوله
         return Response({"rejected": True, "name": name})
     if action != "approve":
@@ -188,7 +194,9 @@ def registration_review_view(request, dealer_id):
     if cur and not currency.rate_of(tenant, cur):
         return Response({"detail": f"لا سعر صرف مضبوط للعملة {cur}"}, status=400)
     try:
-        limit = Decimal(str(request.data.get("credit_limit") or "0"))
+        limit = currency.parse_amount(request.data.get("credit_limit") or "0")
+        if limit is None:
+            raise InvalidOperation
     except (InvalidOperation, TypeError):
         return Response({"detail": "حد ائتماني غير صحيح"}, status=400)
     if limit > 0:

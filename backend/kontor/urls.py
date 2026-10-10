@@ -10,7 +10,7 @@ from .views_store import (
 )
 from .views_routing import auto_link_view, link_view, providers_view, routing_view
 from .views_pricing import (
-    admin_orders_view, bulk_price_view, dealer_settings_view, price_group_delete_view,
+    admin_order_action_view, admin_orders_view, bulk_price_view, dealer_settings_view, price_group_delete_view,
     price_groups_view, price_matrix_view, set_cost_view, set_price_view,
 )
 
@@ -36,6 +36,7 @@ urlpatterns = [
     path("bulk-price/", bulk_price_view, name="kontor-bulk-price"),
     path("dealer-settings/", dealer_settings_view, name="kontor-dealer-settings"),
     path("orders/", admin_orders_view, name="kontor-admin-orders"),
+    path("orders/<int:pk>/<str:action>/", admin_order_action_view, name="kontor-admin-order-action"),
     # نقاط الوكيل (store)
     path("store/detect/", detect_view, name="kontor-store-detect"),
     path("store/packages/", store_packages_view, name="kontor-store-packages"),

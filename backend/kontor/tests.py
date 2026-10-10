@@ -386,7 +386,7 @@ class ExecutionTest(APITestCase):
 
     def test_accepted_debits_and_processing(self):
         from unittest.mock import MagicMock, patch
-        with patch("kontor.execution.requests.get", return_value=MagicMock(text="OK|1|Talebiniz İşleme Alındı|970.00")):
+        with patch("kontor.execution.requests.get", return_value=MagicMock(status_code=200, text="OK|1|Talebiniz İşleme Alındı|970.00")):
             r = self._buy()
         self.assertEqual(r.status_code, 201, r.content)
         self.assertEqual(r.json()["status"], "processing")
@@ -395,7 +395,7 @@ class ExecutionTest(APITestCase):
 
     def test_rejected_refunds(self):
         from unittest.mock import MagicMock, patch
-        with patch("kontor.execution.requests.get", return_value=MagicMock(text="OK|3|Hatali numara|0.00")):
+        with patch("kontor.execution.requests.get", return_value=MagicMock(status_code=200, text="OK|3|Hatali numara|0.00")):
             r = self._buy()
         self.assertEqual(r.json()["status"], "refunded")
         self.wallet.refresh_from_db()
@@ -412,10 +412,10 @@ class ExecutionTest(APITestCase):
         from unittest.mock import MagicMock, patch
         from kontor.execution import poll
         from kontor.models import KontorOrder
-        with patch("kontor.execution.requests.get", return_value=MagicMock(text="OK|1|ok|970")):
+        with patch("kontor.execution.requests.get", return_value=MagicMock(status_code=200, text="OK|1|ok|970")):
             self._buy()
         o = KontorOrder.objects.latest("id")
-        with patch("kontor.execution.requests.get", return_value=MagicMock(text="1:olumlu_islem:970")):
+        with patch("kontor.execution.requests.get", return_value=MagicMock(status_code=200, text="1:olumlu_islem:970")):
             poll(o)
         o.refresh_from_db()
         self.assertEqual(o.status, "success")
@@ -424,12 +424,12 @@ class ExecutionTest(APITestCase):
         from unittest.mock import MagicMock, patch
         from kontor.execution import poll
         from kontor.models import KontorOrder
-        with patch("kontor.execution.requests.get", return_value=MagicMock(text="OK|1|ok|970")):
+        with patch("kontor.execution.requests.get", return_value=MagicMock(status_code=200, text="OK|1|ok|970")):
             self._buy()
         self.wallet.refresh_from_db()
         self.assertEqual(self.wallet.balance, Decimal("4000"))
         o = KontorOrder.objects.latest("id")
-        with patch("kontor.execution.requests.get", return_value=MagicMock(text="3:iptal nedeni")):
+        with patch("kontor.execution.requests.get", return_value=MagicMock(status_code=200, text="3:iptal nedeni")):
             poll(o)
         o.refresh_from_db()
         self.assertEqual(o.status, "refunded")
@@ -498,7 +498,7 @@ class CurrencyTest(APITestCase):
         p = KontorPackage.objects.get(znet_id="476647")
         p.recommended_price = Decimal("26.00"); p.save()
         self.client.force_authenticate(self.dealer)
-        with patch("kontor.execution.requests.get", return_value=MagicMock(text="OK|1|ok|970")):
+        with patch("kontor.execution.requests.get", return_value=MagicMock(status_code=200, text="OK|1|ok|970")):
             r = self.client.post("/api/kontor/store/buy/", {"package": p.id, "gsm": "5442199992"}, format="json")
         self.assertEqual(r.status_code, 201, r.content)
         self.wallet.refresh_from_db()
@@ -562,10 +562,10 @@ class StoreDisplayTest(APITestCase):
         from unittest.mock import MagicMock, patch
         from kontor.models import KontorOrder
         p = KontorPackage.objects.get(znet_id="777")
-        with patch("kontor.execution.requests.get", return_value=MagicMock(text="OK|1|ok|500")):
+        with patch("kontor.execution.requests.get", return_value=MagicMock(status_code=200, text="OK|1|ok|500")):
             self.client.post("/api/kontor/store/buy/", {"package": p.id, "gsm": "5442199992",
                                                         "dealer_sell_price": "1250"}, format="json")
-            self.client.post("/api/kontor/store/buy/", {"package": p.id, "gsm": "5442199992"}, format="json")
+            self.client.post("/api/kontor/store/buy/", {"package": p.id, "gsm": "5442199993"}, format="json")
         a, b = KontorOrder.objects.order_by("id")
         self.assertEqual((a.dealer_sell_price, a.dealer_profit), (Decimal("1250.00"), Decimal("150.00")))
         self.assertEqual((b.dealer_sell_price, b.dealer_profit), (Decimal("1100.00"), Decimal("0.00")))

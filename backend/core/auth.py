@@ -27,15 +27,22 @@ class StoreBoundJWTAuthentication(JWTAuthentication):
         if result is None:
             return None
 
-        user, _token = result
+        user, token = result
+        from .security import session_valid, tenant_suspended
+        # تغيير كلمة السر أو «الخروج من كل الأجهزة» يُسقط هذه الجلسة
+        if not session_valid(user, token):
+            raise AuthenticationFailed("انتهت الجلسة — سجّل الدخول من جديد")
         # `request` هنا طلبُ DRF، وهو يمرّر ما لا يعرفه إلى طلب Django تحته
         store = getattr(request, "store", None)
         if store is not None and user.tenant_id != store.id:
             raise AuthenticationFailed(FOREIGN_STORE)
 
-        # الحساب المعطَّل يُطرد فوراً — لا يبقى يشتري بتوكنه حتى تنتهي ساعاته الثماني
-        if user.role in ("bayi", "ana_bayi") and user.status != "active":
+        # الحساب المعطَّل يُطرد فوراً — لا يبقى يعمل بتوكنه حتى تنتهي ساعاته الثماني
+        if user.status != "active":
             raise AuthenticationFailed("الحساب معطّل — تواصل مع الإدارة")
+        # والمتجر الموقوف كذلك — من أيّ عنوانٍ جاء (لا من عنوانه وحده)
+        if tenant_suspended(user):
+            raise AuthenticationFailed("المتجر موقوف — تواصل مع إدارة المنصّة")
 
         # والدور: الوكيل لا يطرق الأبواب الإدارية (core/access.py)
         check_path(user, request.path)

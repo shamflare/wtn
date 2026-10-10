@@ -2,108 +2,35 @@
 import re
 from decimal import Decimal, InvalidOperation
 
-import pyotp
 from django.db import models
 from django.utils import timezone
 from rest_framework import status, viewsets
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
-from rest_framework_simplejwt.tokens import RefreshToken
 
 from . import currency, services
 from .text import clean_login_id
 from .models import (
-    LOGIN_ATTEMPTS_BEFORE_LOCK, Invoice, Tenant, User, Wallet, WalletTransaction,
+    Invoice, Tenant, User, Wallet, WalletTransaction,
 )
 from .serializers import (
     LoginSerializer, SiteSettingsSerializer, SmsSettingsSerializer, UserSerializer,
 )
 
-# رسالة واحدة للقفل — لا تكشف سبباً ولا تلوم، وتقول لمن يُراجَع
-LOCKED_MESSAGE = (
-    "قُفل الحساب بعد محاولات دخول فاشلة. "
-    "راجع صاحب المتجر ليمنحك كلمة سرّ جديدة."
-)
-
-
-def _tokens_for(user: User) -> dict:
-    refresh = RefreshToken.for_user(user)
-    return {"access": str(refresh.access_token), "refresh": str(refresh)}
-
-
 @api_view(["POST"])
+@authentication_classes([])      # الدخول لا يقرأ توكناً: توكنٌ قديمٌ ساقط في المتصفح كان يرفضه بـ401
 @permission_classes([AllowAny])
 def login_view(request):
-    """تسجيل الدخول: login_id + كلمة السر (+ رمز 2FA إن كان مفعّلاً)."""
+    """تسجيل الدخول: login_id + كلمة السر (+ رمز 2FA) — المنطق كلّه في core/security.py."""
+    from .security import login
     serializer = LoginSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
-    data = serializer.validated_data
-
-    try:
-        user = User.objects.get(login_id=data["login_id"])
-    except User.DoesNotExist:
-        return Response(
-            {"detail": "بيانات الدخول غير صحيحة"}, status=status.HTTP_401_UNAUTHORIZED
-        )
-
-    # على عنوان متجرٍ بعينه لا يدخل إلا أهلُه. ويُقال صراحةً ولا يُخلط بخطأ
-    # كلمة السرّ: من دخل عنواناً خاطئاً يجرّب كلمته حتى يُقفل حسابه بلا ذنب.
-    # (`wtn4.com` يبقى مفتوحاً للجميع — قرار المالك 2026-08-16.)
-    store = getattr(request, "store", None)
-    if store is not None and user.tenant_id != store.id:
-        return Response(
-            {"detail": f"هذا الحساب ليس من متجر «{store.name}» — ادخل من عنوان متجرك."},
-            status=status.HTTP_403_FORBIDDEN,
-        )
-
-    # القفل يُفحص **قبل** كلمة السرّ: بعده كانت المحاولة تُختبَر فعلياً على
-    # حسابٍ مقفل، فيبقى التخمين ممكناً وإن لم يُفتح الباب.
-    if user.is_locked:
-        return Response({"detail": LOCKED_MESSAGE}, status=status.HTTP_403_FORBIDDEN)
-
-    if not user.check_password(data["password"]):
-        user.failed_login_count += 1
-        fields = ["failed_login_count"]
-        if user.failed_login_count >= LOGIN_ATTEMPTS_BEFORE_LOCK:
-            user.locked_at = timezone.now()
-            fields.append("locked_at")
-        user.save(update_fields=fields)
-        if user.is_locked:
-            return Response({"detail": LOCKED_MESSAGE}, status=status.HTTP_403_FORBIDDEN)
-        left = LOGIN_ATTEMPTS_BEFORE_LOCK - user.failed_login_count
-        return Response(
-            # لا نقول أيّ الحقلين خطأ — لكن نقول كم بقي، وإلّا فوجئ صاحب الحساب
-            # بالقفل بلا إنذار وهو يظنّ أنه يخطئ الكتابة.
-            {"detail": f"بيانات الدخول غير صحيحة — تبقّت {left} محاولة قبل قفل الحساب"},
-            status=status.HTTP_401_UNAUTHORIZED,
-        )
-
-    if user.status == User.Status.PENDING:
-        return Response(
-            {"detail": "طلب تسجيلك قيد المراجعة لدى إدارة المتجر — تستطيع الدخول فور قبوله"},
-            status=status.HTTP_403_FORBIDDEN,
-        )
-    if user.status != User.Status.ACTIVE:
-        return Response({"detail": "الحساب معطّل"}, status=status.HTTP_403_FORBIDDEN)
-
-    # التحقق الثنائي (2FA) — بديل حديث لآلة حاسبة المرجع
-    if user.totp_enabled:
-        code = data.get("totp", "")
-        if not code:
-            return Response({"require_totp": True}, status=status.HTTP_200_OK)
-        if not pyotp.TOTP(user.totp_secret).verify(code, valid_window=1):
-            return Response(
-                {"detail": "رمز التحقق غير صحيح"}, status=status.HTTP_401_UNAUTHORIZED
-            )
-
-    user.failed_login_count = 0
-    user.save(update_fields=["failed_login_count"])
-
-    return Response({"user": UserSerializer(user).data, "tokens": _tokens_for(user)})
+    return login(request, serializer.validated_data)
 
 
 @api_view(["GET"])
+@authentication_classes([])   # بابٌ عام: توكنٌ قديم في المتصفح لا يغلقه
 @permission_classes([AllowAny])
 def storefront_view(request):
     """
@@ -663,10 +590,11 @@ def dealer_settings_view(request, dealer_id):
         fields.append("password")
         # كلمة سرّ جديدة تفتح القفل دائماً — وهو المخرج الوحيد منه عمداً:
         # زرُّ فتحٍ بلا تبديل كان يعيد الحساب بكلمة سرٍّ ثبت أن أحدهم يخمّنها.
-        if u.is_locked or u.failed_login_count:
+        if u.is_locked or u.failed_login_count or u.lock_until:
             u.locked_at = None
+            u.lock_until = None
             u.failed_login_count = 0
-            fields += ["locked_at", "failed_login_count"]
+            fields += ["locked_at", "lock_until", "failed_login_count"]
 
     if fields:
         u.save(update_fields=fields)

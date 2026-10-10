@@ -396,10 +396,11 @@ def tenant_detail_view(request, tenant_id):
         admin_fields = ["password"]
         # كلمة سرّ جديدة تفتح القفل دائماً — كما في تعديل الوكيل (core/views.py):
         # فتحٌ بلا تبديل يعيد الحساب بكلمةٍ ثبت أن أحدهم يخمّنها.
-        if admin.is_locked or admin.failed_login_count:
+        if admin.is_locked or admin.failed_login_count or admin.lock_until:
             admin.locked_at = None
+            admin.lock_until = None
             admin.failed_login_count = 0
-            admin_fields += ["locked_at", "failed_login_count"]
+            admin_fields += ["locked_at", "lock_until", "failed_login_count"]
         admin.save(update_fields=admin_fields)
 
     if fields:

@@ -25,6 +25,7 @@ function LoginForm() {
   const [password, setPassword] = useState("");
   const [totp, setTotp] = useState("");
   const [needTotp, setNeedTotp] = useState(false);
+  const [setup, setSetup] = useState<{ qr: string; secret: string } | null>(null);
   const [showPw, setShowPw] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -35,7 +36,11 @@ function LoginForm() {
     setError("");
     const res = await login(loginId, password, totp);
     setBusy(false);
-    if ("requireTotp" in res) {
+    if ("setup" in res) {
+      setSetup(res.setup);
+      setNeedTotp(true);
+      setError("");
+    } else if ("requireTotp" in res) {
       setNeedTotp(true);
       setError("");
     } else if ("ok" in res && res.ok) {
@@ -71,6 +76,18 @@ function LoginForm() {
         </button>
       </div>
 
+      {setup && (
+        <div className="ag-msg" style={{ textAlign: "center", lineHeight: 1.9 }}>
+          <b>التحقق بخطوتين إلزاميٌّ لحسابك.</b><br />
+          امسح الرمز بتطبيق المصادقة (Google Authenticator أو Microsoft Authenticator)،
+          ثم اكتب الرمز المكوّن من 6 أرقام الذي يظهر فيه.
+          <div style={{ margin: "10px auto", background: "#fff", padding: 8, borderRadius: 10, width: "fit-content" }}>
+            <img src={setup.qr} alt="رمز QR للتحقق بخطوتين" style={{ width: 190, height: 190, display: "block" }} />
+          </div>
+          <div style={{ fontSize: 12 }}>أو أدخل المفتاح يدوياً:</div>
+          <code dir="ltr" style={{ fontSize: 13, wordBreak: "break-all" }}>{setup.secret}</code>
+        </div>
+      )}
       {needTotp && (
         <>
           <label className="ag-label">رمز التحقق (2FA)</label>

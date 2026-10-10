@@ -399,6 +399,10 @@ def _send_to(order: Order, provider, trail: list, depth: int = 0, force: bool = 
     """
     from providers.adapters.registry import adapter_for
 
+    # مزوّد متجرٍ آخر لا يُرسَل إليه أبداً — بيانات حساب ZNET ورصيده ليست لنا
+    if provider.tenant_id != order.tenant_id:
+        trail.append(f"{provider.name}: ليس من هذا المتجر — تُخُطّي")
+        return False
     adapter = adapter_for(provider)
     if adapter is None:
         trail.append(f"{provider.name}: منفّذ يدوي — تُخُطّي")

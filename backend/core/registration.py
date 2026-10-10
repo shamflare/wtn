@@ -14,7 +14,7 @@ from decimal import Decimal, InvalidOperation
 
 from django.core.cache import cache
 from django.db import transaction
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
@@ -37,6 +37,7 @@ def public_tenant(request):
 
 
 @api_view(["GET"])
+@authentication_classes([])   # بابٌ عام: توكنٌ قديم في المتصفح لا يغلقه
 @permission_classes([AllowAny])
 def public_games_view(request):
     """الألعاب النشطة التي فيها باقةٌ تُباع — للعرض قبل الدخول، بلا أسعار."""
@@ -71,6 +72,7 @@ def _image(value, label, required):
 
 
 @api_view(["POST"])
+@authentication_classes([])   # بابٌ عام: توكنٌ قديم في المتصفح لا يغلقه
 @permission_classes([AllowAny])
 def register_view(request):
     """طلب فتح حساب وكيل — يُحفظ «بانتظار الموافقة» ولا يُدخل به حتى يُقبل."""

@@ -365,11 +365,18 @@ def _decide(notif, action, actor, note=""):
             wallet = getattr(notif.dealer, "wallet", None)
             if wallet is None:
                 return False, "لا توجد محفظة للوكيل"
-            txn = wallet_services.apply_transaction(
-                wallet.id, -credit, WalletTransaction.Type.ADJUSTMENT,
-                created_by=actor, note=note or f"إبطال إضافة رصيد — طلب #{notif.id}",
-                ref_type="payment", ref_id=notif.id, allow_below_limit=True,
-            )
+            # إيداعٌ عند وكيلٍ كبير لا يُبطَل إلا إن كفى رصيد الدكان: بدونه كان الوكيل
+            # يقبل ثم يسحب ثم يُبطل فيُنزل دكاناً وهمياً تحت الصفر ويرفع محفظته هو
+            # فوق حدّه — مالاً بلا مقابل. وصاحب المتجر يبقى قادراً على إبطال الحوالة
+            # المزوّرة وإن صرفها الوكيل (دَينٌ عليه يتابعه).
+            try:
+                txn = wallet_services.apply_transaction(
+                    wallet.id, -credit, WalletTransaction.Type.ADJUSTMENT,
+                    created_by=actor, note=note or f"إبطال إضافة رصيد — طلب #{notif.id}",
+                    ref_type="payment", ref_id=notif.id, allow_below_limit=notif.owner_id is None,
+                )
+            except wallet_services.WalletError:
+                return False, "رصيد الدكان لا يكفي لإبطال هذا الإيداع — صرفه أو جزءاً منه"
             notif.balance_before, notif.balance_after = txn.balance_before, txn.balance_after
             if agent_wallet is not None:
                 wallet_services.apply_transaction(

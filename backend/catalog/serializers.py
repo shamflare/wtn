@@ -1,6 +1,8 @@
 """DRF serializers للكتالوج."""
 from rest_framework import serializers
 
+from core.tenancy import SameTenantFields
+
 from .models import Game, LibraryGame, LibraryProduct, PriceGroup, Product
 
 
@@ -14,7 +16,7 @@ class PriceGroupSerializer(serializers.ModelSerializer):
         read_only_fields = ["tenant", "created_at"]
 
 
-class ProductSerializer(serializers.ModelSerializer):
+class ProductSerializer(SameTenantFields, serializers.ModelSerializer):
     """
     باقة المتجر.
 
@@ -40,7 +42,11 @@ class ProductSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["tenant"]
 
+    # المزوّدون واللعبة من متجر صاحب الطلب وحده (core/tenancy.py)
+    tenant_fields = ("game", "provider", "provider_alt1", "provider_alt2")
+
     def validate(self, attrs):
+        attrs = super().validate(attrs)
         # حدود الكمية: تُفحص في الإضافة والتعديل معاً
         get = lambda k, d: attrs.get(k, getattr(self.instance, k, d) if self.instance else d)
         if get("sale_type", "package") == Product.SaleType.AMOUNT:

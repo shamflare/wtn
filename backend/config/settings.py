@@ -23,13 +23,20 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get(
-    "SECRET_KEY",
-    "django-insecure-#-k4)5mucg1$@%6f(*g&ud+7q$pd4u$m3550zj4939-y2o*0zz",
-)
+# وضع التطوير يُطلب صراحةً (DEBUG=1) — والافتراضيّ الآمن: إيقافه
+DEBUG = os.environ.get("DEBUG", "0") == "1"
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.environ.get("DEBUG", "1") == "1"
+# المفتاح يوقّع جلسات الدخول (JWT): مفتاحٌ منشورٌ في الكود يعني أن أيَّ أحدٍ يزوّر
+# دخولاً لأيّ حساب. فالإنتاج يرفض الإقلاع بلا مفتاحه؛ والتطوير والاختبارات وحدها
+# تقبل مفتاحاً محلياً.
+import sys as _sys
+SECRET_KEY = os.environ.get("SECRET_KEY", "")
+if not SECRET_KEY:
+    if DEBUG or "test" in _sys.argv:
+        SECRET_KEY = "dev-only-insecure-key-never-in-production"
+    else:
+        from django.core.exceptions import ImproperlyConfigured
+        raise ImproperlyConfigured("SECRET_KEY غير مضبوط — لا إقلاع للإنتاج بلا مفتاحه في .env")
 
 ALLOWED_HOSTS = os.environ.get("ALLOWED_HOSTS", "*").split(",")
 

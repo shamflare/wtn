@@ -42,8 +42,17 @@ def tareq_quiz(request):
         return FileResponse(open(page, "rb"), content_type="text/html; charset=utf-8")
     raise Http404
 
-urlpatterns = [
-    path("admin/", admin.site.urls),
+# لوحة Django الجاهزة: باب دخولٍ ثانٍ بلا قفلٍ متدرّج ولا تحقق بخطوتين — مغلقة في
+# الإنتاج. تُفتح عند الحاجة بـ DJANGO_ADMIN_ENABLED=1 في .env، ولمالك المنصّة وحده.
+import os as _os
+
+admin.site.has_permission = lambda request: bool(
+    request.user.is_active and request.user.is_superuser
+    and getattr(request.user, "role", "") == "platform_owner"
+)
+ADMIN_ROUTES = [path("admin/", admin.site.urls)] if _os.environ.get("DJANGO_ADMIN_ENABLED") == "1" else []
+
+urlpatterns = ADMIN_ROUTES + [
     re_path(r"^tareq/?$", tareq_quiz, name="tareq-quiz"),
     path("api/store/catalog/", order_views.store_catalog_view, name="store-catalog"),
     path("api/store/buy/", order_views.store_buy_view, name="store-buy"),

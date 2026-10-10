@@ -16,6 +16,7 @@ import { showPrice } from "../unitPrice";
 import { AGENT_THEME_DEFAULTS, applyAgentTheme, cachedAgentTheme, type AgentTheme } from "../agentTheme";
 import { TODAY } from "../components/DateRange";
 import Pager from "../components/Pager";
+import SecurityPanel from "../components/SecurityPanel";
 import "./store.css";
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -1397,6 +1398,10 @@ function AccountPane() {
           {busy ? "جارٍ..." : "حفظ كلمة السر"}
         </button>
       </form>
+
+      <div className="ag-card ag-pad" style={{ gridColumn: "1 / -1" }}>
+        <SecurityPanel />
+      </div>
     </div>
   );
 }

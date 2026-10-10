@@ -330,6 +330,8 @@ def _send(order: KontorOrder, provider) -> tuple[str, str]:
     فلا بديل ولا إرجاع، بل متابعة بـ tl_kontrol حتى يُحسم. هكذا لا يُشحن رقمٌ مرّتين.
     """
     from .services import provider_creds
+    if provider.tenant_id != order.tenant_id:   # مزوّد متجرٍ آخر لا يُرسَل إليه أبداً
+        return REJECTED, "ليس من هذا المتجر"
     creds = provider_creds(provider)
     if not creds:
         return REJECTED, "إعداد ناقص"

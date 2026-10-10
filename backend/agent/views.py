@@ -184,6 +184,9 @@ def dealer_settings_view(request, dealer_id):
     if "status" in data:
         if data["status"] not in (User.Status.ACTIVE, User.Status.PASSIVE):
             return Response({"detail": "حالة غير معروفة"}, status=400)
+        # القائمة السوداء وطلب التسجيل قرار صاحب المتجر — الوكيل لا يتجاوزه
+        if u.status not in (User.Status.ACTIVE, User.Status.PASSIVE) and data["status"] != u.status:
+            return Response({"detail": "حالة هذا الدكان يقرّرها صاحب المتجر"}, status=403)
         u.status = data["status"]
         fields.append("status")
     pw = str(data.get("password") or "")
@@ -192,8 +195,9 @@ def dealer_settings_view(request, dealer_id):
             return Response({"detail": "كلمة السر قصيرة (5 أحرف على الأقل)"}, status=400)
         u.set_password(pw)
         u.locked_at = None
+        u.lock_until = None
         u.failed_login_count = 0
-        fields += ["password", "locked_at", "failed_login_count"]
+        fields += ["password", "locked_at", "lock_until", "failed_login_count"]
     if fields:
         u.save(update_fields=fields)
     return Response(_dealer_profile(agent, u) | {"password_changed": bool(pw)})

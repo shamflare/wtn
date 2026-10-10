@@ -43,6 +43,17 @@ import AgentPrices from "./pages/AgentPrices";
 import AgentOrders from "./pages/AgentOrders";
 import AgentWallet from "./pages/AgentWallet";
 import Tickets from "./components/Tickets";
+import SecurityPanel from "./components/SecurityPanel";
+
+/** صفحة «الأمان» في لوحتَي صاحب المتجر والوكيل الكبير. */
+function SecurityPage() {
+  return (
+    <div style={{ padding: 16 }}>
+      <h2 style={{ fontSize: 20, color: "var(--primary-dark)", marginBottom: 12 }}>أمان الحساب</h2>
+      <SecurityPanel />
+    </div>
+  );
+}
 import Home from "./pages/Home";
 import FinanceReports from "./pages/FinanceReports";
 
@@ -93,6 +104,7 @@ export default function App() {
           <Route path="/bigagent/accounts" element={Agent(<Accounts agent />)} />
           <Route path="/bigagent/support" element={Agent(<Tickets title="الرسائل — مراسلة إدارة المتجر" />)} />
           <Route path="/bigagent/wallet" element={Agent(<AgentWallet />)} />
+          <Route path="/bigagent/security" element={Agent(<SecurityPage />)} />
           <Route path="/bigagent/reports" element={Agent(<Reports agent />)} />
           <Route path="/bigagent/reports/profits" element={Agent(<DealerReport title="تقرير أرباحي من دكاكيني" highlight="profit" agent />)} />
           <Route path="/bigagent/reports/inventory" element={Agent(<Inventory agent />)} />
@@ -131,6 +143,7 @@ export default function App() {
 
           {/* الإعدادات — إعدادات المتجر نفسه */}
           <Route path="/settings/site" element={Admin(<SiteSettings />)} />
+          <Route path="/settings/security" element={Admin(<SecurityPage />)} />
           <Route path="/settings/agent-design" element={Admin(<AgentDesign />)} />
           <Route path="/settings/cards" element={Admin(<DealerCards />)} />
           <Route path="/settings/sms" element={Admin(<SmsSettings />)} />

@@ -12,6 +12,18 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// جلسةٌ سقطت (تغيّرت كلمة السر · خروج من كل الأجهزة · حساب أو متجر أُوقف):
+// تُمسح ويُعاد المستخدم إلى الدخول — بدل صفحاتٍ فارغة وأخطاءٍ متتالية
+api.interceptors.response.use(undefined, (err) => {
+  const url = String(err?.config?.url || "");
+  if (err?.response?.status === 401 && localStorage.getItem("access") && !url.includes("/auth/login/")) {
+    localStorage.removeItem("access");
+    localStorage.removeItem("refresh");
+    if (!window.location.pathname.startsWith("/login")) window.location.assign("/login");
+  }
+  return Promise.reject(err);
+});
+
 export interface Wallet {
   balance: string;
   credit_limit: string;

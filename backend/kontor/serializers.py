@@ -1,5 +1,7 @@
 from rest_framework import serializers
 
+from core.tenancy import SameTenantFields
+
 from .models import KontorCategory, KontorPackage, KontorPriceGroup
 
 
@@ -17,7 +19,9 @@ class KontorCategorySerializer(serializers.ModelSerializer):
         read_only_fields = ["tenant", "operator", "line_type"]
 
 
-class KontorPackageSerializer(serializers.ModelSerializer):
+class KontorPackageSerializer(SameTenantFields, serializers.ModelSerializer):
+    tenant_fields = ("category", "provider", "provider_alt1", "provider_alt2")
+
     # فارغٌ مسموح هنا ليصل إلى validate_name فيعيده إلى اسم ZNET (لا خطأ «لا يكون فارغاً»)
     name = serializers.CharField(max_length=160, allow_blank=True, trim_whitespace=True, required=False)
     operator_label = serializers.CharField(source="get_operator_display", read_only=True)

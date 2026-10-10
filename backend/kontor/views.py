@@ -113,7 +113,7 @@ def package_update_view(request, pk):
     obj = KontorPackage.objects.filter(pk=pk, tenant=request.user.tenant).first()
     if not obj:
         return Response({"detail": "غير موجود"}, status=404)
-    ser = KontorPackageSerializer(obj, data=request.data, partial=True)
+    ser = KontorPackageSerializer(obj, data=request.data, partial=True, context={"request": request})
     ser.is_valid(raise_exception=True)
     ser.save()
     return Response(ser.data)

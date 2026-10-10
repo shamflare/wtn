@@ -220,6 +220,14 @@ class User(AbstractBaseUser, PermissionsMixin):
     # أن تخمين كلمات السرّ آلياً كان مفتوحاً بلا حدّ على حساباتٍ تملك محافظ.
     locked_at = models.DateTimeField(null=True, blank=True)
 
+    # انتظارٌ مؤقّت بعد محاولاتٍ خاطئة (ربع ساعة ثم ساعة) — قبل القفل الدائم
+    lock_until = models.DateTimeField(null=True, blank=True)
+    # نسخة الجلسات: كل توكن يحمل بصمةً منها ومن كلمة السر. الخروج من كل الأجهزة
+    # يرفعها، وتغيير كلمة السر يغيّر البصمة — فتسقط الجلسات القديمة كلّها فوراً
+    token_version = models.PositiveIntegerField(default=0)
+    # آخر خطوة زمنية قُبل بها رمز 2FA — لا يُقبل الرمز نفسه مرّتين (إعادة استعمال)
+    totp_last_step = models.BigIntegerField(default=0)
+
     @property
     def is_locked(self) -> bool:
         return self.locked_at is not None
@@ -227,8 +235,17 @@ class User(AbstractBaseUser, PermissionsMixin):
     def unlock(self) -> None:
         """يفتح القفل ويصفّر العدّاد — يصاحب دائماً كلمةَ سرّ جديدة."""
         self.locked_at = None
+        self.lock_until = None
         self.failed_login_count = 0
-        self.save(update_fields=["locked_at", "failed_login_count"])
+        self.save(update_fields=["locked_at", "lock_until", "failed_login_count"])
+
+    def session_stamp(self) -> str:
+        """
+        بصمة الجلسة: من كلمة السر المخزّنة ونسخة الجلسات. توكنٌ لا تطابق بصمتُه
+        بصمةَ الآن مرفوض — فتغيير كلمة السر أو «الخروج من كل الأجهزة» يُسقطه.
+        """
+        import hashlib
+        return hashlib.sha256(f"{self.password}|{self.token_version}".encode()).hexdigest()[:16]
 
     is_staff = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)

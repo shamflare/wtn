@@ -1137,3 +1137,24 @@ class SmartLinkTest(APITestCase):
             {"product": self.p60.id, "package_id": "777"}]}, format="json").json()
         self.assertEqual(again["linked"], 0)
         self.assertEqual(ProductLink.objects.get(product=self.p60, provider=self.znet).package_id, "1")
+
+
+class CrossTenantFieldsTest(APITestCase):
+    """باقة متجرٍ لا تُربط بمزوّد متجرٍ آخر ولا بلعبته — كانت تُخصم من رصيده لدى ZNET."""
+
+    def test_foreign_provider_and_game_rejected(self):
+        from core.models import Tenant, User
+        from providers.models import Provider
+        a = Tenant.objects.create(subdomain="ta", name="أ")
+        b = Tenant.objects.create(subdomain="tb", name="ب")
+        admin_a = User.objects.create(login_id="a-admin", name="أ", tenant=a, role=User.Role.TENANT_ADMIN)
+        game_a = Game.objects.create(tenant=a, name="PUBG")
+        game_b = Game.objects.create(tenant=b, name="PUBG")
+        prov_b = Provider.objects.create(tenant=b, name="ZNET ب", type=Provider.Type.SAME_SYSTEM)
+        self.client.force_authenticate(admin_a)
+        r = self.client.post("/api/catalog/products/", {"game": game_a.id, "name": "x", "kupur": "",
+                                                        "provider": prov_b.id}, format="json")
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("provider", r.json())
+        r = self.client.post("/api/catalog/products/", {"game": game_b.id, "name": "x", "kupur": ""}, format="json")
+        self.assertEqual(r.status_code, 400)

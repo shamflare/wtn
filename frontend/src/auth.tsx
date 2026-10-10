@@ -8,7 +8,9 @@ interface AuthCtx {
   login: (loginId: string, password: string, totp?: string) => Promise<LoginResult>;
   logout: () => void;
 }
-type LoginResult = { ok: true; role: string } | { requireTotp: true } | { ok: false; error: string };
+export interface TotpSetup { qr: string; secret: string }
+type LoginResult = { ok: true; role: string } | { requireTotp: true } | { setup: TotpSetup }
+  | { ok: false; error: string };
 
 // الصفحة الرئيسية لكل دور
 export function roleHome(role?: string): string {
@@ -48,6 +50,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const r = await api.post("/auth/login/", { login_id: loginId, password, totp });
       if (r.data.require_totp) return { requireTotp: true };
+      // مالك المنصّة بلا تحقق بخطوتين: يُعدّه الآن قبل أي جلسة
+      if (r.data.require_totp_setup) return { setup: { qr: r.data.qr, secret: r.data.secret } };
       localStorage.setItem("access", r.data.tokens.access);
       localStorage.setItem("refresh", r.data.tokens.refresh);
       setUser(r.data.user);

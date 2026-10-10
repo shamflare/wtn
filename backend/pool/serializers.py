@@ -1,10 +1,14 @@
 """DRF serializers لبنك البينات."""
 from rest_framework import serializers
 
+from core.tenancy import SameTenantFields
+
 from .models import PinPool
 
 
-class PinPoolSerializer(serializers.ModelSerializer):
+class PinPoolSerializer(SameTenantFields, serializers.ModelSerializer):
+    tenant_fields = ("provider",)
+
     provider_name = serializers.CharField(source="provider.name", read_only=True, default="")
     status_label = serializers.CharField(source="get_status_display", read_only=True)
     created_at = serializers.DateTimeField(format="%Y-%m-%d %H:%M", read_only=True)

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import SecurityPanel from "../components/SecurityPanel";
 import { api } from "../api";
 import ImageUpload from "../components/ImageUpload";
 import LibrarySources from "../components/LibrarySources";
@@ -37,8 +38,8 @@ const SUB_TONE: Record<string, { bg: string; fg: string; label: string }> = {
   blocked: { bg: "#fee2e2", fg: "#7f1d1d", label: "متوقّف — الشراء ممنوع" },
 };
 
-type Tab = "tenants" | "library" | "sources" | "invoices" | "messages" | "announce" | "cards" | "sorgula";
-const TABS: Tab[] = ["tenants", "library", "sources", "invoices", "messages", "announce", "cards", "sorgula"];
+type Tab = "tenants" | "library" | "sources" | "invoices" | "messages" | "announce" | "cards" | "sorgula" | "security";
+const TABS: Tab[] = ["tenants", "library", "sources", "invoices", "messages", "announce", "cards", "sorgula", "security"];
 
 export default function Platform({ section: forced }: { section?: Tab } = {}) {
   const { user, logout } = useAuth();
@@ -72,6 +73,7 @@ export default function Platform({ section: forced }: { section?: Tab } = {}) {
         <button onClick={() => setTab("announce")} style={{ ...tabBtn, ...(tab === "announce" ? tabActive : {}) }}>📢 الإعلان العام</button>
         <button onClick={() => setTab("cards")} style={{ ...tabBtn, ...(tab === "cards" ? tabActive : {}) }}>🗂️ بطاقات المتاجر</button>
         <button onClick={() => setTab("sorgula")} style={{ ...tabBtn, ...(tab === "sorgula" ? tabActive : {}) }}>📱 كشف الخطوط</button>
+        <button onClick={() => setTab("security")} style={{ ...tabBtn, ...(tab === "security" ? tabActive : {}) }}>🔐 الأمان</button>
       </div>
 
       <div style={{ maxWidth: 1150, margin: "0 auto", padding: 24 }}>
@@ -81,6 +83,11 @@ export default function Platform({ section: forced }: { section?: Tab } = {}) {
         {tab === "invoices" && <BillingTab />}
         {tab === "announce" && <AnnounceTab />}
         {tab === "sorgula" && <SorgulaTab />}
+        {tab === "security" && (
+          <div style={{ background: "#fff", color: "var(--text)", borderRadius: 12, padding: 20 }}>
+            <SecurityPanel />
+          </div>
+        )}
         {tab === "cards" && (
           <div style={{ background: "#fff", color: "var(--text)", borderRadius: 12, padding: 20 }}>
             <CardsEditor

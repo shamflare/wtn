@@ -16,6 +16,8 @@ class LoginTest(TestCase):
     """حارس ضد تكرار عطل: حذف `_tokens_for` كسر تسجيل الدخول بخطأ 500."""
 
     def test_login_returns_tokens(self):
+        from django.core.cache import cache
+        cache.clear()
         tenant = Tenant.objects.create(subdomain="t1", name="متجر اختبار")
         user = User.objects.create(login_id="user001", name="مستخدم", tenant=tenant)
         user.set_password("pass123")
@@ -39,6 +41,8 @@ class HeaderAlertsTest(APITestCase):
     """
 
     def setUp(self):
+        from django.core.cache import cache
+        cache.clear()   # حدّ المحاولات لكل عنوان IP يبقى بين الاختبارات
         self.tenant = Tenant.objects.create(subdomain="t", name="متجر")
         self.admin = User.objects.create(
             login_id="admin", name="مدير", tenant=self.tenant, role=User.Role.TENANT_ADMIN,
@@ -335,6 +339,8 @@ class LoginLockTest(APITestCase):
     """
 
     def setUp(self):
+        from django.core.cache import cache
+        cache.clear()   # حدّ المحاولات لكل عنوان IP يبقى بين الاختبارات
         self.tenant = Tenant.objects.create(subdomain="t1", name="متجر")
         self.admin = User.objects.create(
             login_id="admin1", name="مدير", tenant=self.tenant,
@@ -352,76 +358,145 @@ class LoginLockTest(APITestCase):
     def _login(self, pw, who="d1"):
         return self.client.post("/api/auth/login/", {"login_id": who, "password": pw}, format="json")
 
-    def test_third_failure_locks_the_account(self):
-        self.assertEqual(self._login("wrong1").status_code, 401)
-        self.assertEqual(self._login("wrong2").status_code, 401)
+    def _expire_wait(self, who="d1"):
+        """يمرّ وقت الانتظار — بلا انتظارٍ فعليّ في الاختبار."""
+        from datetime import timedelta
+        from django.utils import timezone
+        User.objects.filter(login_id=who).update(lock_until=timezone.now() - timedelta(seconds=1))
+
+    def test_progressive_waits_then_permanent_lock(self):
+        """الأولى تنبيه · الثانية ربع ساعة · الثالثة ساعة · الرابعة قفلٌ حتى يغيّر الأعلى كلمة السر."""
+        first = self._login("wrong1")
+        self.assertEqual(first.status_code, 401)
+        second = self._login("wrong2")
+        self.assertEqual(second.status_code, 429)
+        self.assertIn("ربع ساعة", second.json()["detail"])
+        # أثناء الانتظار حتى كلمة السر الصحيحة لا تُختبر
+        self.assertEqual(self._login("right12345").status_code, 429)
+        self._expire_wait()
         third = self._login("wrong3")
-        self.assertEqual(third.status_code, 403)
-        self.assertIn("قُفل الحساب", third.json()["detail"])
+        self.assertIn("ساعة", third.json()["detail"])
+        self._expire_wait()
+        fourth = self._login("wrong4")
+        self.assertEqual(fourth.status_code, 403)
         self.dealer.refresh_from_db()
         self.assertTrue(self.dealer.is_locked)
-
-    def test_the_right_password_no_longer_works_once_locked(self):
-        """جوهر الأمر: القفل يسبق فحص كلمة السرّ، فلا يُختبَر التخمين أصلاً."""
-        for i in range(3):
-            self._login(f"wrong{i}")
-        r = self._login("right12345")
-        self.assertEqual(r.status_code, 403)
-
-    def test_countdown_warns_before_the_lock(self):
-        self.assertIn("تبقّت 2", self._login("x").json()["detail"])
-        self.assertIn("تبقّت 1", self._login("x").json()["detail"])
+        self._expire_wait()
+        self.assertEqual(self._login("right12345").status_code, 403)   # القفل الدائم لا ينتهي بالوقت
 
     def test_a_success_resets_the_counter(self):
         self._login("wrong1")
-        self._login("wrong2")
         self.assertEqual(self._login("right12345").status_code, 200)
         self.dealer.refresh_from_db()
         self.assertEqual(self.dealer.failed_login_count, 0)
-        # وبعدها تبدأ العدّة من جديد لا من اثنين
-        self.assertEqual(self._login("wrong1").status_code, 401)
-        self.assertEqual(self._login("wrong2").status_code, 401)
-        self.assertEqual(self._login("right12345").status_code, 200)
+        self.assertEqual(self._login("wrong1").status_code, 401)        # العدّة من جديد
+
+    def _lock_for_good(self, who="d1"):
+        for i in range(4):
+            self._login(f"wrong{i}", who=who)
+            self._expire_wait(who)
 
     def test_owner_unlocks_by_setting_a_new_password(self):
-        for i in range(3):
-            self._login(f"wrong{i}")
+        self._lock_for_good()
         self.client.force_authenticate(self.admin)
-        r = self.client.post(
-            f"/api/dealers/{self.dealer.id}/settings/",
-            {"new_password": "fresh12345"}, format="json",
-        )
+        r = self.client.post(f"/api/dealers/{self.dealer.id}/settings/", {"new_password": "fresh12345"}, format="json")
         self.assertEqual(r.status_code, 200)
         self.assertFalse(r.json()["is_locked"])
         self.client.force_authenticate(None)
         self.assertEqual(self._login("fresh12345").status_code, 200)
 
     def test_saving_settings_without_a_password_keeps_it_locked(self):
-        """القفل لا يُفتح بالمرور على النافذة — كلمة سرّ جديدة أو لا شيء."""
-        for i in range(3):
-            self._login(f"wrong{i}")
+        self._lock_for_good()
         self.client.force_authenticate(self.admin)
-        self.client.post(
-            f"/api/dealers/{self.dealer.id}/settings/", {"status": "active"}, format="json",
-        )
+        self.client.post(f"/api/dealers/{self.dealer.id}/settings/", {"status": "active"}, format="json")
         self.dealer.refresh_from_db()
         self.assertTrue(self.dealer.is_locked)
 
-    def test_command_unlocks_the_platform_owner(self):
-        """لا أحد فوق مالك المنصّة — فمخرجه سطر الأوامر."""
-        from django.core.management import call_command
-        from io import StringIO
-
+    def test_platform_owner_is_never_locked_for_good(self):
+        """لا أحد فوق مالك المنصّة: انتظارٌ لا قفل — وحسابه محميٌّ بالتحقق بخطوتين."""
         owner = User.objects.create(login_id="9990000000", name="مالك", role=User.Role.PLATFORM_OWNER)
         owner.set_password("old12345")
         owner.save()
-        for i in range(3):
-            self._login(f"wrong{i}", who="9990000000")
+        self._lock_for_good(who="9990000000")
         owner.refresh_from_db()
-        self.assertTrue(owner.is_locked)
+        self.assertFalse(owner.is_locked)
+        self.assertIsNotNone(owner.lock_until)
 
-        call_command("unlock_user", "9990000000", "--password", "new12345", stdout=StringIO())
-        self.assertEqual(self._login("new12345", who="9990000000").status_code, 200)
+    def test_unknown_account_gets_the_same_answer(self):
+        r = self._login("anything", who="0000000001")
+        self.assertEqual((r.status_code, r.json()["detail"]), (401, "بيانات الدخول غير صحيحة"))
+
+
+class TwoFactorAndSessionTest(APITestCase):
+    """التحقق بخطوتين (اختياري، وإلزامي لمالك المنصّة) وإسقاط الجلسات."""
+
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()   # حدّ المحاولات لكل عنوان IP يبقى بين الاختبارات
+        self.tenant = Tenant.objects.create(subdomain="tf", name="متجر")
+        self.dealer = User.objects.create(login_id="tf-d", name="وكيل", tenant=self.tenant, role=User.Role.BAYI)
+        self.dealer.set_password("right12345")
+        self.dealer.save()
+        Wallet.objects.create(tenant=self.tenant, user=self.dealer)
+
+    def _login(self, who="tf-d", pw="right12345", totp=None):
+        body = {"login_id": who, "password": pw}
+        if totp:
+            body["totp"] = totp
+        return self.client.post("/api/auth/login/", body, format="json")
+
+    def _code(self, secret, offset=0):
+        import pyotp
+        from django.utils import timezone
+        t = pyotp.TOTP(secret)
+        return t.generate_otp(t.timecode(timezone.now()) + offset)
+
+    def test_optional_2fa_for_a_dealer(self):
+        tok = self._login().json()["tokens"]["access"]
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {tok}")
+        setup = self.client.post("/api/auth/2fa/", {}, format="json").json()
+        self.assertTrue(setup["qr"].startswith("data:image/svg+xml"))
+        self.assertEqual(self.client.post("/api/auth/2fa/", {"code": self._code(setup["secret"])},
+                                          format="json").json()["enabled"], True)
+        self.client.credentials()
+        self.assertTrue(self._login().json()["require_totp"])
+        code = self._code(setup["secret"], 1)
+        self.assertEqual(self._login(totp=code).status_code, 200)
+        # الرمز نفسه لا يُقبل مرّتين
+        self.assertNotEqual(self._login(totp=code).status_code, 200)
+
+    def test_platform_owner_must_set_up_2fa_first(self):
+        owner = User.objects.create(login_id="9990000001", name="مالك", role=User.Role.PLATFORM_OWNER)
+        owner.set_password("owner12345")
+        owner.save()
+        first = self._login(who="9990000001", pw="owner12345").json()
+        self.assertTrue(first["require_totp_setup"])
+        self.assertNotIn("tokens", first)                       # لا جلسة قبل تأكيد الرمز
+        done = self._login(who="9990000001", pw="owner12345", totp=self._code(first["secret"]))
+        self.assertEqual(done.status_code, 200)
+        owner.refresh_from_db()
+        self.assertTrue(owner.totp_enabled)
+
+    def test_password_change_and_logout_all_kill_old_sessions(self):
+        tok = self._login().json()["tokens"]["access"]
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {tok}")
+        self.assertEqual(self.client.get("/api/auth/me/").status_code, 200)
+        self.client.post("/api/store/change-password/",
+                         {"current_password": "right12345", "new_password": "newpass99"}, format="json")
+        self.assertEqual(self.client.get("/api/auth/me/").status_code, 401)   # الجلسة القديمة سقطت
+        tok = self._login(pw="newpass99").json()["tokens"]["access"]
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {tok}")
+        self.client.post("/api/auth/logout-all/")
+        self.assertEqual(self.client.get("/api/auth/me/").status_code, 401)
+
+    def test_suspended_store_is_shut_everywhere(self):
+        tok = self._login().json()["tokens"]["access"]
+        self.tenant.status = Tenant.Status.SUSPENDED
+        self.tenant.save()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {tok}")
+        self.assertEqual(self.client.get("/api/auth/me/").status_code, 401)
+        self.client.credentials()
+        self.assertEqual(self._login().status_code, 403)
 
 
 class SubscriptionGateTest(APITestCase):
@@ -621,6 +696,8 @@ class StoreHostTest(APITestCase):
     """
 
     def setUp(self):
+        from django.core.cache import cache
+        cache.clear()   # حدّ المحاولات لكل عنوان IP يبقى بين الاختبارات
         self.islam = Tenant.objects.create(
             subdomain="islam", name="متجر إسلام", status=Tenant.Status.ACTIVE,
         )
@@ -894,6 +971,8 @@ class SelfRegistrationTest(APITestCase):
 
     def setUp(self):
         from django.core.cache import cache
+        cache.clear()   # حدّ المحاولات لكل عنوان IP يبقى بين الاختبارات
+        from django.core.cache import cache
         cache.clear()
         self.t = Tenant.objects.create(subdomain="rg", name="أهلا كارد", base_currency="USD",
                                        exchange_rates={"TRY": "49"})
@@ -991,8 +1070,8 @@ class RoleGateTest(APITestCase):
         self.admin = mk("rg-admin", User.Role.TENANT_ADMIN)
         self.big = mk("rg-big", User.Role.ANA_BAYI)
         self.bayi = mk("rg-bayi", User.Role.BAYI)
-        self.tok = {u: str(RefreshToken.for_user(u).access_token)
-                    for u in (self.admin, self.big, self.bayi)}
+        from core.security import tokens_for
+        self.tok = {u: tokens_for(u)["access"] for u in (self.admin, self.big, self.bayi)}
 
     def _get(self, user, path):
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.tok[user]}")

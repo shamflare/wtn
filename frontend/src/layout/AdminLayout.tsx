@@ -73,6 +73,7 @@ const SUBNAV_AYARLAR = [
   { label: "واتساب", to: "/settings/whatsapp" },
   { label: "الرسائل", to: "/settings/support" },
   { label: "فواتير الاشتراك", to: "/settings/invoices" },
+  { label: "الأمان", to: "/settings/security" },
 ];
 const SUBNAV_RAPORLAR = [
   { label: "تقرير الطلبات", to: "/reports" },
@@ -115,7 +116,10 @@ const AGENT_SUBNAV: Record<string, { label: string; to: string }[]> = {
     { label: "حساباتي", to: "/bigagent/accounts" },
     { label: "الرسائل", to: "/bigagent/support" },
   ],
-  wallet: [],
+  wallet: [
+    { label: "محفظتي", to: "/bigagent/wallet" },
+    { label: "الأمان", to: "/bigagent/security" },
+  ],
   raporlar: [
     { label: "تقرير الطلبات", to: "/bigagent/reports" },
     { label: "تقرير الأرباح", to: "/bigagent/reports/profits" },
@@ -127,7 +131,7 @@ function agentSection(path: string): string {
   if (path === "/bigagent") return "home";
   if (path.startsWith("/bigagent/mobile")) return "kontor";
   if (path.startsWith("/bigagent/orders") || path.startsWith("/bigagent/price-groups")) return "oyunpin";
-  if (path.startsWith("/bigagent/wallet")) return "wallet";
+  if (path.startsWith("/bigagent/wallet") || path.startsWith("/bigagent/security")) return "wallet";
   if (path.startsWith("/bigagent/reports")) return "raporlar";
   return "bayiler";
 }

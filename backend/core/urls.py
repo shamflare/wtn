@@ -1,7 +1,7 @@
 """روابط الـ API للقلب."""
 from django.urls import path
 
-from . import registration, alerts, cards, finance, tickets, views
+from . import registration, alerts, cards, finance, security, tickets, views
 
 urlpatterns = [
     # هويّة متجر هذا العنوان — مفتوحةٌ بلا توكن، تقرأها صفحة الدخول
@@ -10,6 +10,8 @@ urlpatterns = [
     path("storefront/register/", registration.register_view, name="storefront-register"),
     path("auth/login/", views.login_view, name="login"),
     path("auth/me/", views.me_view, name="me"),
+    path("auth/2fa/", security.two_factor_view, name="two-factor"),
+    path("auth/logout-all/", security.logout_all_view, name="logout-all"),
     path("settings/site/", views.site_settings_view, name="site-settings"),
     path("settings/sms/", views.sms_settings_view, name="sms-settings"),
     path("settings/theme/", views.theme_config_view, name="theme-config"),

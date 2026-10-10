@@ -391,3 +391,25 @@ class OwnerInventoryTreeTest(Base):
         g = next(g for g in self.client.get("/api/inventory/live/").json()["groups"] if g["key"] == "dealer_wallets")
         # الوكيل 100$ − 20$ + دكانه 50$ + 20$ + المباشر 10$ = 160$ علينا
         self.assertEqual(Decimal(g["total_base"]), Decimal("-160.00"))
+
+
+class AgentReversalAbuseTest(Base):
+    """قبول ⇐ سحب ⇐ إبطال: كان يرفع محفظة الوكيل فوق حدّه بدكانٍ وهمي سالب."""
+
+    def test_reversal_refused_when_shop_cannot_cover_it(self):
+        from payments.models import PaymentMethod
+        m = PaymentMethod.objects.create(tenant=self.t, owner=self.agent, name="نقد", currency="USD")
+        self.client.force_authenticate(self.shop)
+        nid = self.client.post("/api/payments/store/deposits/create/", {"method": m.id, "amount": "40"},
+                               format="json").json()["id"]
+        self.client.force_authenticate(self.agent)
+        self.client.post(f"/api/agent/payments/notifications/{nid}/approve/", {}, format="json")
+        # يسحب ما أعطاه + رصيد الدكان الأصلي (50$ + 40$ = 90$ = 3600 ل.ت)
+        self.client.post(f"/api/agent/dealers/{self.shop.id}/wallet/", {"action": "deduct", "amount": "3600"},
+                         format="json")
+        before = Wallet.objects.get(user=self.agent).balance
+        r = self.client.post(f"/api/agent/payments/notifications/{nid}/reject/", {}, format="json")
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("لا يكفي", r.json()["detail"])
+        self.assertEqual(Wallet.objects.get(user=self.agent).balance, before)
+        self.assertEqual(Wallet.objects.get(user=self.shop).balance, Decimal("0"))

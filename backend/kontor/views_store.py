@@ -51,12 +51,12 @@ def detect_view(request):
     return Response({"gsm": gsm, "operator": op, "operator_label": label})
 
 
-def _pkg_row(user, p: KontorPackage) -> dict:
+def _pkg_row(user, p: KontorPackage, book=None) -> dict:
     return {
         "id": p.id, "link_code": p.link_code, "znet_id": p.znet_id, "name": p.name, "details": p.details,
         "days": p.days, "gb": p.gb, "minutes": p.minutes,
         "kind": p.kind,
-        "price": str(currency.to_display(user, dealer_price(user, p))),
+        "price": str(currency.to_display(user, book.price(p) if book else dealer_price(user, p))),
         "recommended_price": str(currency.to_display(user, p.recommended_price)),
     }
 
@@ -81,7 +81,9 @@ def store_packages_view(request):
     # شعار الشركة: أول شعار رفعه المالك لأيّ فئة منها — يظهر على كراتها كلّها
     op_logo = next((c.logo_url for c in cats if c.logo_url), "")
     # الباقات داخل كل كرة من الأرخص (بسعر هذا الوكيل)، وكرات العروض أوّلاً
-    price_of = {p.id: dealer_price(user, p) for p in pkgs}
+    from orders.pricebook import MobilePrices
+    book = MobilePrices(user)
+    price_of = {p.id: book.price(p) for p in pkgs}
     by_price = lambda x: (price_of[x.id], x.sort_order, x.id)  # noqa: E731
     # الكرات بترتيب المالك في «فئات الخطوط»؛ وكرة العروض تلي فئتها مباشرةً (Ses ثم Ses*)
     result = []
@@ -94,7 +96,7 @@ def store_packages_view(request):
             if rows:
                 result.append({
                     "id": key, "line_type": c.line_type, "name": name, "is_offer": key.endswith("*"),
-                    "logo_url": c.logo_url or op_logo, "packages": [_pkg_row(user, p) for p in rows],
+                    "logo_url": c.logo_url or op_logo, "packages": [_pkg_row(user, p, book) for p in rows],
                 })
     return Response({
         "operator": op, "operator_logo": op_logo,
@@ -129,6 +131,8 @@ def live_offers(user, gsm: str, op: str) -> list[dict]:
 
     catalog = {p.znet_id: p for p in KontorPackage.objects.filter(
         tenant=user.tenant, operator=op, status=KontorPackage.Status.ACTIVE)}
+    from orders.pricebook import MobilePrices
+    book = MobilePrices(user)
     rows = []
     for o in offers:
         p = catalog.get(o["znet_id"])
@@ -143,7 +147,7 @@ def live_offers(user, gsm: str, op: str) -> list[dict]:
             "days": p.days or o.get("days") or 0, "gb": p.gb or o.get("gb") or 0,
             "minutes": p.minutes or o.get("minutes") or 0,
             "is_offer": o.get("is_offer", False),
-            "price": str(currency.to_display(user, dealer_price(user, p))),
+            "price": str(currency.to_display(user, book.price(p))),
             "recommended_price": str(currency.to_display(user, p.recommended_price)),
         })
     # العروض الخاصة (الوردية) أوّلاً، وكلٌّ من المجموعتين من الأرخص

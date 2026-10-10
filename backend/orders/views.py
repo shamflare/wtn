@@ -194,19 +194,26 @@ def store_catalog_view(request):
     """كتالوج المتجر: الألعاب النشطة ومنتجاتها بسعر المشتري (سعر مجموعته)."""
     from catalog.models import Game
 
+    from django.db.models import Prefetch
+    from .pricebook import GamePrices
+
     user = request.user
+    # الباقات النشطة كلّها باستعلامٍ واحد، والأسعار كلّها من دفترٍ واحد (لا استعلامٌ لكل باقة)
     games = Game.objects.filter(
         tenant=user.tenant, status=Game.Status.ACTIVE
-    ).prefetch_related("products").order_by("sort_order")
+    ).prefetch_related(Prefetch("products", to_attr="active_products",
+                                queryset=Product.objects.filter(status=Product.Status.ACTIVE))
+                       ).order_by("sort_order")
+    book = GamePrices(user)
     result = []
     for g in games:
         products = []
-        for p in g.products.filter(status=Product.Status.ACTIVE):
+        for p in g.active_products:
             products.append({
                 "id": p.id,
                 "name": p.name,
                 # الأسعار بعملة عرض الوكيل — الدفتر يبقى بعملة الموقع
-                "price": str(currency.to_display(user, services.resolve_sell_price(user, p))),
+                "price": str(currency.to_display(user, book.price(p))),
                 # السعر الذي يقترحه صاحب المتجر للبيع لزبون الوكيل
                 "recommended_price": str(currency.to_display(user, p.recommended_price)),
                 "require_player_id": g.require_player_id,
@@ -744,19 +751,26 @@ def store_packages_view(request):
     """
     from catalog.models import Game
 
+    from django.db.models import Prefetch
+    from .pricebook import GamePrices
+
     user = request.user
     rows = []
     games = Game.objects.filter(
         tenant=user.tenant, status=Game.Status.ACTIVE
-    ).prefetch_related("products").order_by("sort_order", "name")
+    ).prefetch_related(Prefetch("products", to_attr="active_products",
+                                queryset=Product.objects.filter(status=Product.Status.ACTIVE)
+                                .order_by("sort_order", "id"))
+                       ).order_by("sort_order", "name")
+    book = GamePrices(user)
     for g in games:
-        for p in g.products.filter(status=Product.Status.ACTIVE).order_by("sort_order", "id"):
+        for p in g.active_products:
             rows.append({
                 "id": p.id,
                 "game": g.name,
                 "name": p.name,
                 # سعر شرائه هو (سعر مجموعته) وسعر التوصية — كلاهما بعملة عرضه
-                "buy_price": str(currency.to_display(user, services.resolve_sell_price(user, p))),
+                "buy_price": str(currency.to_display(user, book.price(p))),
                 "recommended_price": str(currency.to_display(user, p.recommended_price)),
                 "require_player_id": g.require_player_id,
                 "sale_type": p.sale_type, "qty_min": p.qty_min, "qty_max": p.qty_max,

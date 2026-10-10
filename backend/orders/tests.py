@@ -863,3 +863,63 @@ class ProcessingNeedsManualFirstTest(ConcurrencyGuardTest):
         self.assertEqual(r.json()["done"], 1)
         r = self.client.post("/api/orders/bulk-action/", {"orders": [o.id], "action": "reject"}, format="json")
         self.assertEqual(r.json()["done"], 1)
+
+
+class PriceBookMatchesServicesTest(APITestCase):
+    """
+    دفتر الأسعار (pricebook) يحسب ما تحسبه دوالّ الشراء حرفاً — في كل حالة:
+    وكيلٌ مباشر بمجموعة وبلاها، ودكان وكيلٍ كبير بسعرٍ يدويّ ومرتبطٍ وهامشٍ قديم وبلا شيء.
+    والشراء نفسه يبقى على الدوالّ الأصلية — فأيّ اختلافٍ هنا خطأٌ في العرض.
+    """
+
+    def test_games_and_mobile_match(self):
+        from catalog.models import AgentMargin, AgentPriceGroup, AgentProductPrice, PriceGroup, ProductPrice
+        from kontor.models import (AgentKontorPrice, KontorCategory, KontorDealerSetting, KontorPackage,
+                                   KontorPackagePrice, KontorPriceGroup)
+        from kontor.services import dealer_price, store_price as k_store
+        from orders.pricebook import GamePrices, MobilePrices
+        from orders.services import resolve_sell_price, resolve_store_price
+
+        t = Tenant.objects.create(subdomain="pb", name="متجر", base_currency="USD")
+        g = PriceGroup.objects.create(tenant=t, name="A")
+        game = Game.objects.create(tenant=t, name="G")
+        prods = [Product.objects.create(tenant=t, game=game, name=f"P{i}", cost_price=Decimal("1"),
+                                        recommended_price=Decimal("2.00") + i) for i in range(5)]
+        ProductPrice.objects.create(tenant=t, product=prods[0], price_group=g, price=Decimal("1.50"))
+        ProductPrice.objects.create(tenant=t, product=prods[1], price_group=g, price=Decimal("1.70"))
+        mk = lambda lid, role, **kw: User.objects.create(login_id=lid, name=lid, tenant=t, role=role, **kw)  # noqa: E731
+        plain = mk("pb-plain", User.Role.BAYI)
+        grouped = mk("pb-g", User.Role.BAYI, price_group=g)
+        agent = mk("pb-a", User.Role.ANA_BAYI, price_group=g)
+        ag = AgentPriceGroup.objects.create(tenant=t, agent=agent, name="x")
+        shop = mk("pb-s", User.Role.BAYI, parent=agent, agent_price_group=ag)
+        bare = mk("pb-s2", User.Role.BAYI, parent=agent)
+        AgentProductPrice.objects.create(tenant=t, group=ag, product=prods[0], price=Decimal("1.90"))
+        AgentProductPrice.objects.create(tenant=t, group=ag, product=prods[1], price=Decimal("1.00"),
+                                         margin_mode="percent", margin_value=Decimal("10"))
+        AgentProductPrice.objects.create(tenant=t, group=ag, product=prods[2], price=Decimal("0.10"))  # تحت التكلفة
+        AgentMargin.objects.create(tenant=t, agent=agent, product=prods[3], margin_percent=Decimal("7"))
+
+        cat = KontorCategory.objects.create(tenant=t, operator="Turkcell", line_type="Ses", name="S")
+        pkgs = [KontorPackage.objects.create(tenant=t, operator=op, category=cat, znet_id=f"{op}{i}",
+                                             link_code=f"{op}{i}", name="k", cost_price=Decimal("3"),
+                                             recommended_price=Decimal("4.00") + i)
+                for op in ("Turkcell", "Vodafone") for i in range(3)]
+        kg = KontorPriceGroup.objects.create(tenant=t, name="K")
+        KontorPackagePrice.objects.create(tenant=t, package=pkgs[0], group=kg, price=Decimal("3.50"))
+        for who in (grouped, agent):
+            KontorDealerSetting.objects.create(tenant=t, dealer=who, operator="Turkcell", group=kg)
+        AgentKontorPrice.objects.create(tenant=t, group=ag, package=pkgs[0], price=Decimal("3.90"))
+        AgentKontorPrice.objects.create(tenant=t, group=ag, package=pkgs[1], price=Decimal("1"),
+                                        margin_mode="fixed", margin_value=Decimal("0.5"))
+
+        from orders.services import big_agent_of
+        for user in (plain, grouped, agent, shop, bare):
+            gb, mb = GamePrices(user), MobilePrices(user)
+            payer = big_agent_of(user) or user      # ما يقبضه المتجر: من الوكيل الكبير إن وُجد (كـ create_order)
+            for p in prods:
+                self.assertEqual(gb.price(p), resolve_sell_price(user, p), (user.login_id, p.name))
+                self.assertEqual(gb.store_price(p), resolve_store_price(payer, p), (user.login_id, p.name))
+            for k in pkgs:
+                self.assertEqual(mb.price(k), dealer_price(user, k), (user.login_id, k.znet_id))
+                self.assertEqual(mb.store_price(k), k_store(payer, k), (user.login_id, k.znet_id))

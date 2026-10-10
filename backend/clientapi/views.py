@@ -135,14 +135,16 @@ def products_view(request):
         qs = qs.filter(id__in=wanted or [0])
 
     minimal = str(request.query_params.get("base") or "") in ("1", "true")
+    from orders.pricebook import GamePrices
+    book = GamePrices(user)
     rows = []
     for p in qs:
+        price = book.price(p)
         row = {
             "id": p.id,
             "name": p.name,
             # الباقة «بالكمية»: سعر الوحدة الواحدة (لغة ZDK) — ونحن نسعّر لكل qty_unit
-            "price": (_unit_money(user, services.resolve_sell_price(user, p) / p.qty_unit)
-                      if p.is_amount else _money(user, services.resolve_sell_price(user, p))),
+            "price": (_unit_money(user, price / p.qty_unit) if p.is_amount else _money(user, price)),
             "available": True,
             "category_name": p.game.name,
         }

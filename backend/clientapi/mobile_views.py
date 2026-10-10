@@ -69,9 +69,11 @@ def packages_view(request):
 
     minimal = str(request.query_params.get("base") or "") in ("1", "true")
     order = {o: i for i, o in enumerate(OPERATORS)}
+    from orders.pricebook import MobilePrices
+    book = MobilePrices(user)
     rows = []
     for p in qs:
-        price = dealer_price(user, p)
+        price = book.price(p)
         offer = p.kind == KontorPackage.Kind.OFFER
         row = {
             "id": p.link_code,

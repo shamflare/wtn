@@ -303,6 +303,8 @@ def group_prices_view(request):
         )
         return Response({"product": product.id, "price": str(currency.to_display(agent, price))})
 
+    from orders.pricebook import GamePrices
+    book = GamePrices(agent)
     priced = {p.product_id: p.price for p in group.prices.all()}
     products = (
         Product.objects.filter(tenant=agent.tenant, status=Product.Status.ACTIVE)
@@ -310,7 +312,7 @@ def group_prices_view(request):
     )
     rows = []
     for p in products:
-        cost = resolve_sell_price_for_agent(agent, p)
+        cost = book.store_price(p)
         price = priced.get(p.id)
         rows.append({
             "product": p.id, "name": p.name, "game": p.game.name,
@@ -434,9 +436,11 @@ def margins_view(request):
     agent = request.user
     margins = {m.product_id: m.margin_percent for m in AgentMargin.objects.filter(agent=agent)}
     products = Product.objects.filter(tenant=agent.tenant, status=Product.Status.ACTIVE).select_related("game").order_by("game__sort_order", "sort_order")
+    from orders.pricebook import GamePrices
+    book = GamePrices(agent)
     rows = []
     for p in products:
-        cost = resolve_sell_price_for_agent(agent, p)
+        cost = book.store_price(p)
         pct = margins.get(p.id, Decimal("0"))
         dealer_price = (cost * (Decimal("1") + pct / Decimal("100"))).quantize(Decimal("0.01"))
         rows.append({

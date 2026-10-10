@@ -31,18 +31,21 @@ def _section(request):
 
 def _items(agent, section):
     """(باقة، تكلفة الوكيل، عنوان مجموعتها، هل تُقرَّب) — بالترتيب المعروض."""
+    from orders.pricebook import GamePrices, MobilePrices
     if section == "mobile":
+        book = MobilePrices(agent)
         pkgs = (KontorPackage.objects.filter(tenant=agent.tenant, status=KontorPackage.Status.ACTIVE)
                 .select_related("category")
                 .order_by("operator", "category__sort_order", "category_id", "sort_order", "id"))
         for p in pkgs:
             head = f"{kr.OP_LABEL.get(p.operator, p.operator)} · {p.category.name if p.category else '—'}"
-            yield p, kontor_store_price(agent, p), head, True
+            yield p, book.store_price(p), head, True
         return
+    book = GamePrices(agent)
     prods = (Product.objects.filter(tenant=agent.tenant, status=Product.Status.ACTIVE)
              .select_related("game").order_by("game__sort_order", "game_id", "sort_order"))
     for p in prods:
-        yield p, resolve_store_price(agent, p), p.game.name, rounds(p, True)
+        yield p, book.store_price(p), p.game.name, rounds(p, True)
 
 
 def _rows_model(section):

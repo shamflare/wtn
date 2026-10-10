@@ -56,7 +56,7 @@ export default function Ledger() {
   return (
     <div style={{ padding: 16 }}>
       <h2 style={{ fontSize: 20, color: "var(--primary-dark)", marginBottom: 12 }}>
-        حركات الحسابات (Hesap Hareketleri)
+        حركات الحسابات
       </h2>
       <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
         {TYPES.map((t) => (

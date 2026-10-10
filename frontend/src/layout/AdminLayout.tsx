@@ -299,9 +299,12 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
               </Link>
             );
           })}
-          <span style={{ color: "#fff", fontSize: 13, marginInlineStart: 8 }}>
-            {user?.name}
-          </span>
+          {/* اسم الحساب للوكيل الكبير وحده — صاحب المتجر لا حاجة لأن يُعرَّف بنفسه في لوحته */}
+          {isAgent && (
+            <span style={{ color: "#fff", fontSize: 13, marginInlineStart: 8 }}>
+              {user?.name}
+            </span>
+          )}
           <button onClick={() => setCustomizerOpen(true)} style={logoutBtn} title="تخصيص المظهر">
             🎨 المظهر
           </button>
